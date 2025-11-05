@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teleka Taxi | Airport & City Services</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #2549eb;
+            --primary-dark: #1d26d8;
+            --secondary: #f59e0b;
+            --accent: #10b981;
+            --text: #1f2937;
+            --text-light: #6b7280;
+            --bg: #ffffff;
+            --bg-secondary: #f9fafb;
+            --bg-tertiary: #f3f4f6;
+            --border: #e5e7eb;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --transition: all 0.3s ease;
+        }
+
+        .dark-mode {
+            --primary: #3b86f6;
+            --primary-dark: #2563eb;
+            --secondary: #f59e0b;
+            --accent: #10b981;
+            --text: #f9fafb;
+            --text-light: #d1d5db;
+            --bg: #111827;
+            --bg-secondary: #1f2937;
+            --bg-tertiary: #374151;
+            --border: #4b5563;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: var(--transition);
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        ul {
+            list-style: none;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 28px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            text-align: center;
+        }
+
+        .btn:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background-color: var(--secondary);
+        }
+
+        .btn-secondary:hover {
+            background-color: #e69500;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+        }
+
+        .btn-outline:hover {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        section {
+            padding: 80px 0;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .section-title h2 {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+            color: var(--text);
+        }
+
+        .section-title p {
+            color: var(--text-light);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            background-color: var(--bg);
+            box-shadow: var(--shadow);
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+            transition: var(--transition);
+        }
+
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .logo i {
+            font-size: 1.8rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 30px;
+        }
+
+        .nav-links a {
+            font-weight: 500;
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -5px;
+            left: 0;
+            background-color: var(--primary);
+            transition: var(--transition);
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .theme-toggle:hover {
+            color: var(--primary);
+        }
+
+        .mobile-menu {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: var(--text);
+            cursor: pointer;
+        }
+
+        /* Hero Section */
+        .hero {
+            padding-top: 150px;
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg) 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 50px;
+            align-items: center;
+        }
+
+        .hero-content h1 {
+            font-size: 3.5rem;
+            line-height: 1.2;
+            margin-bottom: 20px;
+            color: var(--text);
+        }
+
+        .hero-content p {
+            font-size: 1.2rem;
+            color: var(--text-light);
+            margin-bottom: 30px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .hero-image {
+            position: relative;
+        }
+
+        .hero-image img {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 1px solid var(--border);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .stat-text {
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        /* Services */
+        .services {
+            background-color: var(--bg-secondary);
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .service-card {
+            background-color: var(--bg);
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+            text-align: center;
+        }
+
+        .service-card:hover {
+            transform: translateY(-10px);
+        }
+
+        .service-icon {
+            width: 70px;
+            height: 70px;
+            background-color: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 1.8rem;
+        }
+
+        .service-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: var(--text);
+        }
+
+        .service-card p {
+            color: var(--text-light);
+            margin-bottom: 20px;
+        }
+
+        /* Booking */
+        .booking {
+            background-color: var(--bg);
+        }
+
+        .booking-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 50px;
+            align-items: center;
+        }
+
+        .booking-form {
+            background-color: var(--bg-secondary);
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background-color: var(--bg);
+            color: var(--text);
+            transition: var(--transition);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .booking-image img {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+        }
+
+        /* Features */
+        .features {
+            background-color: var(--bg-secondary);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+        }
+
+        .feature-card {
+            background-color: var(--bg);
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            background-color: var(--accent);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 1.5rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: var(--text);
+        }
+
+        .feature-card p {
+            color: var(--text-light);
+        }
+
+        /* Testimonials */
+        .testimonials {
+            background-color: var(--bg);
+        }
+
+        .testimonials-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .testimonial-slider {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .testimonial-track {
+            display: flex;
+            transition: transform 0.5s ease;
+        }
+
+        .testimonial-slide {
+            min-width: 100%;
+            padding: 0 20px;
+        }
+
+        .testimonial-card {
+            background-color: var(--bg-secondary);
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: var(--shadow);
+        }
+
+        .testimonial-text {
+            font-style: italic;
+            margin-bottom: 20px;
+            color: var(--text);
+        }
+
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .author-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            overflow: hidden;
+        }
+
+        .author-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .author-info h4 {
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+            color: var(--text);
+        }
+
+        .author-info p {
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .slider-nav {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .slider-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--border);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .slider-dot.active {
+            background-color: var(--primary);
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--bg-tertiary);
+            padding: 60px 0 30px;
+        }
+
+        .footer-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .footer-col h3 {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            color: var(--text);
+            position: relative;
+            padding-bottom: 10px;
+        }
+
+        .footer-col h3::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 40px;
+            height: 2px;
+            background-color: var(--primary);
+        }
+
+        .footer-col ul li {
+            margin-bottom: 10px;
+        }
+
+        .footer-col ul li a {
+            color: var(--text-light);
+            transition: var(--transition);
+        }
+
+        .footer-col ul li a:hover {
+            color: var(--primary);
+            padding-left: 5px;
+        }
+
+        .social-links {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .social-links a {
+            width: 40px;
+            height: 40px;
+            background-color: var(--bg);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text);
+            transition: var(--transition);
+            box-shadow: var(--shadow);
+        }
+
+        .social-links a:hover {
+            background-color: var(--primary);
+            color: white;
+            transform: translateY(-3px);
+        }
+
+        .copyright {
+            text-align: center;
+            padding-top: 30px;
+            border-top: 1px solid var(--border);
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 992px) {
+            .hero-container, .booking-container {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-content h1 {
+                font-size: 2.8rem;
+            }
+
+            .section-title h2 {
+                font-size: 2.2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .mobile-menu {
+                display: block;
+            }
+
+            .hero-content h1 {
+                font-size: 2.3rem;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .stats {
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            section {
+                padding: 60px 0;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .hero-content h1 {
+                font-size: 2rem;
+            }
+
+            .section-title h2 {
+                font-size: 1.8rem;
+            }
+
+            .service-card, .feature-card, .testimonial-card, .booking-form {
+                padding: 20px;
+            }
+
+            .footer-container {
+                grid-template-columns: 1fr;
+            }
+        }
+        /* WhatsApp chat widget styles */
+        .whatsapp-fab {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            width: 60px;
+            height: 60px;
+            background: #25D366;
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+            cursor: pointer;
+            z-index: 2000;
+            transition: transform 0.15s ease;
+        }
+
+        .whatsapp-fab:hover { transform: translateY(-4px); }
+
+        .whatsapp-panel {
+            position: fixed;
+            right: 20px;
+            bottom: 90px;
+            width: 320px;
+            max-width: calc(100% - 40px);
+            background: var(--bg);
+            color: var(--text);
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            overflow: hidden;
+            z-index: 2000;
+            display: none;
+        }
+
+        .whatsapp-panel.open { display: block; }
+
+        .whatsapp-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            background: #075E54;
+            color: white;
+        }
+
+        .whatsapp-header .title { font-weight: 700; }
+
+        .whatsapp-body { padding: 12px 14px; }
+
+        .whatsapp-body p { margin-bottom: 8px; color: var(--text-light); font-size: 0.95rem; }
+
+        .whatsapp-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            resize: vertical;
+            min-height: 60px;
+            font-family: inherit;
+            margin-bottom: 8px;
+        }
+
+        .whatsapp-actions { display: flex; gap: 8px; }
+
+        .whatsapp-actions .btn { flex: 1; }
+
+        @media (max-width: 480px) {
+            .whatsapp-panel { right: 12px; left: 12px; width: auto; bottom: 80px; }
+            .whatsapp-fab { right: 12px; bottom: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="container header-container">
+            <a href="#" class="logo">
+                <i class="fas fa-taxi"></i>
+                <span>TelekaTaxi</span>
+            </a>
+            
+            <nav class="nav-links">
+                <a href="#home">Home</a>
+                <a href="#services">Services</a>
+                <a href="#booking">Booking</a>
+                <a href="#features">Features</a>
+                <a href="#testimonials">Testimonials</a>
+            </nav>
+            
+            <div class="header-actions">
+                <button class="theme-toggle" id="themeToggle">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button class="mobile-menu">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero" id="home">
+        <div class="container hero-container">
+            <div class="hero-content">
+                <h1>Reliable Taxi Service for Airport & City Rides</h1>
+                <p>Experience comfortable and timely rides with our professional taxi service. We ensure you reach your destination safely, whether it's the airport or anywhere in the city.</p>
+                <div class="hero-buttons">
+                    <a href="#booking" class="btn">Book a Ride</a>
+                    <a href="#services" class="btn btn-outline">Our Services</a>
+                </div>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-number">5000+</div>
+                        <div class="stat-text">Happy Customers</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">24/7</div>
+                        <div class="stat-text">Service Available</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">15 min</div>
+                        <div class="stat-text">Average Wait Time</div>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-image">
+                <img src="ims/customer.jpg" alt="Modern Taxi">
+            </div>
+        </div>
+    </section>
+
+    <!-- Services Section -->
+    <section class="services" id="services">
+        <div class="container">
+            <div class="section-title">
+                <h2>Our Services</h2>
+                <p>We offer a wide range of taxi services to meet all your transportation needs</p>
+            </div>
+            <div class="services-grid">
+                <div class="service-card">
+                    <div class="service-icon">
+                        <i class="fas fa-plane"></i>
+                    </div>
+                    <h3>Airport Transfers</h3>
+                    <p>Reliable airport pickups and drop-offs with flight tracking to ensure timely service.</p>
+                    <a href="#booking" class="btn btn-outline">Book Now</a>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <i class="fas fa-city"></i>
+                    </div>
+                    <h3>City Rides</h3>
+                    <p>Comfortable rides within the city for business meetings, shopping, or leisure.</p>
+                    <a href="#booking" class="btn btn-outline">Book Now</a>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <i class="fas fa-briefcase"></i>
+                    </div>
+                    <h3>Business Travel</h3>
+                    <p>Professional service for corporate clients with receipt generation for expenses.</p>
+                    <a href="#booking" class="btn btn-outline">Book Now</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Booking Section -->
+    <section class="booking" id="booking">
+        <div class="container booking-container">
+            <div class="booking-form">
+                <h2>Book Your Ride</h2>
+                <p>Fill out the form below to book your taxi</p>
+                <form id="bookingForm">
+                    <div class="form-group">
+                        <label for="pickup">Pickup Location</label>
+                        <input type="text" id="pickup" class="form-control" placeholder="Enter pickup address" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="destination">Destination</label>
+                        <input type="text" id="destination" class="form-control" placeholder="Enter destination" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="serviceType">Service Type</label>
+                        <select id="serviceType" class="form-control" required>
+                            <option value="">Select service</option>
+                            <option value="airport">Airport Transfer</option>
+                            <option value="city">City Ride</option>
+                            <option value="business">Business Travel</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="date">Date</label>
+                        <input type="date" id="date" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="time">Time</label>
+                        <input type="time" id="time" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn" style="width: 100%;">Book Now</button>
+                </form>
+            </div>
+            <div class="booking-image">
+                <img src="https://images.unsplash.com/photo-1502872364588-894d7d6ddfab?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" alt="Taxi Booking">
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-title">
+                <h2>Why Choose Us</h2>
+                <p>We provide the best taxi service with these outstanding features</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <h3>Punctual Service</h3>
+                    <p>We value your time and ensure timely pickups and drop-offs.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <h3>Safe & Secure</h3>
+                    <p>All our drivers are verified and vehicles are regularly maintained.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-money-bill-wave"></i>
+                    </div>
+                    <h3>Affordable Prices</h3>
+                    <p>Competitive pricing with no hidden charges for transparent billing.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-headset"></i>
+                    </div>
+                    <h3>24/7 Support</h3>
+                    <p>Round-the-clock customer support to assist you anytime.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section class="testimonials" id="testimonials">
+        <div class="container">
+            <div class="section-title">
+                <h2>What Our Customers Say</h2>
+                <p>Hear from our satisfied customers about their experience with our service</p>
+            </div>
+            <div class="testimonials-container">
+                <div class="testimonial-slider">
+                    <div class="testimonial-track" id="testimonialTrack">
+                        <div class="testimonial-slide">
+                            <div class="testimonial-card">
+                                <p class="testimonial-text">"The airport transfer service was excellent! The driver was punctual and professional. Will definitely use again for my next trip."</p>
+                                <div class="testimonial-author">
+                                    <div class="author-avatar">
+                                        <img src="https://randomuser.me/api/portraits/women/44.jpg" alt="Sarah Johnson">
+                                    </div>
+                                    <div class="author-info">
+                                        <h4>Sarah Johnson</h4>
+                                        <p>Business Traveler</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="testimonial-slide">
+                            <div class="testimonial-card">
+                                <p class="testimonial-text">"I use CityRide for my daily commute. The drivers are always friendly and the cars are clean and comfortable. Highly recommended!"</p>
+                                <div class="testimonial-author">
+                                    <div class="author-avatar">
+                                        <img src="https://randomuser.me/api/portraits/men/32.jpg" alt="Michael Brown">
+                                    </div>
+                                    <div class="author-info">
+                                        <h4>Michael Brown</h4>
+                                        <p>Regular Customer</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="testimonial-slide">
+                            <div class="testimonial-card">
+                                <p class="testimonial-text">"Booking was so easy through their website. The driver arrived exactly on time and helped with my luggage. Great service!"</p>
+                                <div class="testimonial-author">
+                                    <div class="author-avatar">
+                                        <img src="https://randomuser.me/api/portraits/women/68.jpg" alt="Emily Davis">
+                                    </div>
+                                    <div class="author-info">
+                                        <h4>Emily Davis</h4>
+                                        <p>Tourist</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="slider-nav" id="sliderNav">
+                        <div class="slider-dot active"></div>
+                        <div class="slider-dot"></div>
+                        <div class="slider-dot"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-container">
+                <div class="footer-col">
+                    <h3>Teleka Taxi</h3>
+                    <p>Your reliable partner for airport transfers and city rides. We ensure comfortable and safe journeys for all our customers.</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-facebook-f"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                        <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                    </div>
+                </div>
+                <div class="footer-col">
+                    <h3>Quick Links</h3>
+                    <ul>
+                        <li><a href="#home">Home</a></li>
+                        <li><a href="#services">Services</a></li>
+                        <li><a href="#booking">Booking</a></li>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#testimonials">Testimonials</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h3>Services</h3>
+                    <ul>
+                        <li><a href="#">Airport Transfers</a></li>
+                        <li><a href="#">City Rides</a></li>
+                        <li><a href="#">Business Travel</a></li>
+                        <li><a href="#">Corporate Accounts</a></li>
+                        <li><a href="#">Luxury Rides</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h3>Contact Us</h3>
+                    <ul>
+                        <li><i class="fas fa-map-marker-alt"></i> 123 Taxi Street, City</li>
+                        <li><i class="fas fa-phone"></i> +256 788408032</li>
+                        <li><i class="fas fa-envelope"></i> info@teleka.com</li>
+                        <li><i class="fas fa-clock"></i> 24/7 Available</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="copyright">
+                <p>&copy; 2025 Teleka Taxi. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- WhatsApp Chat Widget -->
+    <div class="whatsapp-panel" id="whatsappPanel" aria-hidden="true">
+        <div class="whatsapp-header">
+            <i class="fab fa-whatsapp" style="font-size:20px"></i>
+            <div>
+                <div class="title">Chat with Support</div>
+                <div style="font-size:12px; opacity:0.9">Typically replies within a few minutes</div>
+            </div>
+        </div>
+        <div class="whatsapp-body">
+            <p>Send us a message and our customer service provider will reply on WhatsApp.</p>
+            <textarea id="whatsappMessage" class="whatsapp-input" placeholder="Hi, I need help with my booking...">Hello, I need help with my booking.</textarea>
+            <div class="whatsapp-actions">
+                <button class="btn btn-outline" id="whatsappClose">Close</button>
+                <button class="btn" id="whatsappSend">Start Chat</button>
+            </div>
+        </div>
+    </div>
+
+    <button class="whatsapp-fab" id="whatsappFab" aria-label="Chat on WhatsApp" title="Chat on WhatsApp">
+        <i class="fab fa-whatsapp" style="font-size:24px"></i>
+    </button>
+
+    <script>
+        // Theme Toggle
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = themeToggle.querySelector('i');
+        
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            if (document.body.classList.contains('dark-mode')) {
+                themeIcon.classList.remove('fa-moon');
+                themeIcon.classList.add('fa-sun');
+            } else {
+                themeIcon.classList.remove('fa-sun');
+                themeIcon.classList.add('fa-moon');
+            }
+        });
+
+        // Testimonial Slider
+        const testimonialTrack = document.getElementById('testimonialTrack');
+        const sliderDots = document.querySelectorAll('.slider-dot');
+        let currentSlide = 0;
+
+        function showSlide(index) {
+            testimonialTrack.style.transform = `translateX(-${index * 100}%)`;
+            
+            // Update active dot
+            sliderDots.forEach(dot => dot.classList.remove('active'));
+            sliderDots[index].classList.add('active');
+            
+            currentSlide = index;
+        }
+
+        // Add click events to dots
+        sliderDots.forEach((dot, index) => {
+            dot.addEventListener('click', () => {
+                showSlide(index);
+            });
+        });
+
+        // Auto slide
+        setInterval(() => {
+            currentSlide = (currentSlide + 1) % sliderDots.length;
+            showSlide(currentSlide);
+        }, 5000);
+
+        // Mobile Menu Toggle
+        const mobileMenu = document.querySelector('.mobile-menu');
+        const navLinks = document.querySelector('.nav-links');
+
+        mobileMenu.addEventListener('click', () => {
+            navLinks.style.display = navLinks.style.display === 'flex' ? 'none' : 'flex';
+        });
+
+        // Booking Form Submission
+        const bookingForm = document.getElementById('bookingForm');
+        
+        bookingForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('Thank you for your booking! We will contact you shortly to confirm your ride.');
+            bookingForm.reset();
+        });
+
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                const targetId = this.getAttribute('href');
+                if(targetId === '#') return;
+                
+                const targetElement = document.querySelector(targetId);
+                if(targetElement) {
+                    window.scrollTo({
+                        top: targetElement.offsetTop - 100,
+                        behavior: 'smooth'
+                    });
+                    
+                    // Close mobile menu if open
+                    if(window.innerWidth <= 768) {
+                        navLinks.style.display = 'none';
+                    }
+                }
+            });
+        });
+
+        // Header scroll effect
+        window.addEventListener('scroll', () => {
+            const header = document.querySelector('header');
+            if(window.scrollY > 100) {
+                header.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+            } else {
+                header.style.boxShadow = 'var(--shadow)';
+            }
+        });
+
+        // WhatsApp widget JS
+        (function() {
+            // TODO: replace with your provider's full international number (no + or dashes), e.g. '15551234567'
+            const providerNumber = '256788408032';
+
+            const fab = document.getElementById('whatsappFab');
+            const panel = document.getElementById('whatsappPanel');
+            const closeBtn = document.getElementById('whatsappClose');
+            const sendBtn = document.getElementById('whatsappSend');
+            const messageInput = document.getElementById('whatsappMessage');
+
+            function openPanel() {
+                panel.classList.add('open');
+                panel.setAttribute('aria-hidden', 'false');
+            }
+
+            function closePanel() {
+                panel.classList.remove('open');
+                panel.setAttribute('aria-hidden', 'true');
+            }
+
+            fab.addEventListener('click', () => {
+                if (panel.classList.contains('open')) {
+                    closePanel();
+                } else {
+                    openPanel();
+                }
+            });
+
+            closeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                closePanel();
+            });
+
+            sendBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const text = (messageInput && messageInput.value) ? messageInput.value.trim() : '';
+                // Fallback message
+                const message = text || 'Hello, I need help with my booking.';
+
+                // Use wa.me short link which works on desktop/mobile
+                const waUrl = `https://wa.me/${providerNumber}?text=${encodeURIComponent(message)}`;
+
+                // Open in new tab/window
+                window.open(waUrl, '_blank');
+                // Optionally close the panel after starting chat
+                closePanel();
+            });
+
+            // Close panel when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!panel.contains(e.target) && !fab.contains(e.target)) {
+                    closePanel();
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
