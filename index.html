@@ -836,6 +836,18 @@
                 <p>Fill out the form below to book your taxi</p>
                 <form id="bookingForm">
                     <div class="form-group">
+                        <label for="name">Your Name</label>
+                        <input type="text" id="name" class="form-control" placeholder="Enter your name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <input type="email" id="email" class="form-control" placeholder="Enter your email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="whatsapp">WhatsApp Number</label>
+                        <input type="tel" id="whatsapp" class="form-control" placeholder="Enter WhatsApp number (e.g., 254712345678)" required>
+                    </div>
+                    <div class="form-group">
                         <label for="pickup">Pickup Location</label>
                         <input type="text" id="pickup" class="form-control" placeholder="Enter pickup address" required>
                     </div>
@@ -1100,10 +1112,77 @@
         // Booking Form Submission
         const bookingForm = document.getElementById('bookingForm');
         
-        bookingForm.addEventListener('submit', (e) => {
+        bookingForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            alert('Thank you for your booking! We will contact you shortly to confirm your ride.');
-            bookingForm.reset();
+            
+            // Collect form data
+            const formData = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                whatsapp: document.getElementById('whatsapp').value,
+                pickup: document.getElementById('pickup').value,
+                destination: document.getElementById('destination').value,
+                serviceType: document.getElementById('serviceType').value,
+                date: new Date().toISOString().split('T')[0],
+                time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+            };
+
+            try {
+                // Store booking data for admin form
+                localStorage.setItem('lastBooking', JSON.stringify(formData));
+                
+                const response = await fetch('/book', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.message || 'Failed to submit booking');
+                }
+
+                // Create customer WhatsApp message
+                const customerMessage = `Thank you for your booking!\n\n` +
+                    `Booking Details:\n` +
+                    `Name: ${formData.name}\n` +
+                    `Pickup: ${formData.pickup}\n` +
+                    `Destination: ${formData.destination}\n` +
+                    `Service: ${formData.serviceType}\n\n` +
+                    `We will contact you shortly to confirm your ride.`;
+
+                // Create admin WhatsApp message with form link
+                const adminMessage = `New Booking Alert!\n\n` +
+                    `Customer Details:\n` +
+                    `Name: ${formData.name}\n` +
+                    `Email: ${formData.email}\n` +
+                    `WhatsApp: ${formData.whatsapp}\n` +
+                    `Pickup: ${formData.pickup}\n` +
+                    `Destination: ${formData.destination}\n` +
+                    `Service: ${formData.serviceType}\n\n` +
+                    `Click here to view/manage booking:\n${result.adminFormUrl}\n\n` +
+                    `Booking Reference: ${result.fileUrl}`;
+
+                // Send message to customer
+                const customerWhatsappUrl = `https://wa.me/${formData.whatsapp}?text=${encodeURIComponent(customerMessage)}`;
+                window.open(customerWhatsappUrl, '_blank');
+
+                // Send message to admin with form link
+                const adminWhatsappUrl = `https://wa.me/${result.adminWhatsapp}?text=${encodeURIComponent(adminMessage)}`;
+                window.open(adminWhatsappUrl, '_blank');
+
+                // Redirect to admin form with data pre-filled
+                window.open('/admin.html', '_blank');
+
+                alert('Thank you for your booking! We will contact you shortly to confirm your ride.');
+                bookingForm.reset();
+            } catch (error) {
+                console.error('Booking error:', error);
+                alert('Sorry, there was an error submitting your booking. Please try again.');
+            }
         });
 
         // Smooth scrolling for anchor links
