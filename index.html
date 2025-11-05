@@ -431,94 +431,51 @@
             color: var(--text-light);
         }
 
-        /* Testimonials */
-        .testimonials {
+        /* Contact Section */
+        .contact {
             background-color: var(--bg);
         }
 
-        .testimonials-container {
-            max-width: 800px;
+        .contact-container {
+            max-width: 1000px;
             margin: 0 auto;
         }
 
-        .testimonial-slider {
-            position: relative;
-            overflow: hidden;
+        .contact-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            margin-top: 40px;
         }
 
-        .testimonial-track {
-            display: flex;
-            transition: transform 0.5s ease;
-        }
-
-        .testimonial-slide {
-            min-width: 100%;
-            padding: 0 20px;
-        }
-
-        .testimonial-card {
+        .contact-card {
             background-color: var(--bg-secondary);
             border-radius: 10px;
             padding: 30px;
             text-align: center;
             box-shadow: var(--shadow);
-        }
-
-        .testimonial-text {
-            font-style: italic;
-            margin-bottom: 20px;
-            color: var(--text);
-        }
-
-        .testimonial-author {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-        }
-
-        .author-avatar {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            overflow: hidden;
-        }
-
-        .author-avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .author-info h4 {
-            font-size: 1.1rem;
-            margin-bottom: 5px;
-            color: var(--text);
-        }
-
-        .author-info p {
-            color: var(--text-light);
-            font-size: 0.9rem;
-        }
-
-        .slider-nav {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            margin-top: 30px;
-        }
-
-        .slider-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background-color: var(--border);
-            cursor: pointer;
             transition: var(--transition);
         }
 
-        .slider-dot.active {
-            background-color: var(--primary);
+        .contact-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .contact-card i {
+            font-size: 2.5rem;
+            color: var(--primary);
+            margin-bottom: 20px;
+        }
+
+        .contact-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: var(--text);
+        }
+
+        .contact-card p {
+            color: var(--text-light);
+            margin-bottom: 8px;
         }
 
         /* Footer */
@@ -747,7 +704,7 @@
                 <a href="#services">Services</a>
                 <a href="#booking">Booking</a>
                 <a href="#features">Features</a>
-                <a href="#testimonials">Testimonials</a>
+                <a href="#contact">Contact</a>
             </nav>
             
             <div class="header-actions">
@@ -771,20 +728,7 @@
                     <a href="#booking" class="btn">Book a Ride</a>
                     <a href="#services" class="btn btn-outline">Our Services</a>
                 </div>
-                <div class="stats">
-                    <div class="stat-item">
-                        <div class="stat-number">5000+</div>
-                        <div class="stat-text">Happy Customers</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-number">24/7</div>
-                        <div class="stat-text">Service Available</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-number">15 min</div>
-                        <div class="stat-text">Average Wait Time</div>
-                    </div>
-                </div>
+                <!-- Removed demo stats -->
             </div>
             <div class="hero-image">
                 <img src="ims/customer.jpg" alt="Modern Taxi">
@@ -876,7 +820,7 @@
                 </form>
             </div>
             <div class="booking-image">
-                <img src="https://images.unsplash.com/photo-1502872364588-894d7d6ddfab?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" alt="Taxi Booking">
+                <img src="ims/pexels-cottonbro-4606345.jpg" alt="Taxi Booking">
             </div>
         </div>
     </section>
@@ -921,63 +865,32 @@
         </div>
     </section>
 
-    <!-- Testimonials Section -->
-    <section class="testimonials" id="testimonials">
+    <!-- Contact Section -->
+    <section class="contact" id="contact">
         <div class="container">
             <div class="section-title">
-                <h2>What Our Customers Say</h2>
-                <p>Hear from our satisfied customers about their experience with our service</p>
+                <h2>Contact Us</h2>
+                <p>Get in touch with us for your transportation needs</p>
             </div>
-            <div class="testimonials-container">
-                <div class="testimonial-slider">
-                    <div class="testimonial-track" id="testimonialTrack">
-                        <div class="testimonial-slide">
-                            <div class="testimonial-card">
-                                <p class="testimonial-text">"The airport transfer service was excellent! The driver was punctual and professional. Will definitely use again for my next trip."</p>
-                                <div class="testimonial-author">
-                                    <div class="author-avatar">
-                                        <img src="https://randomuser.me/api/portraits/women/44.jpg" alt="Sarah Johnson">
-                                    </div>
-                                    <div class="author-info">
-                                        <h4>Sarah Johnson</h4>
-                                        <p>Business Traveler</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="testimonial-slide">
-                            <div class="testimonial-card">
-                                <p class="testimonial-text">"I use CityRide for my daily commute. The drivers are always friendly and the cars are clean and comfortable. Highly recommended!"</p>
-                                <div class="testimonial-author">
-                                    <div class="author-avatar">
-                                        <img src="https://randomuser.me/api/portraits/men/32.jpg" alt="Michael Brown">
-                                    </div>
-                                    <div class="author-info">
-                                        <h4>Michael Brown</h4>
-                                        <p>Regular Customer</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="testimonial-slide">
-                            <div class="testimonial-card">
-                                <p class="testimonial-text">"Booking was so easy through their website. The driver arrived exactly on time and helped with my luggage. Great service!"</p>
-                                <div class="testimonial-author">
-                                    <div class="author-avatar">
-                                        <img src="https://randomuser.me/api/portraits/women/68.jpg" alt="Emily Davis">
-                                    </div>
-                                    <div class="author-info">
-                                        <h4>Emily Davis</h4>
-                                        <p>Tourist</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+            <div class="contact-container">
+                <div class="contact-info">
+                    <div class="contact-card">
+                        <i class="fas fa-phone"></i>
+                        <h3>Call Us</h3>
+                        <p>+256 788 408 032</p>
+                        <p>24/7 Customer Support</p>
                     </div>
-                    <div class="slider-nav" id="sliderNav">
-                        <div class="slider-dot active"></div>
-                        <div class="slider-dot"></div>
-                        <div class="slider-dot"></div>
+                    <div class="contact-card">
+                        <i class="fab fa-whatsapp"></i>
+                        <h3>WhatsApp</h3>
+                        <p>+256 788 408 032</p>
+                        <p>Quick Response on WhatsApp</p>
+                    </div>
+                    <div class="contact-card">
+                        <i class="fas fa-envelope"></i>
+                        <h3>Email</h3>
+                        <p>info@teleka.com</p>
+                        <p>For Bookings & Inquiries</p>
                     </div>
                 </div>
             </div>
@@ -1005,7 +918,7 @@
                         <li><a href="#services">Services</a></li>
                         <li><a href="#booking">Booking</a></li>
                         <li><a href="#features">Features</a></li>
-                        <li><a href="#testimonials">Testimonials</a></li>
+                        <li><a href="#contact">Contact</a></li>
                     </ul>
                 </div>
                 <div class="footer-col">
@@ -1021,10 +934,10 @@
                 <div class="footer-col">
                     <h3>Contact Us</h3>
                     <ul>
-                        <li><i class="fas fa-map-marker-alt"></i> 123 Taxi Street, City</li>
+                        <li><i class="fas fa-map-marker-alt"></i> Kampala, Uganda</li>
                         <li><i class="fas fa-phone"></i> +256 788408032</li>
                         <li><i class="fas fa-envelope"></i> info@teleka.com</li>
-                        <li><i class="fas fa-clock"></i> 24/7 Available</li>
+                        <li><i class="fas fa-clock"></i> Available 24/7</li>
                     </ul>
                 </div>
             </div>
@@ -1073,35 +986,7 @@
             }
         });
 
-        // Testimonial Slider
-        const testimonialTrack = document.getElementById('testimonialTrack');
-        const sliderDots = document.querySelectorAll('.slider-dot');
-        let currentSlide = 0;
-
-        function showSlide(index) {
-            testimonialTrack.style.transform = `translateX(-${index * 100}%)`;
-            
-            // Update active dot
-            sliderDots.forEach(dot => dot.classList.remove('active'));
-            sliderDots[index].classList.add('active');
-            
-            currentSlide = index;
-        }
-
-        // Add click events to dots
-        sliderDots.forEach((dot, index) => {
-            dot.addEventListener('click', () => {
-                showSlide(index);
-            });
-        });
-
-        // Auto slide
-        setInterval(() => {
-            currentSlide = (currentSlide + 1) % sliderDots.length;
-            showSlide(currentSlide);
-        }, 5000);
-
-        // Mobile Menu Toggle
+            // Removed testimonial slider code        // Mobile Menu Toggle
         const mobileMenu = document.querySelector('.mobile-menu');
         const navLinks = document.querySelector('.nav-links');
 
@@ -1123,61 +1008,28 @@
                 pickup: document.getElementById('pickup').value,
                 destination: document.getElementById('destination').value,
                 serviceType: document.getElementById('serviceType').value,
-                date: new Date().toISOString().split('T')[0],
-                time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+                date: document.getElementById('date').value,
+                time: document.getElementById('time').value
             };
 
             try {
-                // Store booking data for admin form
-                localStorage.setItem('lastBooking', JSON.stringify(formData));
-                
-                const response = await fetch('/book', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(formData)
-                });
-
-                const result = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(result.message || 'Failed to submit booking');
-                }
-
-                // Create customer WhatsApp message
-                const customerMessage = `Thank you for your booking!\n\n` +
-                    `Booking Details:\n` +
-                    `Name: ${formData.name}\n` +
-                    `Pickup: ${formData.pickup}\n` +
-                    `Destination: ${formData.destination}\n` +
-                    `Service: ${formData.serviceType}\n\n` +
-                    `We will contact you shortly to confirm your ride.`;
-
-                // Create admin WhatsApp message with form link
-                const adminMessage = `New Booking Alert!\n\n` +
+                // Create WhatsApp message
+                const message = `🚕 New Booking Request\n\n` +
                     `Customer Details:\n` +
-                    `Name: ${formData.name}\n` +
-                    `Email: ${formData.email}\n` +
-                    `WhatsApp: ${formData.whatsapp}\n` +
-                    `Pickup: ${formData.pickup}\n` +
-                    `Destination: ${formData.destination}\n` +
-                    `Service: ${formData.serviceType}\n\n` +
-                    `Click here to view/manage booking:\n${result.adminFormUrl}\n\n` +
-                    `Booking Reference: ${result.fileUrl}`;
+                    `👤 Name: ${formData.name}\n` +
+                    `📞 WhatsApp: ${formData.whatsapp}\n` +
+                    `📍 Pickup: ${formData.pickup}\n` +
+                    `🏁 Destination: ${formData.destination}\n` +
+                    `🚖 Service: ${formData.serviceType}\n` +
+                    `📅 Date: ${formData.date}\n` +
+                    `⏰ Time: ${formData.time}\n\n` +
+                    `Please confirm my booking. Thank you!`;
 
-                // Send message to customer
-                const customerWhatsappUrl = `https://wa.me/${formData.whatsapp}?text=${encodeURIComponent(customerMessage)}`;
-                window.open(customerWhatsappUrl, '_blank');
+                // Open WhatsApp with the booking message
+                const whatsappUrl = `https://wa.me/256788408032?text=${encodeURIComponent(message)}`;
+                window.open(whatsappUrl, '_blank');
 
-                // Send message to admin with form link
-                const adminWhatsappUrl = `https://wa.me/${result.adminWhatsapp}?text=${encodeURIComponent(adminMessage)}`;
-                window.open(adminWhatsappUrl, '_blank');
-
-                // Redirect to admin form with data pre-filled
-                window.open('/admin.html', '_blank');
-
-                alert('Thank you for your booking! We will contact you shortly to confirm your ride.');
+                alert('Thank you for your booking! We will contact you shortly via WhatsApp to confirm your ride.');
                 bookingForm.reset();
             } catch (error) {
                 console.error('Booking error:', error);
