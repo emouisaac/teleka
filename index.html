@@ -260,6 +260,51 @@
             box-shadow: var(--shadow);
         }
 
+        /* Gentle hero slideshow (uses images from ims/) */
+        .hero-slideshow {
+            width: 100%;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: var(--shadow);
+            min-height: 360px;
+        }
+
+        .hero-slideshow .slide {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .hero-slideshow .slide img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform-origin: center;
+            transition: transform 8s ease;
+            display: block;
+        }
+
+        .hero-slideshow .slide.active {
+            opacity: 1;
+            z-index: 1;
+        }
+
+        /* subtle Ken Burns effect while the slide is active */
+        .hero-slideshow .slide.active img {
+            animation: kenburns 12s ease-in-out both;
+        }
+
+        @keyframes kenburns {
+            0% { transform: scale(1) translateY(0); }
+            50% { transform: scale(1.04) translateY(-2%); }
+            100% { transform: scale(1) translateY(0); }
+        }
+
         .stats {
             display: flex;
             justify-content: space-between;
@@ -731,7 +776,12 @@
                 <!-- Removed demo stats -->
             </div>
             <div class="hero-image">
-                <img src="ims/customer.jpg" alt="Modern Taxi">
+                <div class="hero-slideshow" aria-hidden="false">
+                    <div class="slide"><img src="ims/customer.jpg" alt="Customer"></div>
+                    <div class="slide"><img src="ims/pexels-cottonbro-4606345.jpg" alt="Taxi on street"></div>
+                    <div class="slide"><img src="ims/pexels-cottonbro-4606402.jpg" alt="Car interior"></div>
+                    <div class="slide"><img src="ims/pexels-ono-kosuki-5647632.jpg" alt="Driver"></div>
+                </div>
             </div>
         </div>
     </section>
@@ -1125,6 +1175,20 @@
                     closePanel();
                 }
             });
+        })();
+
+        // Hero slideshow initializer: gentle crossfade + Ken Burns
+        (function() {
+            const slides = document.querySelectorAll('.hero-slideshow .slide');
+            if (!slides || slides.length === 0) return;
+            let idx = 0;
+            slides[idx].classList.add('active');
+
+            setInterval(() => {
+                slides[idx].classList.remove('active');
+                idx = (idx + 1) % slides.length;
+                slides[idx].classList.add('active');
+            }, 5000); // change every 5s
         })();
     </script>
 </body>
