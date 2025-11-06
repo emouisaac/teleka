@@ -425,22 +425,54 @@
 
             .price-display {
                 background-color: var(--bg-secondary);
-                padding: 12px 15px;
+                padding: 16px;
                 border-radius: 8px;
                 border: 1px solid var(--border);
                 color: var(--text);
                 font-weight: 500;
-                text-align: center;
             }
 
             .price-display.loading {
                 opacity: 0.7;
             }
 
-            .price-display.has-price {
-                background-color: var(--accent);
-                color: white;
-                border-color: var(--accent);
+            .price-info {
+                display: grid;
+                gap: 8px;
+            }
+
+            .price-amount {
+                font-size: 1.5rem;
+                font-weight: 600;
+                color: var(--accent);
+            }
+
+            .trip-details {
+                display: flex;
+                justify-content: space-between;
+                font-size: 0.9rem;
+                color: var(--text-light);
+                margin-top: 8px;
+                padding-top: 8px;
+                border-top: 1px solid var(--border);
+            }
+
+            .traffic-level {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .traffic-level[data-level="High"] {
+                color: #ef4444;
+            }
+
+            .traffic-level[data-level="Medium"] {
+                color: #f59e0b;
+            }
+
+            .traffic-level[data-level="Low"] {
+                color: #10b981;
             }
 
         .booking-image img {
@@ -755,33 +787,45 @@
         }
 
         /* Google Places Autocomplete styles */
-        .pac-container {
-            background-color: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            margin-top: 5px;
-            font-family: inherit;
-            z-index: 2000;
+        /* Loading animation and reusable classes */
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
 
-        .pac-item {
-            padding: 8px 12px;
-            color: var(--text);
-            cursor: pointer;
-            transition: var(--transition);
+        .loading {
+            position: relative;
+            overflow: hidden;
         }
 
-        .pac-item:hover {
-            background-color: var(--bg-secondary);
+        .loading::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, var(--bg), var(--bg-tertiary), var(--bg));
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite linear;
         }
 
-        .pac-item-selected {
-            background-color: var(--bg-secondary);
+        .has-price {
+            color: var(--accent);
+            font-weight: 600;
+        }
+         
+
+        @keyframes loading-bar {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
         }
 
-        .pac-icon {
-            display: none;
+        /* Recent searches indicator */
+        .pac-item.recent {
+            background-color: var(--bg-tertiary);
+        }
+        .pac-item.recent::before {
+            content: '↻';
+            margin-right: 8px;
+            color: var(--text-light);
         }
 
         .pac-item-query {
@@ -1086,7 +1130,64 @@
         <i class="fab fa-whatsapp" style="font-size:24px"></i>
     </button>
 
+    <!-- Load our CSS and JS files -->
+    <link rel="stylesheet" href="css/places-autocomplete.css">
+    <script src="js/places-autocomplete.js"></script>
+
     <script>
+        // Cache utils for places
+        const PlacesCache = {
+            KEY: 'teleka_recent_places',
+            MAX_ITEMS: 5,
+            DURATION: 7 * 24 * 60 * 60 * 1000, // 7 days
+
+            load() {
+                try {
+                    const cached = localStorage.getItem(this.KEY);
+                    if (!cached) return [];
+                    const { items, timestamp } = JSON.parse(cached);
+                    if (Date.now() - timestamp > this.DURATION) {
+                        localStorage.removeItem(this.KEY);
+                        return [];
+                    }
+                    return items;
+                } catch (e) {
+                    console.warn('Error loading recent places:', e);
+                    return [];
+                }
+            },
+
+            save(place) {
+                try {
+                    const recent = this.load();
+                    const newPlace = {
+                        id: place.place_id || place.description,
+                        description: place.description || place.formatted_address || place.name,
+                        main_text: place.structured_formatting?.main_text || place.name,
+                        secondary_text: place.structured_formatting?.secondary_text || '',
+                        timestamp: Date.now()
+                    };
+
+                    const updated = [newPlace, ...recent.filter(p => p.id !== newPlace.id)]
+                        .slice(0, this.MAX_ITEMS);
+
+                    localStorage.setItem(this.KEY, JSON.stringify({
+                        items: updated,
+                        timestamp: Date.now()
+                    }));
+                } catch (e) {
+                    console.warn('Error saving recent place:', e);
+                }
+            },
+
+            filter(query) {
+                return this.load().filter(place => 
+                    place.description.toLowerCase().includes(query.toLowerCase()) ||
+                    place.main_text.toLowerCase().includes(query.toLowerCase())
+                );
+            }
+        };
+
         // Theme Toggle
         const themeToggle = document.getElementById('themeToggle');
         const themeIcon = themeToggle.querySelector('i');
@@ -1258,173 +1359,44 @@
             }, 5000); // change every 5s
         })();
 
-        // Custom Places Autocomplete Implementation
-        (function() {
-            const pickupInput = document.getElementById('pickup');
-            const destinationInput = document.getElementById('destination');
-            let sessionToken = crypto.randomUUID(); // Generate a session token
+        // Initialize components
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize places autocomplete
+            PlacesAutocomplete.init('pickup', 'destination');
+
+            // Price calculation function (kept here for reference)
+            async function calculatePrice(origin, destination) {
+                const priceDisplay = document.getElementById('priceDisplay');
             
-            // Create suggestion dropdown
-            function createDropdown(input) {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'pac-container';
-                wrapper.style.display = 'none';
-                wrapper.style.width = input.offsetWidth + 'px';
-                input.parentNode.style.position = 'relative';
-                input.parentNode.appendChild(wrapper);
-                return wrapper;
-            }
-
-            // Setup autocomplete for an input
-            function setupAutocomplete(input) {
-                const dropdown = createDropdown(input);
-                let selectedIndex = -1;
-                let suggestions = [];
-                let debounceTimeout;
-
-                async function fetchSuggestions(query) {
-                    try {
-                        const response = await fetch(`/api/places/autocomplete?input=${encodeURIComponent(query)}&sessiontoken=${sessionToken}`);
-                        const data = await response.json();
-                        return data.predictions || [];
-                    } catch (error) {
-                        console.error('Error fetching suggestions:', error);
-                        return [];
-                    }
-                }
-
-                async function fetchPlaceDetails(placeId) {
-                    try {
-                        const response = await fetch(`/api/places/details?place_id=${placeId}&sessiontoken=${sessionToken}`);
-                        const data = await response.json();
-                        return data.result;
-                    } catch (error) {
-                        console.error('Error fetching place details:', error);
-                        return null;
-                    }
-                }
-
-                function showSuggestions(items) {
-                    suggestions = items;
-                    if (items.length === 0) {
-                        dropdown.style.display = 'none';
-                        return;
-                    }
-
-                    dropdown.innerHTML = items.map((item, index) => `
-                        <div class="pac-item" data-index="${index}">
-                            <span class="pac-item-query">${item.structured_formatting.main_text}</span>
-                            <span>${item.structured_formatting.secondary_text || ''}</span>
-                        </div>
-                    `).join('');
-
-                    dropdown.style.display = 'block';
-                    selectedIndex = -1;
-                }
-
-                async function handleInput() {
-                    const query = input.value.trim();
-                    if (query.length < 3) {
-                        dropdown.style.display = 'none';
-                        return;
-                    }
-
-                    clearTimeout(debounceTimeout);
-                    debounceTimeout = setTimeout(async () => {
-                        const items = await fetchSuggestions(query);
-                        showSuggestions(items);
-                    }, 300);
-                }
-
-                async function handleSelection(index) {
-                    if (!suggestions[index]) return;
-                    
-                    const place = await fetchPlaceDetails(suggestions[index].place_id);
-                    if (place) {
-                        input.value = place.formatted_address || place.name;
-                        sessionToken = crypto.randomUUID(); // Generate new token after selection
-                            // Calculate price if both locations are selected
-                            const pickup = document.getElementById('pickup').value;
-                            const destination = document.getElementById('destination').value;
-                            if (pickup && destination) {
-                                calculatePrice(pickup, destination);
-                            }
-                    }
-                    dropdown.style.display = 'none';
-                }
-
-                input.addEventListener('input', handleInput);
-                input.addEventListener('keydown', (e) => {
-                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        const delta = e.key === 'ArrowDown' ? 1 : -1;
-                        selectedIndex = Math.max(-1, Math.min(suggestions.length - 1, selectedIndex + delta));
-                        const items = dropdown.querySelectorAll('.pac-item');
-                        items.forEach((item, i) => {
-                            item.classList.toggle('pac-item-selected', i === selectedIndex);
-                        });
-                    } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (selectedIndex >= 0) {
-                            handleSelection(selectedIndex);
-                        }
-                    } else if (e.key === 'Escape') {
-                        dropdown.style.display = 'none';
-                    }
-                });
-
-                dropdown.addEventListener('click', (e) => {
-                    const item = e.target.closest('.pac-item');
-                    if (item) {
-                        handleSelection(parseInt(item.dataset.index));
-                    }
-                });
-
-                // Hide dropdown when clicking outside
-                document.addEventListener('click', (e) => {
-                    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
-                        dropdown.style.display = 'none';
-                    }
-                });
-            }
-
-            // Initialize autocomplete for both inputs
-            setupAutocomplete(pickupInput);
-            setupAutocomplete(destinationInput);
-            
-                // Price calculation function
-                async function calculatePrice(origin, destination) {
-                    const priceDisplay = document.getElementById('priceDisplay');
+                try {
+                    priceDisplay.textContent = 'Calculating price...';
+                    priceDisplay.classList.add('loading');
+                    priceDisplay.classList.remove('has-price');
                 
-                    try {
-                        priceDisplay.textContent = 'Calculating price...';
-                        priceDisplay.classList.add('loading');
-                        priceDisplay.classList.remove('has-price');
-                    
-                        const response = await fetch(`/api/calculate-price?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
-                        const data = await response.json();
-                    
-                        if (data.error) {
-                            throw new Error(data.error);
-                        }
-                    
-                        const formattedPrice = new Intl.NumberFormat('en-UG', {
-                            style: 'currency',
-                            currency: 'UGX',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                        }).format(data.price);
-                    
-                        priceDisplay.textContent = `${formattedPrice}`;
-                        priceDisplay.classList.add('has-price');
-                    } catch (error) {
-                        console.error('Error calculating price:', error);
-                        priceDisplay.textContent = 'Could not calculate price. Please try again.';
-                    } finally {
-                        priceDisplay.classList.remove('loading');
+                    const response = await fetch(`/api/calculate-price?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
+                    const data = await response.json();
+                
+                    if (data.error) {
+                        throw new Error(data.error);
                     }
+                
+                    const formattedPrice = new Intl.NumberFormat('en-UG', {
+                        style: 'currency',
+                        currency: 'UGX',
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0
+                    }).format(data.price);
+                
+                    priceDisplay.textContent = `${formattedPrice}`;
+                    priceDisplay.classList.add('has-price');
+                } catch (error) {
+                    console.error('Error calculating price:', error);
+                    priceDisplay.textContent = 'Could not calculate price. Please try again.';
+                } finally {
+                    priceDisplay.classList.remove('loading');
                 }
-        })();
+            }
+        });
     </script>
 </body>
 </html>
