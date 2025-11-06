@@ -423,6 +423,26 @@
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
 
+            .price-display {
+                background-color: var(--bg-secondary);
+                padding: 12px 15px;
+                border-radius: 8px;
+                border: 1px solid var(--border);
+                color: var(--text);
+                font-weight: 500;
+                text-align: center;
+            }
+
+            .price-display.loading {
+                opacity: 0.7;
+            }
+
+            .price-display.has-price {
+                background-color: var(--accent);
+                color: white;
+                border-color: var(--accent);
+            }
+
         .booking-image img {
             width: 100%;
             border-radius: 10px;
@@ -733,6 +753,46 @@
             .whatsapp-panel { right: 12px; left: 12px; width: auto; bottom: 80px; }
             .whatsapp-fab { right: 12px; bottom: 12px; }
         }
+
+        /* Google Places Autocomplete styles */
+        .pac-container {
+            background-color: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            margin-top: 5px;
+            font-family: inherit;
+            z-index: 2000;
+        }
+
+        .pac-item {
+            padding: 8px 12px;
+            color: var(--text);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .pac-item:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .pac-item-selected {
+            background-color: var(--bg-secondary);
+        }
+
+        .pac-icon {
+            display: none;
+        }
+
+        .pac-item-query {
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        .pac-matched {
+            color: var(--primary);
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -849,6 +909,12 @@
                         <label for="destination">Destination</label>
                         <input type="text" id="destination" class="form-control" placeholder="Enter destination" required>
                     </div>
+                        <div class="form-group">
+                            <label>Estimated Price</label>
+                            <div class="price-display" id="priceDisplay">
+                                Select pickup and destination locations to see the price
+                            </div>
+                        </div>
                     <div class="form-group">
                         <label for="serviceType">Service Type</label>
                         <select id="serviceType" class="form-control" required>
@@ -1071,6 +1137,7 @@
                     `📍 Pickup: ${formData.pickup}\n` +
                     `🏁 Destination: ${formData.destination}\n` +
                     `🚖 Service: ${formData.serviceType}\n` +
+                        `💰 Estimated Price: ${document.getElementById('priceDisplay').textContent}\n` +
                     `📅 Date: ${formData.date}\n` +
                     `⏰ Time: ${formData.time}\n\n` +
                     `Please confirm my booking. Thank you!`;
@@ -1189,6 +1256,174 @@
                 idx = (idx + 1) % slides.length;
                 slides[idx].classList.add('active');
             }, 5000); // change every 5s
+        })();
+
+        // Custom Places Autocomplete Implementation
+        (function() {
+            const pickupInput = document.getElementById('pickup');
+            const destinationInput = document.getElementById('destination');
+            let sessionToken = crypto.randomUUID(); // Generate a session token
+            
+            // Create suggestion dropdown
+            function createDropdown(input) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'pac-container';
+                wrapper.style.display = 'none';
+                wrapper.style.width = input.offsetWidth + 'px';
+                input.parentNode.style.position = 'relative';
+                input.parentNode.appendChild(wrapper);
+                return wrapper;
+            }
+
+            // Setup autocomplete for an input
+            function setupAutocomplete(input) {
+                const dropdown = createDropdown(input);
+                let selectedIndex = -1;
+                let suggestions = [];
+                let debounceTimeout;
+
+                async function fetchSuggestions(query) {
+                    try {
+                        const response = await fetch(`/api/places/autocomplete?input=${encodeURIComponent(query)}&sessiontoken=${sessionToken}`);
+                        const data = await response.json();
+                        return data.predictions || [];
+                    } catch (error) {
+                        console.error('Error fetching suggestions:', error);
+                        return [];
+                    }
+                }
+
+                async function fetchPlaceDetails(placeId) {
+                    try {
+                        const response = await fetch(`/api/places/details?place_id=${placeId}&sessiontoken=${sessionToken}`);
+                        const data = await response.json();
+                        return data.result;
+                    } catch (error) {
+                        console.error('Error fetching place details:', error);
+                        return null;
+                    }
+                }
+
+                function showSuggestions(items) {
+                    suggestions = items;
+                    if (items.length === 0) {
+                        dropdown.style.display = 'none';
+                        return;
+                    }
+
+                    dropdown.innerHTML = items.map((item, index) => `
+                        <div class="pac-item" data-index="${index}">
+                            <span class="pac-item-query">${item.structured_formatting.main_text}</span>
+                            <span>${item.structured_formatting.secondary_text || ''}</span>
+                        </div>
+                    `).join('');
+
+                    dropdown.style.display = 'block';
+                    selectedIndex = -1;
+                }
+
+                async function handleInput() {
+                    const query = input.value.trim();
+                    if (query.length < 3) {
+                        dropdown.style.display = 'none';
+                        return;
+                    }
+
+                    clearTimeout(debounceTimeout);
+                    debounceTimeout = setTimeout(async () => {
+                        const items = await fetchSuggestions(query);
+                        showSuggestions(items);
+                    }, 300);
+                }
+
+                async function handleSelection(index) {
+                    if (!suggestions[index]) return;
+                    
+                    const place = await fetchPlaceDetails(suggestions[index].place_id);
+                    if (place) {
+                        input.value = place.formatted_address || place.name;
+                        sessionToken = crypto.randomUUID(); // Generate new token after selection
+                            // Calculate price if both locations are selected
+                            const pickup = document.getElementById('pickup').value;
+                            const destination = document.getElementById('destination').value;
+                            if (pickup && destination) {
+                                calculatePrice(pickup, destination);
+                            }
+                    }
+                    dropdown.style.display = 'none';
+                }
+
+                input.addEventListener('input', handleInput);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        const delta = e.key === 'ArrowDown' ? 1 : -1;
+                        selectedIndex = Math.max(-1, Math.min(suggestions.length - 1, selectedIndex + delta));
+                        const items = dropdown.querySelectorAll('.pac-item');
+                        items.forEach((item, i) => {
+                            item.classList.toggle('pac-item-selected', i === selectedIndex);
+                        });
+                    } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (selectedIndex >= 0) {
+                            handleSelection(selectedIndex);
+                        }
+                    } else if (e.key === 'Escape') {
+                        dropdown.style.display = 'none';
+                    }
+                });
+
+                dropdown.addEventListener('click', (e) => {
+                    const item = e.target.closest('.pac-item');
+                    if (item) {
+                        handleSelection(parseInt(item.dataset.index));
+                    }
+                });
+
+                // Hide dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                        dropdown.style.display = 'none';
+                    }
+                });
+            }
+
+            // Initialize autocomplete for both inputs
+            setupAutocomplete(pickupInput);
+            setupAutocomplete(destinationInput);
+            
+                // Price calculation function
+                async function calculatePrice(origin, destination) {
+                    const priceDisplay = document.getElementById('priceDisplay');
+                
+                    try {
+                        priceDisplay.textContent = 'Calculating price...';
+                        priceDisplay.classList.add('loading');
+                        priceDisplay.classList.remove('has-price');
+                    
+                        const response = await fetch(`/api/calculate-price?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`);
+                        const data = await response.json();
+                    
+                        if (data.error) {
+                            throw new Error(data.error);
+                        }
+                    
+                        const formattedPrice = new Intl.NumberFormat('en-UG', {
+                            style: 'currency',
+                            currency: 'UGX',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                        }).format(data.price);
+                    
+                        priceDisplay.textContent = `${formattedPrice}`;
+                        priceDisplay.classList.add('has-price');
+                    } catch (error) {
+                        console.error('Error calculating price:', error);
+                        priceDisplay.textContent = 'Could not calculate price. Please try again.';
+                    } finally {
+                        priceDisplay.classList.remove('loading');
+                    }
+                }
         })();
     </script>
 </body>
