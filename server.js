@@ -143,7 +143,7 @@ app.get('/api/places/details', async (req, res) => {
         place_id,
         key: process.env.GOOGLE_MAPS_API_KEY,
         sessiontoken,
-        fields: 'formatted_address,geometry,name,place_id,types'
+        fields: 'formatted_address,geometry,name,place_id,types,vicinity,rating'
       }
     });
 

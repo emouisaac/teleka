@@ -4,6 +4,23 @@ window.PlacesAutocomplete = window.PlacesAutocomplete || {
         'gas_station', 'hospital', 'restaurant', 'bank', 'supermarket',
         'tourist_attraction', 'point_of_interest'
     ],
+    
+    formatPlace(place) {
+        return {
+            place_id: place.place_id || place.id || place.placeId || null,
+            description: place.formatted_address || 
+                (place.name && place.vicinity ? `${place.name}, ${place.vicinity}` : 
+                place.description || place.name || ''),
+            structured_formatting: { 
+                main_text: place.name || place.structured_formatting?.main_text || '', 
+                secondary_text: place.vicinity || place.structured_formatting?.secondary_text || '',
+                full_text: place.formatted_address || 
+                    (place.name && place.vicinity ? `${place.name}, ${place.vicinity}` : 
+                    place.description || place.name || '')
+            },
+            types: place.types || []
+        };
+    },
 
     init(pickupId, destinationId) {
         const pickupInput = document.getElementById(pickupId);
@@ -296,6 +313,17 @@ const PlacesAutocomplete = {
         'gas_station', 'hospital', 'restaurant', 'bank', 'supermarket',
         'tourist_attraction', 'point_of_interest'
     ],
+    
+    formatPlaceDetails(place) {
+        const name = place.name || '';
+        const vicinity = place.vicinity || '';
+        return {
+            name,
+            vicinity,
+            displayName: name + (vicinity ? ', ' + vicinity : ''),
+            fullAddress: place.formatted_address || (name + (vicinity ? ', ' + vicinity : ''))
+        };
+    },
 
     init(pickupId, destinationId) {
         const pickupInput = document.getElementById(pickupId);
