@@ -669,9 +669,69 @@
         }
 
         @media (max-width: 768px) {
+            /* Mobile sliding nav: keep the links off-canvas and slide them in from the right */
             .nav-links {
-                display: none;
+                position: fixed;
+                top: 0;
+                right: 0;
+                height: 100vh;
+                width: 280px;
+                max-width: calc(100% - 60px);
+                background: var(--bg);
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                padding: 100px 18px 20px 18px; /* leave space for header */
+                gap: 12px;
+                box-shadow: -6px 0 20px rgba(0,0,0,0.12);
+                transform: translateX(110%); /* off-screen */
+                transition: transform 0.35s ease;
+                z-index: 1600;
             }
+
+            .nav-links a {
+                padding: 12px 8px;
+                font-size: 1.05rem;
+                border-bottom: 1px solid var(--border);
+                color: var(--text);
+                pointer-events: auto;
+            }
+
+            .nav-links.open {
+                transform: translateX(0); /* slide in */
+            }
+
+            /* translucent backdrop when menu is open */
+            .nav-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.38);
+                z-index: 1500;
+                opacity: 0;
+                transition: opacity 0.25s ease;
+                pointer-events: none;
+            }
+
+            .nav-overlay.active { display: block; opacity: 1; }
+
+            /* close button inside mobile nav */
+            .nav-close {
+                position: absolute;
+                top: 18px;
+                right: 18px;
+                background: none;
+                border: none;
+                font-size: 1.4rem;
+                color: var(--text);
+                cursor: pointer;
+                padding: 8px;
+            }
+
+            .nav-close:focus { outline: 2px solid var(--primary); border-radius: 6px; }
+
+            /* Prevent body scroll when nav is open */
+            .no-scroll { overflow: hidden; }
 
             .mobile-menu {
                 display: block;
@@ -848,7 +908,8 @@
                 <span>TelekaTaxi</span>
             </a>
             
-            <nav class="nav-links">
+            <nav class="nav-links" aria-label="Primary navigation">
+                <button class="nav-close" aria-label="Close menu"><i class="fas fa-times"></i></button>
                 <a href="#home">Home</a>
                 <a href="#services">Services</a>
                 <a href="#booking">Booking</a>
@@ -866,6 +927,7 @@
             </div>
         </div>
     </header>
+    <div id="navOverlay" class="nav-overlay" aria-hidden="true"></div>
 
     <!-- Hero Section -->
     <section class="hero" id="home">
@@ -1191,7 +1253,7 @@
         // Theme Toggle
         const themeToggle = document.getElementById('themeToggle');
         const themeIcon = themeToggle.querySelector('i');
-        
+
         themeToggle.addEventListener('click', () => {
             document.body.classList.toggle('dark-mode');
             if (document.body.classList.contains('dark-mode')) {
@@ -1203,13 +1265,62 @@
             }
         });
 
-            // Removed testimonial slider code        // Mobile Menu Toggle
+            // Removed testimonial slider code
+        // Mobile Menu Toggle (slide-in panel)
         const mobileMenu = document.querySelector('.mobile-menu');
         const navLinks = document.querySelector('.nav-links');
+        const navOverlay = document.getElementById('navOverlay');
 
-        mobileMenu.addEventListener('click', () => {
-            navLinks.style.display = navLinks.style.display === 'flex' ? 'none' : 'flex';
-        });
+        // initialize accessibility attributes
+        if (mobileMenu) mobileMenu.setAttribute('aria-expanded', 'false');
+        if (navLinks) navLinks.setAttribute('aria-hidden', 'true');
+
+        function closeMobileNav() {
+            if (navLinks) navLinks.classList.remove('open');
+            if (navOverlay) navOverlay.classList.remove('active');
+            if (mobileMenu) mobileMenu.setAttribute('aria-expanded', 'false');
+            if (navLinks) navLinks.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('no-scroll');
+        }
+
+        function openMobileNav() {
+            if (navLinks) navLinks.classList.add('open');
+            if (navOverlay) navOverlay.classList.add('active');
+            if (mobileMenu) mobileMenu.setAttribute('aria-expanded', 'true');
+            if (navLinks) navLinks.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('no-scroll');
+        }
+
+        if (mobileMenu) {
+            // Hamburger only opens the mobile nav; closing is handled by the X button only
+            mobileMenu.addEventListener('click', () => {
+                openMobileNav();
+            });
+        }
+
+        // NOTE: backdrop will NOT close the nav; closing is only via the X button
+
+        // close button inside nav
+        const navClose = document.querySelector('.nav-close');
+        if (navClose) {
+            navClose.addEventListener('click', () => closeMobileNav());
+        }
+
+        // Auto-close mobile nav when a nav link inside the panel is clicked
+        // This only runs if the panel is currently open so desktop behavior is unaffected.
+        if (navLinks) {
+            const navAnchors = navLinks.querySelectorAll('a[href^="#"]');
+            navAnchors.forEach(anchor => {
+                anchor.addEventListener('click', (e) => {
+                    // If panel is open, close it after a short delay so smooth-scroll can begin
+                    if (navLinks.classList.contains('open')) {
+                        setTimeout(() => {
+                            try { closeMobileNav(); } catch (err) { /* ignore */ }
+                        }, 150);
+                    }
+                });
+            });
+        }
 
         // Booking Form Submission
         const bookingForm = document.getElementById('bookingForm');
@@ -1270,10 +1381,7 @@
                         behavior: 'smooth'
                     });
                     
-                    // Close mobile menu if open
-                    if(window.innerWidth <= 768) {
-                        navLinks.style.display = 'none';
-                    }
+                    // Do not automatically close mobile nav when a link is clicked; user must use the X button
                 }
             });
         });

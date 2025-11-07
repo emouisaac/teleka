@@ -28,10 +28,15 @@ window.PlacesAutocomplete = window.PlacesAutocomplete || {
             try {
                 const nearby = await this.fetchNearbyPlaces(sessionToken);
                 suggestions = nearby;
-                this.showSuggestions(dropdown, suggestions, index => this.handleSelection(input, suggestions[index], () => {
-                    sessionToken = this.getSessionToken();
-                    this.calculatePriceIfReady();
-                }));
+                this.showSuggestions(dropdown, suggestions, index => {
+                    this.handleSelection(input, suggestions[index], () => {
+                        sessionToken = this.getSessionToken();
+                        this.calculatePriceIfReady();
+                    });
+                    // Hide remaining suggestions to keep UI smooth and concise
+                    this.hideDropdown(dropdown);
+                    try { input.blur(); } catch (e) { /* ignore */ }
+                });
             } finally {
                 loadingBar.style.display = 'none';
             }
@@ -50,10 +55,15 @@ window.PlacesAutocomplete = window.PlacesAutocomplete || {
                 loadingBar.style.display = 'block';
                 try {
                     suggestions = await this.fetchSuggestions(query, sessionToken);
-                    this.showSuggestions(dropdown, suggestions, index => this.handleSelection(input, suggestions[index], () => {
-                        sessionToken = this.getSessionToken();
-                        this.calculatePriceIfReady();
-                    }));
+                    this.showSuggestions(dropdown, suggestions, index => {
+                        this.handleSelection(input, suggestions[index], () => {
+                            sessionToken = this.getSessionToken();
+                            this.calculatePriceIfReady();
+                        });
+                        // Hide remaining suggestions to keep UI smooth and concise
+                        this.hideDropdown(dropdown);
+                        try { input.blur(); } catch (e) { /* ignore */ }
+                    });
                 } finally {
                     loadingBar.style.display = 'none';
                 }
@@ -310,10 +320,15 @@ const PlacesAutocomplete = {
             try {
                 const nearby = await this.fetchNearbyPlaces(sessionToken);
                 suggestions = nearby;
-                this.showSuggestions(dropdown, suggestions, index => this.handleSelection(input, suggestions[index], () => {
-                    sessionToken = this.getSessionToken();
-                    this.calculatePriceIfReady();
-                }));
+                this.showSuggestions(dropdown, suggestions, index => {
+                    this.handleSelection(input, suggestions[index], () => {
+                        sessionToken = this.getSessionToken();
+                        this.calculatePriceIfReady();
+                    });
+                    // Hide remaining suggestions to keep UI smooth and concise
+                    this.hideDropdown(dropdown);
+                    try { input.blur(); } catch (e) { /* ignore */ }
+                });
             } finally {
                 loadingBar.style.display = 'none';
             }
@@ -332,10 +347,15 @@ const PlacesAutocomplete = {
                 loadingBar.style.display = 'block';
                 try {
                     suggestions = await this.fetchSuggestions(query, sessionToken);
-                    this.showSuggestions(dropdown, suggestions, index => this.handleSelection(input, suggestions[index], () => {
-                        sessionToken = this.getSessionToken();
-                        this.calculatePriceIfReady();
-                    }));
+                    this.showSuggestions(dropdown, suggestions, index => {
+                        this.handleSelection(input, suggestions[index], () => {
+                            sessionToken = this.getSessionToken();
+                            this.calculatePriceIfReady();
+                        });
+                        // Hide remaining suggestions to keep UI smooth and concise
+                        this.hideDropdown(dropdown);
+                        try { input.blur(); } catch (e) { /* ignore */ }
+                    });
                 } finally {
                     loadingBar.style.display = 'none';
                 }
