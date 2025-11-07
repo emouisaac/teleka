@@ -19,12 +19,13 @@ app.get('/', (req, res) => {
 });
 
 // Price calculation constants
-const PRICE_PER_KM = 2000; // Base rate of 2000 UGX per kilometer
-const MIN_FARE = 10000;    // Minimum fare of 10,000 UGX
+// Tuned so that a 65 km trip computes to approximately UGX 180,000
+const PRICE_PER_KM = 2600; // UGX per kilometer
+const MIN_FARE = 12000;    // Minimum fare of 12,000 UGX
 const TRAFFIC_MULTIPLIER = {
   LOW: 1.0,
-  MEDIUM: 1.2,
-  HIGH: 1.5
+  MEDIUM: 1.15,
+  HIGH: 1.3
 };
 
 // Calculate price endpoint
@@ -72,10 +73,14 @@ app.get('/api/calculate-price', async (req, res) => {
       }
     }
 
-    // Calculate base price
+    // Calculate base price (per-km rate tuned to match expected fares)
+    const raw = distanceKm * PRICE_PER_KM * trafficMultiplier;
+    // Log detailed values for debugging pricing discrepancies
+    console.log('[price-calc] origin=%s destination=%s distance_m=%d distance_km=%.3f PRICE_PER_KM=%d trafficMultiplier=%.2f raw=%.2f',
+      origin, destination, result.distance.value, distanceKm, PRICE_PER_KM, trafficMultiplier, raw);
     let price = Math.max(
       MIN_FARE,
-      Math.round((distanceKm * PRICE_PER_KM * trafficMultiplier) / 1000) * 1000
+      Math.round(raw / 1000) * 1000
     );
 
     // Add peak hour surcharge (7-9 AM and 5-7 PM on weekdays)
@@ -184,6 +189,22 @@ app.get('/api/places/nearby', async (req, res) => {
   } catch (error) {
     console.error('Places API Error:', error.response?.data || error.message);
     res.status(500).json({ error: 'Failed to fetch nearby places' });
+  }
+});
+
+// Quick test endpoint: compute price from a given distance (km) and optional traffic level
+app.get('/api/price-from-distance', (req, res) => {
+  try {
+    const km = parseFloat(req.query.km);
+    const traffic = (req.query.traffic || 'low').toLowerCase();
+    if (isNaN(km) || km <= 0) return res.status(400).json({ error: 'Provide km as a positive number, e.g. ?km=65.4' });
+
+    const trafficMultiplier = traffic === 'high' ? TRAFFIC_MULTIPLIER.HIGH : (traffic === 'medium' ? TRAFFIC_MULTIPLIER.MEDIUM : TRAFFIC_MULTIPLIER.LOW);
+    const raw = km * PRICE_PER_KM * trafficMultiplier;
+    const price = Math.max(MIN_FARE, Math.round(raw / 1000) * 1000);
+    return res.json({ km, traffic, PRICE_PER_KM, trafficMultiplier, raw, price });
+  } catch (err) {
+    return res.status(500).json({ error: 'Internal' });
   }
 });
 
