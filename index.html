@@ -129,6 +129,8 @@
 
         /* Header */
         header {
+            padding-left: 30px;
+            padding-right: 30px;
             background-color: var(--bg);
             box-shadow: var(--shadow);
             position: fixed;
@@ -661,6 +663,11 @@
                 grid-template-columns: 1fr;
             }
 
+            header {
+                padding-left: 30px;
+                padding-right: 30px;
+            }
+
             .hero-content h1 {
                 font-size: 2.8rem;
             }
@@ -673,6 +680,11 @@
         @media (max-width: 768px) {
             .nav-close {
                 display: block;
+            }
+
+            header {
+                padding-left: 20px;
+                padding-right: 20px;
             }
             /* Mobile sliding nav: keep the links off-canvas and slide them in from the right */
             .nav-links {
@@ -764,6 +776,11 @@
         @media (max-width: 576px) {
             .hero-content h1 {
                 font-size: 2rem;
+            }
+
+            header {
+                padding-left: 22px;
+                padding-right: 22px;
             }
 
             .section-title h2 {
