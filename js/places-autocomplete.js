@@ -177,47 +177,7 @@ window.PlacesAutocomplete = window.PlacesAutocomplete || {
         });
     },
 
-    async fetchFromOpenStreetMap(query) {
-        try {
-            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ug&limit=6`);
-            const data = await resp.json();
-            return data.map(item => ({
-                place_id: `osm:${item.osm_id}`,
-                description: item.display_name,
-                structured_formatting: { main_text: (item.display_name || '').split(',')[0], secondary_text: (item.display_name || '').split(',').slice(1).join(',').trim() },
-                types: item.type ? [item.type] : []
-            }));
-        } catch (err) {
-            console.warn('OSM fallback failed:', err);
-            return [];
-        }
-    },
-
-    showSuggestions(dropdown, items, onSelect) {
-        if (!items || items.length === 0) return this.hideDropdown(dropdown);
-        dropdown.innerHTML = items.map((item, i) => {
-            if (item._error) return `<div class="pac-item pac-error"><span class="pac-item-query">${item.message}</span></div>`;
-            const main = item.structured_formatting?.main_text || item.description || '';
-            const sec = item.structured_formatting?.secondary_text || '';
-            const type = item.types && item.types[0] ? ` (${this.formatPlaceType(item.types[0])})` : '';
-            const recentClass = item._recent ? 'recent' : '';
-            return `<div class="pac-item ${recentClass}" data-index="${i}">${item._recent ? '<span class="recent-icon">↻</span>' : ''}<span class="pac-item-query">${main}${type}</span><span>${sec}</span></div>`;
-        }).join('');
-        dropdown.style.display = 'block';
-        dropdown.querySelectorAll('.pac-item:not(.pac-error)').forEach(item => item.addEventListener('click', () => {
-            const idx = parseInt(item.dataset.index, 10);
-            if (!isNaN(idx)) onSelect(idx);
-        }));
-    },
-
-    hideDropdown(dropdown) {
-        dropdown.style.display = 'none';
-        dropdown.innerHTML = '';
-    },
-
-    formatPlaceType(type) {
-        return String(type).split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
-    },
+    // OSM fallback, rendering and helpers are defined later (deduped)
 
     async handleSelection(input, item, onComplete) {
         if (!item || item._error) return;
@@ -514,18 +474,29 @@ const PlacesAutocomplete = {
         }
     },
 
+    escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/[&"'<>]/g, (s) => ({'&':'&amp;','"':'&quot;',"'":'&#39;','<':'&lt;','>':'&gt;'}[s]));
+    },
+
     showSuggestions(dropdown, items, onSelect) {
+        // Keep UI compact: only show up to 6 items, each with main line and optional small secondary line.
         if (!items || items.length === 0) return this.hideDropdown(dropdown);
-        dropdown.innerHTML = items.map((item, i) => {
-            if (item._error) return `<div class="pac-item pac-error"><span class="pac-item-query">${item.message}</span></div>`;
+        const visible = items.slice(0, 6);
+        dropdown.innerHTML = visible.map((item, i) => {
+            if (item._error) return `<div class="pac-item pac-error" role="presentation"><div class="pac-main">${this.escapeHtml(item.message)}</div></div>`;
             const main = item.structured_formatting?.main_text || item.description || '';
             const sec = item.structured_formatting?.secondary_text || '';
-            const type = item.types && item.types[0] ? ` (${this.formatPlaceType(item.types[0])})` : '';
-            const recentClass = item._recent ? 'recent' : '';
-            return `<div class="pac-item ${recentClass}" data-index="${i}">${item._recent ? '<span class="recent-icon">↻</span>' : ''}<span class="pac-item-query">${main}${type}</span><span>${sec}</span></div>`;
+            return `
+                <div class="pac-item" data-index="${i}" role="option">
+                    <div class="pac-main">${this.escapeHtml(main)}</div>
+                    ${sec ? `<div class="pac-secondary">${this.escapeHtml(sec)}</div>` : ''}
+                </div>
+            `;
         }).join('');
         dropdown.style.display = 'block';
-        dropdown.querySelectorAll('.pac-item:not(.pac-error)').forEach(item => item.addEventListener('click', () => {
+        // Wire click handlers
+        dropdown.querySelectorAll('.pac-item:not(.pac-error)').forEach(item => item.addEventListener('click', (ev) => {
             const idx = parseInt(item.dataset.index, 10);
             if (!isNaN(idx)) onSelect(idx);
         }));
