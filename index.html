@@ -215,6 +215,8 @@
             color: var(--text);
             cursor: pointer;
         }
+        /* Hide the nav close X on larger screens; show only on small viewports */
+        .nav-close { display: none; }
 
         /* Hero Section */
         .hero {
@@ -669,6 +671,9 @@
         }
 
         @media (max-width: 768px) {
+            .nav-close {
+                display: block;
+            }
             /* Mobile sliding nav: keep the links off-canvas and slide them in from the right */
             .nav-links {
                 position: fixed;
