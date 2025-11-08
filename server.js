@@ -20,7 +20,7 @@ app.get('/', (req, res) => {
 
 // Price calculation constants
 // Tuned so that a 65 km trip computes to approximately UGX 180,000
-const PRICE_PER_KM = 2600; // UGX per kilometer
+const PRICE_PER_KM = 2680; // UGX per kilometer
 const MIN_FARE = 12000;    // Minimum fare of 12,000 UGX
 const TRAFFIC_MULTIPLIER = {
   LOW: 1.0,

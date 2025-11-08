@@ -257,7 +257,9 @@
 
         .hero-content1 h1 {
             padding: 8px 14px;
-            color: #fff;
+            color: var(--secondary); /* orange */
+            font-weight: 700;
+            text-shadow: 0 1px 0 rgba(0,0,0,0.45);
             position: absolute;
             top: 0;
             right: 0;
@@ -270,7 +272,7 @@
             margin: 0;
             transition: transform 900ms cubic-bezier(.2,.9,.2,1), opacity 600ms ease;
             -webkit-transition: transform 900ms cubic-bezier(.2,.9,.2,1), opacity 600ms ease;
-            background-color: rgba(0,0,0,0.2);
+            background-color: rgba(0,0,0,0.18); /* keep subtle overlay for readability */
         }
 
         .hero-content1 h1.active {
