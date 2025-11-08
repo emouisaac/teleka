@@ -849,21 +849,36 @@
             position: fixed;
             right: 20px;
             bottom: 20px;
-            width: 60px;
-            height: 60px;
-            background: #25D366;
+            padding: 12px 18px;
+            min-width: 140px;
+            height: auto;
+            background: linear-gradient(90deg, var(--secondary), #e69500 90%);
             color: #fff;
-            border-radius: 50%;
-            display: flex;
+            border-radius: 999px; /* pill */
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+            gap: 10px;
+            font-weight: 700;
+            font-size: 0.95rem;
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.12), 0 6px 12px rgba(0,0,0,0.08);
             cursor: pointer;
             z-index: 2000;
-            transition: transform 0.15s ease;
+            transition: transform 180ms cubic-bezier(.2,.9,.2,1), filter 180ms ease, box-shadow 180ms ease;
+            border: none;
         }
 
-        .whatsapp-fab:hover { transform: translateY(-4px); }
+        .whatsapp-fab:hover {
+            transform: translateY(-6px);
+            filter: brightness(1.02);
+            box-shadow: 0 14px 40px rgba(37, 99, 235, 0.14), 0 8px 18px rgba(0,0,0,0.12);
+        }
+
+        .whatsapp-fab:focus {
+            outline: 3px solid rgba(245, 158, 11, 0.22);
+            outline-offset: 3px;
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.12);
+        }
 
         .whatsapp-panel {
             position: fixed;
@@ -1269,8 +1284,9 @@
         </div>
     </div>
 
-    <button class="whatsapp-fab" id="whatsappFab" aria-label="Chat on WhatsApp" title="Chat on WhatsApp">
-        <i class="fab fa-whatsapp" style="font-size:24px"></i>
+    <button class="whatsapp-fab" id="whatsappFab" aria-label="Book Now" title="Book Now">
+        <i class="fas fa-calendar-check" style="font-size:18px; margin-right:8px"></i>
+        Book Now
     </button>
 
     <!-- Load our CSS and JS files -->
@@ -1478,59 +1494,26 @@
             }
         });
 
-        // WhatsApp widget JS
+        // Repurpose the floating WhatsApp FAB into a 'Book Now' quick action
         (function() {
-            // TODO: replace with your provider's full international number (no + or dashes), e.g. '15551234567'
-            const providerNumber = '256788408032';
-
             const fab = document.getElementById('whatsappFab');
-            const panel = document.getElementById('whatsappPanel');
-            const closeBtn = document.getElementById('whatsappClose');
-            const sendBtn = document.getElementById('whatsappSend');
-            const messageInput = document.getElementById('whatsappMessage');
+            if (!fab) return;
 
-            function openPanel() {
-                panel.classList.add('open');
-                panel.setAttribute('aria-hidden', 'false');
-            }
+            // Ensure aria labels reflect new action
+            fab.setAttribute('aria-label', 'Book Now');
+            fab.setAttribute('title', 'Book Now');
 
-            function closePanel() {
-                panel.classList.remove('open');
-                panel.setAttribute('aria-hidden', 'true');
-            }
-
-            fab.addEventListener('click', () => {
-                if (panel.classList.contains('open')) {
-                    closePanel();
+            // On click, smoothly scroll to the booking section and focus the name input
+            fab.addEventListener('click', (e) => {
+                e.preventDefault();
+                const bookingEl = document.getElementById('booking');
+                if (bookingEl) {
+                    bookingEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // Focus the first field shortly after scrolling
+                    setTimeout(() => { document.getElementById('name')?.focus(); }, 700);
                 } else {
-                    openPanel();
-                }
-            });
-
-            closeBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                closePanel();
-            });
-
-            sendBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                const text = (messageInput && messageInput.value) ? messageInput.value.trim() : '';
-                // Fallback message
-                const message = text || 'Hello, I need help with my booking.';
-
-                // Use wa.me short link which works on desktop/mobile
-                const waUrl = `https://wa.me/${providerNumber}?text=${encodeURIComponent(message)}`;
-
-                // Open in new tab/window
-                window.open(waUrl, '_blank');
-                // Optionally close the panel after starting chat
-                closePanel();
-            });
-
-            // Close panel when clicking outside
-            document.addEventListener('click', (e) => {
-                if (!panel.contains(e.target) && !fab.contains(e.target)) {
-                    closePanel();
+                    // fallback: navigate to #booking
+                    window.location.href = '#booking';
                 }
             });
         })();
