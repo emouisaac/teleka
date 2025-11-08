@@ -245,7 +245,7 @@
         /* Animated dynamic hero-content1 headings */
         .hero-content1 {
             position: relative;
-            min-height: 60px;
+            min-height: 50px;
             overflow: hidden;
             display: block;
             background-image: linear-gradient(rgba(0, 0, 0, 0.51), rgba(0, 0, 0, 0.526)), url('/ims/pexels-cottonbro-4606345.jpg');
@@ -932,6 +932,37 @@
             .whatsapp-fab { right: 12px; bottom: 12px; }
         }
 
+        /* Contact card interactivity */
+        .contact-card--clickable { cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease; }
+        .contact-card--clickable:hover { transform: translateY(-6px); box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
+
+        /* Contact modal */
+        .contact-modal {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            padding: 20px;
+        }
+        .contact-modal.open { display: flex; }
+        .contact-modal .modal-content {
+            background: var(--bg);
+            color: var(--text);
+            padding: 18px;
+            border-radius: 12px;
+            width: 380px;
+            max-width: calc(100% - 40px);
+            box-shadow: 0 14px 40px rgba(2,6,23,0.12);
+        }
+        .contact-modal .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .contact-modal .modal-header h3 { margin:0; font-size:1.1rem; }
+        .contact-modal .modal-body p { margin: 0 0 12px 0; color: var(--text-light); }
+        .contact-modal .modal-actions { display:flex; gap:10px; }
+        .contact-modal .modal-actions .btn { flex: 1; }
+        .contact-modal .contact-value { font-weight:700; color: var(--primary); margin-bottom:8px; }
+
         /* Google Places Autocomplete styles */
         /* Loading animation and reusable classes */
         @keyframes loading {
@@ -1192,22 +1223,22 @@
             </div>
             <div class="contact-container">
                 <div class="contact-info">
-                    <div class="contact-card">
+                    <div class="contact-card contact-card--clickable" role="button" tabindex="0" data-type="phone" data-value="+256788408032">
                         <i class="fas fa-phone"></i>
                         <h3>Call Us</h3>
-                        <p>+256 788 408 032</p>
+                        <p class="contact-value">+256 788 408 032</p>
                         <p>24/7 Customer Support</p>
                     </div>
-                    <div class="contact-card">
+                    <div class="contact-card contact-card--clickable" role="button" tabindex="0" data-type="whatsapp" data-value="256788408032">
                         <i class="fab fa-whatsapp"></i>
                         <h3>WhatsApp</h3>
-                        <p>+256 788 408 032</p>
+                        <p class="contact-value">+256 788 408 032</p>
                         <p>Quick Response on WhatsApp</p>
                     </div>
-                    <div class="contact-card">
+                    <div class="contact-card contact-card--clickable" role="button" tabindex="0" data-type="email" data-value="info@teleka.com">
                         <i class="fas fa-envelope"></i>
                         <h3>Email</h3>
-                        <p>info@teleka.com</p>
+                        <p class="contact-value">info@teleka.com</p>
                         <p>For Bookings & Inquiries</p>
                     </div>
                 </div>
@@ -1264,6 +1295,23 @@
             </div>
         </div>
     </footer>
+
+    <!-- Contact Modal -->
+    <div class="contact-modal" id="contactModal" aria-hidden="true">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="contactModalTitle">
+            <div class="modal-header">
+                <h3 id="contactModalTitle">Contact Teleka</h3>
+                <button class="btn btn-outline" id="contactModalClose" aria-label="Close">Close</button>
+            </div>
+            <div class="modal-body">
+                <p id="contactModalDesc">How would you like to get in touch?</p>
+                <div id="contactDetails"></div>
+            </div>
+            <div class="modal-actions" id="contactModalActions">
+                <!-- buttons injected by JS -->
+            </div>
+        </div>
+    </div>
 
     <!-- WhatsApp Chat Widget -->
     <div class="whatsapp-panel" id="whatsappPanel" aria-hidden="true">
@@ -1516,6 +1564,85 @@
                     window.location.href = '#booking';
                 }
             });
+        })();
+
+        // Activate contact cards: open modal with appropriate actions
+        (function() {
+            const cards = document.querySelectorAll('.contact-card--clickable');
+            const modal = document.getElementById('contactModal');
+            const modalClose = document.getElementById('contactModalClose');
+            const modalDetails = document.getElementById('contactDetails');
+            const modalActions = document.getElementById('contactModalActions');
+
+            if (!cards || !modal) return;
+
+            function openModal(type, value) {
+                modal.setAttribute('aria-hidden', 'false');
+                modal.classList.add('open');
+                modalDetails.innerHTML = `<div style="margin-bottom:8px"><strong>${type === 'email' ? 'Email' : type === 'whatsapp' ? 'WhatsApp' : 'Phone'}</strong></div><div class="contact-value">${value}</div>`;
+                modalActions.innerHTML = '';
+
+                if (type === 'phone') {
+                    const callBtn = document.createElement('a');
+                    callBtn.className = 'btn';
+                    callBtn.href = `tel:${value.replace(/\s+/g,'')}`;
+                    callBtn.textContent = 'Call Now';
+                    modalActions.appendChild(callBtn);
+
+                    const smsBtn = document.createElement('a');
+                    smsBtn.className = 'btn btn-outline';
+                    smsBtn.href = `sms:${value.replace(/\s+/g,'')}`;
+                    smsBtn.textContent = 'Send SMS';
+                    modalActions.appendChild(smsBtn);
+                } else if (type === 'whatsapp') {
+                    const waBtn = document.createElement('a');
+                    waBtn.className = 'btn';
+                    waBtn.href = `https://wa.me/${value}`;
+                    waBtn.target = '_blank';
+                    waBtn.rel = 'noopener';
+                    waBtn.textContent = 'Start WhatsApp Chat';
+                    modalActions.appendChild(waBtn);
+
+                    const callBtn = document.createElement('a');
+                    callBtn.className = 'btn btn-outline';
+                    callBtn.href = `tel:${value}`;
+                    callBtn.textContent = 'Call';
+                    modalActions.appendChild(callBtn);
+                } else if (type === 'email') {
+                    const mailBtn = document.createElement('a');
+                    mailBtn.className = 'btn';
+                    mailBtn.href = `mailto:${value}`;
+                    mailBtn.textContent = 'Send Email';
+                    modalActions.appendChild(mailBtn);
+
+                    const copyBtn = document.createElement('button');
+                    copyBtn.className = 'btn btn-outline';
+                    copyBtn.textContent = 'Copy Email';
+                    copyBtn.addEventListener('click', () => {
+                        navigator.clipboard?.writeText(value).then(() => alert('Email copied to clipboard'));
+                    });
+                    modalActions.appendChild(copyBtn);
+                }
+
+                // Trap focus loosely by focusing close button
+                modalClose.focus();
+            }
+
+            function closeModal() {
+                modal.setAttribute('aria-hidden', 'true');
+                modal.classList.remove('open');
+            }
+
+            cards.forEach(card => {
+                const type = card.getAttribute('data-type');
+                const value = card.getAttribute('data-value');
+                const handler = (e) => { e.preventDefault(); openModal(type, value); };
+                card.addEventListener('click', handler);
+                card.addEventListener('keypress', (e) => { if (e.key === 'Enter' || e.key === ' ') handler(e); });
+            });
+
+            modalClose.addEventListener('click', (e) => { e.preventDefault(); closeModal(); });
+            modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
         })();
 
         // Hero slideshow initializer: gentle crossfade + Ken Burns
