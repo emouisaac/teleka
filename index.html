@@ -222,7 +222,7 @@
 
         /* Hero Section */
         .hero {
-            padding-top: 150px;
+            padding-top: 100px;
             background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg) 100%);
             position: relative;
             overflow: hidden;
@@ -240,6 +240,53 @@
             line-height: 1.2;
             margin-bottom: 20px;
             color: var(--text);
+        }
+
+        /* Animated dynamic hero-content1 headings */
+        .hero-content1 {
+            position: relative;
+            min-height: 60px;
+            overflow: hidden;
+            display: block;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.51), rgba(0, 0, 0, 0.526)), url('/ims/pexels-cottonbro-4606345.jpg');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-position: center;
+            border-radius: 8px;
+        }
+
+        .hero-content1 h1 {
+            padding: 8px 14px;
+            color: #fff;
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 100%;
+            transform: translateX(100%);
+            opacity: 0;
+            white-space: nowrap;
+            font-size: 2rem;
+            line-height: 1.2;
+            margin: 0;
+            transition: transform 900ms cubic-bezier(.2,.9,.2,1), opacity 600ms ease;
+            -webkit-transition: transform 900ms cubic-bezier(.2,.9,.2,1), opacity 600ms ease;
+            background-color: rgba(0,0,0,0.2);
+        }
+
+        .hero-content1 h1.active {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .hero-content1 h1.exit {
+            transform: translateX(-100%);
+            opacity: 0;
+        }
+
+        /* Respect reduced motion preference */
+        @media (prefers-reduced-motion: reduce) {
+            .hero-content1 h1 { transition: none; transform: none; opacity: 1; position: static; }
+            .hero-content1 { min-height: auto; }
         }
 
         .hero-content p {
@@ -953,7 +1000,17 @@
 
     <!-- Hero Section -->
     <section class="hero" id="home">
+        <div class="hero-content1">
+                <h1>Airport Transfers</h1>
+                <h1>City Rides</h1>
+                <h1>Business Trips</h1>
+                <h1>Tours and Travel</h1>
+                <h1>24/7 Availability</h1>
+                <h1>Professional Drivers</h1>
+                <h1>We are pocket-friendly</h1>
+            </div>
         <div class="container hero-container">
+
             <div class="hero-content">
                 <h1>Reliable Taxi Service for Airport & City Rides</h1>
                 <p>Experience comfortable and timely rides with our professional taxi service. We ensure you reach your destination safely, whether it's the airport or anywhere in the city.</p>
@@ -1494,6 +1551,59 @@
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize places autocomplete
             PlacesAutocomplete.init('pickup', 'destination');
+
+            // Animated, colorful hero-content1 headings
+            (function() {
+                const container = document.querySelector('.hero-content1');
+                if (!container) return;
+                const items = Array.from(container.querySelectorAll('h1'));
+                if (!items.length) return;
+
+                const colors = [
+                    '#2549eb', // blue
+                    '#10b981', // green
+                    '#f59e0b', // amber
+                    '#ef4444', // red
+                    '#8b5cf6'  // violet
+                ];
+
+                let idx = -1;
+                const showDuration = 3000; // ms each visible
+
+                function next() {
+                    // previous
+                    if (idx >= 0) {
+                        const prev = items[idx];
+                        prev.classList.remove('active');
+                        prev.classList.add('exit');
+                        // cleanup exit after animation
+                        setTimeout(() => prev.classList.remove('exit'), 900);
+                    }
+
+                    idx = (idx + 1) % items.length;
+                    const el = items[idx];
+                    // pick a color (cycle)
+                    const color = colors[idx % colors.length];
+                    el.style.color = color;
+                    // ensure starting offscreen to the right for re-run
+                    el.classList.remove('exit');
+                    // Force reflow to ensure the transform transition will run
+                    // eslint-disable-next-line no-unused-expressions
+                    el.offsetWidth;
+                    el.classList.add('active');
+                }
+
+                // Start the cycle
+                // If user prefers reduced motion, show first item statically
+                const mq = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+                if (mq && mq.matches) {
+                    items.forEach((it, i) => { it.classList.remove('active','exit'); it.style.color = colors[i % colors.length]; });
+                    return;
+                }
+
+                next();
+                setInterval(next, showDuration);
+            })();
 
             // Price calculation function (kept here for reference)
             async function calculatePrice(origin, destination) {
