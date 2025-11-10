@@ -214,3 +214,37 @@ app.listen(PORT, () => {
   }
   console.log(`Teleka Taxi server running on http://localhost:${PORT}`);
 });
+
+
+
+
+// Replace WhatsApp links
+function fixWhatsAppLinks() {
+    const whatsappLinks = document.querySelectorAll('a[href*="whatsapp://"]');
+    whatsappLinks.forEach(link => {
+        const originalHref = link.getAttribute('href');
+        const phone = extractPhoneNumber(originalHref);
+        
+        // Create intent URL that works in WebView
+        link.setAttribute('href', `intent://send/${phone}#Intent;scheme=smsto;package=com.whatsapp;action=android.intent.action.SENDTO;end`);
+        link.setAttribute('onclick', `openWhatsApp('${phone}')`);
+    });
+}
+
+function openWhatsApp(phone) {
+    // Try direct WhatsApp
+    const whatsappUrl = `whatsapp://send?phone=${phone}`;
+    const webUrl = `https://web.whatsapp.com/send?phone=${phone}`;
+    
+    window.location.href = whatsappUrl;
+    
+  // Fallback after delay (browser-only code removed)
+  // This logic should be placed in a client-side JS file if needed.
+}
+
+function extractPhoneNumber(url) {
+  const match = url.match(/phone=([^&]*)/);
+  return match ? match[1] : '256788408032';
+}
+
+// Removed browser-only code: document.addEventListener('DOMContentLoaded', fixWhatsAppLinks);

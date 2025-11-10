@@ -3,16 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Privacy Policy for Teleka Taxi - Learn about how we handle and protect your personal information.">
     <title>Privacy Policy - Teleka Taxi</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="icon" type="image/png" href="ims/favicon.png">
     <style>
         :root {
             --primary: #2549eb;
+            --primary-dark: #1d26d8;
             --secondary: #f59e0b;
+            --accent: #10b981;
             --text: #1f2937;
             --text-light: #6b7280;
-            --bg: #ffffff;
+            --bg: #cdd5e4;
+            --bg-secondary: #dfe6ee;
+            --bg-tertiary: #b9babc;
             --border: #e5e7eb;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --transition: all 0.3s ease;
+        }
+
+        .dark-mode {
+            --primary: #f6c13b;
+            --primary-dark: #2563eb;
+            --secondary: #f59e0b;
+            --accent: #10b981;
+            --text: #f9fafb;
+            --text-light: #d1d5db;
+            --bg: #111827;
+            --bg-secondary: #1f2937;
+            --bg-tertiary: #374151;
+            --border: #4b5563;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
         }
 
         * {
@@ -22,83 +44,311 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        body {
-            line-height: 1.6;
-            color: var(--text);
-            padding: 20px;
-            max-width: 1000px;
-            margin: 0 auto;
+        html {
+            scroll-behavior: smooth;
         }
 
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            padding: 20px 0;
-            border-bottom: 1px solid var(--border);
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            transition: var(--transition);
+        }
+
+        header {
+            background-color: var(--bg-secondary);
+            padding: 1rem;
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: var(--transition);
+        }
+
+        .header-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 1rem;
         }
 
         .logo {
-            display: inline-flex;
+            display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 0.5rem;
             font-size: 1.5rem;
-            font-weight: 700;
+            font-weight: bold;
             color: var(--primary);
             text-decoration: none;
-            margin-bottom: 20px;
+            transition: var(--transition);
         }
 
-        h1 {
+        .logo:hover {
+            color: var(--primary-dark);
+        }
+
+        nav {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        nav a {
             color: var(--text);
-            margin-bottom: 10px;
+            text-decoration: none;
+            transition: var(--transition);
         }
 
-        h2 {
+        nav a:hover {
             color: var(--primary);
-            margin: 30px 0 15px;
         }
 
-        p, ul {
-            margin-bottom: 15px;
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        .content {
+            background-color: var(--bg-secondary);
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow);
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
             color: var(--text);
+            cursor: pointer;
+            padding: 0.5rem;
+            display: flex;
+            align-items: center;
+            transition: var(--transition);
         }
 
-        ul {
-            padding-left: 20px;
+        .theme-toggle:hover {
+            color: var(--primary);
         }
 
-        li {
-            margin-bottom: 8px;
-        }
-
-        .contact-section {
-            margin-top: 40px;
-            padding: 20px;
-            background-color: #f8fafc;
-            border-radius: 8px;
-        }
-
-        .effective-date {
-            margin-top: 40px;
-            color: var(--text-light);
-            font-style: italic;
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text);
+            cursor: pointer;
+            padding: 0.5rem;
         }
 
         @media (max-width: 768px) {
-            body {
-                padding: 15px;
+            .mobile-menu-btn {
+                display: block;
+            }
+
+            nav {
+                display: none;
+                position: fixed;
+                top: 70px;
+                left: 0;
+                right: 0;
+                background-color: var(--bg-secondary);
+                padding: 1rem;
+                flex-direction: column;
+                align-items: flex-start;
+                box-shadow: var(--shadow);
+            }
+
+            nav.active {
+                display: flex;
+            }
+        }
+
+        main {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: var(--bg-secondary);
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow);
+        }
+
+        h1 {
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+
+        h2 {
+            color: var(--text);
+            margin: 2rem 0 1rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        p {
+            margin-bottom: 1.25rem;
+            color: var(--text);
+            line-height: 1.7;
+        }
+
+        ul {
+            margin-bottom: 1.25rem;
+            padding-left: 1.5rem;
+            color: var(--text);
+        }
+
+        li {
+            margin-bottom: 0.75rem;
+            line-height: 1.7;
+        }
+
+        li strong {
+            color: var(--primary);
+        }
+
+        .contact-section {
+            margin-top: 3rem;
+            padding: 2rem;
+            background-color: var(--bg-tertiary);
+            border-radius: 0.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .contact-section h2 {
+            color: var(--primary);
+            margin-top: 0;
+        }
+
+        .effective-date {
+            margin-top: 3rem;
+            padding-top: 1rem;
+            color: var(--text-light);
+            font-style: italic;
+            border-top: 1px solid var(--border);
+        }
+
+        /* Mobile Menu Styles */
+        .nav-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 90;
+        }
+
+        .nav-overlay.active {
+            display: block;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .nav-close {
+            display: none;
+        }
+
+        .mobile-menu {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        @media (max-width: 768px) {
+            body.no-scroll {
+                overflow: hidden;
+            }
+
+            .nav-links {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: -100%;
+                bottom: 0;
+                width: 80%;
+                max-width: 300px;
+                background-color: var(--bg-secondary);
+                padding: 2rem;
+                flex-direction: column;
+                align-items: flex-start;
+                transition: left 0.3s ease;
+                z-index: 100;
+            }
+
+            .nav-links.open {
+                left: 0;
+                display: flex;
+            }
+
+            .nav-close {
+                display: block;
+                position: absolute;
+                top: 1rem;
+                right: 1rem;
+                background: none;
+                border: none;
+                color: var(--text);
+                font-size: 1.5rem;
+                cursor: pointer;
+            }
+
+            .mobile-menu {
+                display: block;
+            }
+
+            .container {
+                padding: 1rem;
             }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <a href="index.html" class="logo">
-            <i class="fas fa-taxi"></i>
-            <span>TelekaTaxi</span>
-        </a>
-        <h1>Privacy Policy</h1>
-    </div>
+    <!-- Header -->
+    <header>
+        <div class="container header-container">
+            <a href="index.html" class="logo">
+                <i class="fas fa-taxi"></i>
+                <span>TelekaTaxi</span>
+            </a>
+            
+            <nav class="nav-links" aria-label="Primary navigation">
+                <button class="nav-close" aria-label="Close menu"><i class="fas fa-times"></i></button>
+                <a href="index.html#home">Home</a>
+                <a href="index.html#services">Services</a>
+                <a href="index.html#booking">Booking</a>
+                <a href="index.html#features">Features</a>
+                <a href="index.html#contact">Contact</a>
+            </nav>
+            
+            <div class="header-actions">
+                <button class="theme-toggle" id="themeToggle">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button class="mobile-menu" aria-label="Open menu">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+    <div id="navOverlay" class="nav-overlay" aria-hidden="true"></div>
 
     <main>
         <p>Welcome to Teleka Taxi's Privacy Policy. This document outlines how we collect, use, and protect your personal information when you use our taxi booking services.</p>
@@ -181,5 +431,91 @@
 
         <p class="effective-date">Effective Date: November 8, 2025</p>
     </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Theme toggle
+            const themeToggle = document.querySelector('.theme-toggle');
+            const body = document.body;
+            
+            // Check for saved theme preference
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                body.classList.add('dark-mode');
+                themeToggle.querySelector('i').classList.replace('fa-moon', 'fa-sun');
+            }
+
+            // Theme toggle functionality
+            themeToggle.addEventListener('click', () => {
+                body.classList.toggle('dark-mode');
+                const isDark = body.classList.contains('dark-mode');
+                localStorage.setItem('theme', isDark ? 'dark' : 'light');
+                const icon = themeToggle.querySelector('i');
+                isDark ? 
+                    icon.classList.replace('fa-moon', 'fa-sun') :
+                    icon.classList.replace('fa-sun', 'fa-moon');
+            });
+
+            // Mobile Menu Toggle (slide-in panel)
+            const mobileMenu = document.querySelector('.mobile-menu');
+            const navLinks = document.querySelector('.nav-links');
+            const navOverlay = document.getElementById('navOverlay');
+            const navClose = document.querySelector('.nav-close');
+
+            // initialize accessibility attributes
+            if (mobileMenu) mobileMenu.setAttribute('aria-expanded', 'false');
+            if (navLinks) navLinks.setAttribute('aria-hidden', 'true');
+
+            // Handle mobile menu open/close
+            if (mobileMenu && navLinks && navClose && navOverlay) {
+                mobileMenu.addEventListener('click', () => {
+                    navLinks.classList.add('open');
+                    navOverlay.classList.add('active');
+                    document.body.classList.add('no-scroll');
+                    mobileMenu.setAttribute('aria-expanded', 'true');
+                    navLinks.setAttribute('aria-hidden', 'false');
+                });
+
+                navClose.addEventListener('click', () => {
+                    navLinks.classList.remove('open');
+                    navOverlay.classList.remove('active');
+                    document.body.classList.remove('no-scroll');
+                    mobileMenu.setAttribute('aria-expanded', 'false');
+                    navLinks.setAttribute('aria-hidden', 'true');
+                });
+
+                // Close mobile menu when a nav link is clicked
+                navLinks.querySelectorAll('a').forEach(link => {
+                    link.addEventListener('click', () => {
+                        if (navLinks.classList.contains('open')) {
+                            setTimeout(() => {
+                                navLinks.classList.remove('open');
+                                navOverlay.classList.remove('active');
+                                document.body.classList.remove('no-scroll');
+                                mobileMenu.setAttribute('aria-expanded', 'false');
+                                navLinks.setAttribute('aria-hidden', 'true');
+                            }, 150);
+                        }
+                    });
+                });
+            }
+
+            // Auto-close mobile nav when a nav link inside the panel is clicked
+            // This only runs if the panel is currently open so desktop behavior is unaffected.
+            if (navLinks) {
+                const navAnchors = navLinks.querySelectorAll('a[href^="#"]');
+                navAnchors.forEach(anchor => {
+                    anchor.addEventListener('click', (e) => {
+                        // If panel is open, close it after a short delay so smooth-scroll can begin
+                        if (navLinks.classList.contains('open')) {
+                            setTimeout(() => {
+                                try { closeMobileNav(); } catch (err) { /* ignore */ }
+                            }, 150);
+                        }
+                    });
+                });
+            }
+        });
+    </script>
 </body>
 </html>
