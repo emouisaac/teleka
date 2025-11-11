@@ -1510,8 +1510,11 @@
                     `⏰ Time: ${formData.time}\n\n` +
                     `Please confirm my booking. Thank you!`;
 
-                // Open WhatsApp with the booking message
-                const whatsappUrl = `https://wa.me/256788408032?text=${encodeURIComponent(message)}`;
+                // Ensure the business phone number is clean (only digits)
+                const businessPhoneNumber = '256788408032';
+                
+                // Open WhatsApp with the booking message using the standard wa.me format
+                const whatsappUrl = `https://wa.me/${businessPhoneNumber}?text=${encodeURIComponent(message)}`;
                 window.open(whatsappUrl, '_blank');
 
                 alert('Thank you for your booking! We will contact you shortly via WhatsApp to confirm your ride.');
@@ -1607,15 +1610,17 @@
                 } else if (type === 'whatsapp') {
                     const waBtn = document.createElement('a');
                     waBtn.className = 'btn';
-                    waBtn.href = `https://wa.me/${value}`;
+                    // Ensure the number doesn't have spaces or special characters
+                    const cleanNumber = value.replace(/\D/g, '');
+                    waBtn.href = `https://wa.me/${cleanNumber}`;
                     waBtn.target = '_blank';
-                    waBtn.rel = 'noopener';
+                    waBtn.rel = 'noopener noreferrer';
                     waBtn.textContent = 'Start WhatsApp Chat';
                     modalActions.appendChild(waBtn);
 
                     const callBtn = document.createElement('a');
                     callBtn.className = 'btn btn-outline';
-                    callBtn.href = `tel:${value}`;
+                    callBtn.href = `tel:+${value.replace(/\D/g, '')}`;
                     callBtn.textContent = 'Call';
                     modalActions.appendChild(callBtn);
                 } else if (type === 'email') {
