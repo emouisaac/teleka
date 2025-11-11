@@ -203,6 +203,8 @@
             display: flex;
             align-items: center;
             gap: 20px;
+            pointer-events: auto;
+            z-index: 101;
         }
 
         .theme-toggle {
@@ -212,6 +214,17 @@
             font-size: 1.2rem;
             cursor: pointer;
             transition: var(--transition);
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            pointer-events: auto;
+            z-index: 101;
+            padding: 8px 12px;
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .theme-toggle:hover {
@@ -225,6 +238,17 @@
             font-size: 1.5rem;
             color: var(--text);
             cursor: pointer;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            pointer-events: auto;
+            z-index: 101;
+            padding: 8px 12px;
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         /* Hide the nav close X on larger screens; show only on small viewports */
         .nav-close { display: none; }
