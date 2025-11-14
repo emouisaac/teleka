@@ -54,6 +54,10 @@
             transition: var(--transition);
         }
 
+        /* Ensure mobile nav controls are hidden on large screens */
+        .mobile-menu,
+        .nav-close { display: none; }
+
         a {
             text-decoration: none;
             color: inherit;
@@ -246,7 +250,6 @@
             padding: 8px 12px;
             min-width: 44px;
             min-height: 44px;
-            display: flex;
             align-items: center;
             justify-content: center;
         }
@@ -835,6 +838,10 @@
             .mobile-menu {
                 display: block;
             }
+
+            /* Ensure mobile menu icons always display on small screens (covers both variations) */
+            .mobile-menu,
+            .mobile-menu-btn { display: block !important; }
 
             .hero-content h1 {
                 font-size: 2.3rem;
