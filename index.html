@@ -1437,20 +1437,45 @@
             }
         };
 
-        // Theme Toggle
-        const themeToggle = document.getElementById('themeToggle');
-        const themeIcon = themeToggle.querySelector('i');
-
-        themeToggle.addEventListener('click', () => {
-            document.body.classList.toggle('dark-mode');
-            if (document.body.classList.contains('dark-mode')) {
-                themeIcon.classList.remove('fa-moon');
-                themeIcon.classList.add('fa-sun');
+        // Theme Toggle with localStorage persistence
+        const THEME_KEY = 'theme-preference';
+        
+        function initTheme() {
+            const savedTheme = localStorage.getItem(THEME_KEY);
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-mode');
+                updateThemeIcon(true);
             } else {
-                themeIcon.classList.remove('fa-sun');
-                themeIcon.classList.add('fa-moon');
+                document.body.classList.remove('dark-mode');
+                updateThemeIcon(false);
             }
-        });
+        }
+        
+        function updateThemeIcon(isDark) {
+            const themeToggle = document.getElementById('themeToggle');
+            const themeIcon = themeToggle ? themeToggle.querySelector('i') : null;
+            if (themeIcon) {
+                if (isDark) {
+                    themeIcon.classList.remove('fa-moon');
+                    themeIcon.classList.add('fa-sun');
+                } else {
+                    themeIcon.classList.remove('fa-sun');
+                    themeIcon.classList.add('fa-moon');
+                }
+            }
+        }
+        
+        // Initialize theme on page load
+        initTheme();
+        
+        const themeToggle = document.getElementById('themeToggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => {
+                const isDark = document.body.classList.toggle('dark-mode');
+                updateThemeIcon(isDark);
+                localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
+            });
+        }
 
             // Removed testimonial slider code
         // Mobile Menu Toggle (slide-in panel)
