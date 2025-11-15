@@ -293,7 +293,7 @@
 
         .hero-content1 h1 {
             padding: 8px 14px;
-            color: var(--secondary); /* orange */
+            color: #f59e0b !important;
             font-weight: 700;
             text-shadow: 0 1px 0 rgba(0,0,0,0.45);
             position: absolute;
@@ -1722,6 +1722,7 @@
             if (!slides || slides.length === 0) return;
             let idx = 0;
             slides[idx].classList.add('active');
+            console.log('Image hero slideshow started with', slides.length, 'slides');
 
             setInterval(() => {
                 slides[idx].classList.remove('active');
@@ -1732,8 +1733,16 @@
 
         // Initialize components
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize places autocomplete
-            PlacesAutocomplete.init('pickup', 'destination');
+            // Initialize places autocomplete (defensive: don't let failures break other UI)
+            try {
+                if (window.PlacesAutocomplete && typeof PlacesAutocomplete.init === 'function') {
+                    PlacesAutocomplete.init('pickup', 'destination');
+                } else {
+                    console.warn('PlacesAutocomplete not available — skipping init');
+                }
+            } catch (err) {
+                console.warn('PlacesAutocomplete.init threw an error:', err);
+            }
 
             // Animated, colorful hero-content1 headings
             (function() {
@@ -1742,13 +1751,8 @@
                 const items = Array.from(container.querySelectorAll('h1'));
                 if (!items.length) return;
 
-                const colors = [
-                    '#2549eb', // blue
-                    '#10b981', // green
-                    '#f59e0b', // amber
-                    '#ef4444', // red
-                    '#8b5cf6'  // violet
-                ];
+                // Use a single orange color for all hero heading slides
+                const colors = ['#f59e0b'];
 
                 let idx = -1;
                 const showDuration = 3000; // ms each visible
