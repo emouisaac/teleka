@@ -6,6 +6,8 @@
     <title>Teleka Taxi | Entebbe International Airport & City Services</title>
     <link rel="icon" href="ims/1110.png" type="image/x-icon">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8775748904134067"
+     crossorigin="anonymous"></script>
     <style>
         :root {
             --primary: #2549eb;
@@ -337,6 +339,22 @@
         @media (prefers-reduced-motion: reduce) {
             .hero-content1 h1 { transition: none; transform: none; opacity: 1; position: static; }
             .hero-content1 { min-height: auto; }
+        }
+
+        /* Small screens: show mobile menu, hide login button to avoid overlap */
+        @media (max-width: 768px) {
+            .nav-links { display: none; }
+            .mobile-menu { display: inline-flex; }
+            /* keep login button visible on small screens but compact it */
+            #loginBtn { display: inline-flex !important; padding: 4px !important; min-width: 30px; width: 30px; height:30px; border-radius:50%; justify-content:center; align-items:center; }
+            #loginBtn i { font-size: 0.85rem; }
+            /* hide header theme toggle and show mobile theme toggle inside nav */
+            #themeToggle { display: none !important; }
+            .nav-links .mobile-theme-toggle { display: block !important; padding: 12px 0; color: var(--text); }
+            /* show the login link inside the mobile nav when the panel opens */
+            .nav-links .mobile-login-link { display: block !important; padding: 12px 0; color: var(--text); }
+            .header-container { padding: 12px 16px; }
+            .hero { padding-top: 80px; }
         }
 
         .hero-content p {
@@ -896,93 +914,7 @@
                 grid-template-columns: 1fr;
             }
         }
-        /* WhatsApp chat widget styles */
-        .whatsapp-fab {
-            position: fixed;
-            right: 20px;
-            bottom: 20px;
-            padding: 12px 18px;
-            min-width: 140px;
-            height: auto;
-            background: linear-gradient(90deg, var(--secondary), #e69500 90%);
-            color: #fff;
-            border-radius: 999px; /* pill */
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            font-weight: 700;
-            font-size: 0.95rem;
-            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.12), 0 6px 12px rgba(0,0,0,0.08);
-            cursor: pointer;
-            z-index: 2000;
-            transition: transform 180ms cubic-bezier(.2,.9,.2,1), filter 180ms ease, box-shadow 180ms ease;
-            border: none;
-        }
-
-        .whatsapp-fab:hover {
-            transform: translateY(-6px);
-            filter: brightness(1.02);
-            box-shadow: 0 14px 40px rgba(37, 99, 235, 0.14), 0 8px 18px rgba(0,0,0,0.12);
-        }
-
-        .whatsapp-fab:focus {
-            outline: 3px solid rgba(245, 158, 11, 0.22);
-            outline-offset: 3px;
-            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.12);
-        }
-
-        .whatsapp-panel {
-            position: fixed;
-            right: 20px;
-            bottom: 90px;
-            width: 320px;
-            max-width: calc(100% - 40px);
-            background: var(--bg);
-            color: var(--text);
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-            overflow: hidden;
-            z-index: 2000;
-            display: none;
-        }
-
-        .whatsapp-panel.open { display: block; }
-
-        .whatsapp-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 14px;
-            background: #075E54;
-            color: white;
-        }
-
-        .whatsapp-header .title { font-weight: 700; }
-
-        .whatsapp-body { padding: 12px 14px; }
-
-        .whatsapp-body p { margin-bottom: 8px; color: var(--text-light); font-size: 0.95rem; }
-
-        .whatsapp-input {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            resize: vertical;
-            min-height: 60px;
-            font-family: inherit;
-            margin-bottom: 8px;
-        }
-
-        .whatsapp-actions { display: flex; gap: 8px; }
-
-        .whatsapp-actions .btn { flex: 1; }
-
-        @media (max-width: 480px) {
-            .whatsapp-panel { right: 12px; left: 12px; width: auto; bottom: 80px; }
-            .whatsapp-fab { right: 12px; bottom: 12px; }
-        }
+        /* WhatsApp UI removed */
 
         /* Contact card interactivity */
         .contact-card--clickable { cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease; }
@@ -1067,6 +999,27 @@
             font-weight: 600;
         }
     </style>
+    <style>
+        /* Authentication modal styles */
+        .auth-backdrop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(2,6,23,0.55); z-index: 2000; }
+        .auth-modal { width: 440px; max-width: 94%; border-radius: 12px; background: #fff; box-shadow: 0 10px 30px rgba(2,6,23,0.3); overflow: hidden; }
+        .dark-mode .auth-modal { background: #111827; color: var(--text); }
+        .auth-header { display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border); }
+        .auth-title { font-size:1.1rem; font-weight:700; }
+        .auth-close { background:none; border:none; font-size:1.1rem; cursor:pointer; color:var(--text-light); }
+        .auth-body { padding:18px 20px; }
+        .auth-tabs { display:flex; gap:8px; margin-bottom:14px; }
+        .auth-tab { flex:1; text-align:center; padding:8px 10px; border-radius:8px; cursor:pointer; background:var(--bg-secondary); color:var(--text); font-weight:600; }
+        .auth-tab.active { background:var(--primary); color:#fff; }
+        .auth-form { display:block; }
+        .auth-form .form-group { margin-bottom:12px; }
+        .auth-form label { display:block; font-size:0.85rem; margin-bottom:6px; color:var(--text-light); }
+        .auth-form input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:transparent; color:inherit; }
+        .auth-actions { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:12px; }
+        .auth-aux { font-size:0.9rem; color:var(--text-light); }
+        .auth-sep { height:1px; background:var(--border); margin:12px 0; }
+        @media (max-width:480px){ .auth-modal{ width: 96%; } }
+    </style>
 </head>
 <body>
     <!-- Header -->
@@ -1084,12 +1037,16 @@
                 <a href="#booking">Booking</a>
                 <a href="#features">Features</a>
                 <a href="#contact">Contact</a>
+                <!-- Mobile-only login link removed (not used) -->
+                <!-- Mobile-only theme toggle (icon-only) -->
+                <a href="#" id="mobileThemeToggle" class="mobile-theme-toggle" style="display:none;" aria-label="Toggle theme"> <i class="fas fa-moon" aria-hidden="true"></i></a>
             </nav>
             
             <div class="header-actions">
                 <button class="theme-toggle" id="themeToggle">
                     <i class="fas fa-moon"></i>
                 </button>
+                <button type="button" class="btn btn-outline" id="loginBtn">Login</button>
                 <button class="mobile-menu">
                     <i class="fas fa-bars"></i>
                 </button>
@@ -1110,6 +1067,7 @@
                 <h1>Professional Drivers</h1>
                 <h1>We are pocket-friendly</h1>
             </div>
+
         <div class="container hero-container">
 
             <div class="hero-content">
@@ -1121,6 +1079,7 @@
                 </div>
                 <!-- Removed demo stats -->
             </div>
+            
             <div class="hero-image">
                 <div class="hero-slideshow" aria-hidden="false">
                     <div class="slide"><img src="ims/customer.jpg" alt="Customer"></div>
@@ -1175,18 +1134,7 @@
                 <h2>Book Your Ride</h2>
                 <p>Fill out the form below to book your taxi</p>
                 <form id="bookingForm">
-                    <div class="form-group">
-                        <label for="name">Your Name</label>
-                        <input type="text" id="name" class="form-control" placeholder="Enter your name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="email">Email Address (Optional)</label>
-                        <input type="email" id="email" class="form-control" placeholder="Enter your email">
-                    </div>
-                    <div class="form-group" style="display: none;">
-                        <label for="whatsapp">WhatsApp Number</label>
-                        <input type="tel" id="whatsapp" class="form-control" placeholder="Enter WhatsApp number (e.g., 254712345678)">
-                    </div>
+                    <!-- WhatsApp input removed -->
                     <div class="form-group">
                         <label for="pickup">Pickup Location</label>
                         <input type="text" id="pickup" class="form-control" placeholder="Enter pickup address" required>
@@ -1202,8 +1150,8 @@
                             </div>
                         </div>
                     <div class="form-group">
-                        <label for="serviceType">Service Type</label>
-                        <select id="serviceType" class="form-control" required>
+                        <label for="serviceType">Service Type (Optional)</label>
+                        <select id="serviceType" class="form-control">
                             <option value="">Select service</option>
                             <option value="airport">Airport Transfer</option>
                             <option value="city">City Ride</option>
@@ -1282,12 +1230,7 @@
                         <p class="contact-value">+256 788 408 032</p>
                         <p>24/7 Customer Support</p>
                     </div>
-                    <div class="contact-card contact-card--clickable" role="button" tabindex="0" data-type="whatsapp" data-value="256788408032">
-                        <i class="fab fa-whatsapp"></i>
-                        <h3>WhatsApp</h3>
-                        <p class="contact-value">+256 788 408 032</p>
-                        <p>Quick Response on WhatsApp</p>
-                    </div>
+                    <!-- WhatsApp contact removed -->
                     <div class="contact-card contact-card--clickable" role="button" tabindex="0" data-type="email" data-value="info@teleka.com">
                         <i class="fas fa-envelope"></i>
                         <h3>Email</h3>
@@ -1367,29 +1310,7 @@
         </div>
     </div>
 
-    <!-- WhatsApp Chat Widget -->
-    <div class="whatsapp-panel" id="whatsappPanel" aria-hidden="true">
-        <div class="whatsapp-header">
-            <i class="fab fa-whatsapp" style="font-size:20px"></i>
-            <div>
-                <div class="title">Chat with Support</div>
-                <div style="font-size:12px; opacity:0.9">Typically replies within a few minutes</div>
-            </div>
-        </div>
-        <div class="whatsapp-body">
-            <p>Send us a message and our customer service provider will reply on WhatsApp.</p>
-            <textarea id="whatsappMessage" class="whatsapp-input" placeholder="Hi, I need help with my booking...">Hello, I need help with my booking.</textarea>
-            <div class="whatsapp-actions">
-                <button class="btn btn-outline" id="whatsappClose">Close</button>
-                <button class="btn" id="whatsappSend">Start Chat</button>
-            </div>
-        </div>
-    </div>
-
-    <button class="whatsapp-fab" id="whatsappFab" aria-label="Book Now" title="Book Now">
-        <i class="fas fa-calendar-check" style="font-size:18px; margin-right:8px"></i>
-        Book Now
-    </button>
+    <!-- WhatsApp chat widget and FAB removed -->
 
     <script>
 
@@ -1648,6 +1569,15 @@
                     themeIcon.classList.add('fa-moon');
                 }
             }
+            // also update mobile theme toggle icon if present
+            try{
+                const mobileTheme = document.getElementById('mobileThemeToggle');
+                const micon = mobileTheme ? mobileTheme.querySelector('i') : null;
+                if(micon){
+                    if(isDark){ micon.classList.remove('fa-moon'); micon.classList.add('fa-sun'); }
+                    else { micon.classList.remove('fa-sun'); micon.classList.add('fa-moon'); }
+                }
+            }catch(e){}
         }
         
         // Initialize theme on page load
@@ -1667,6 +1597,8 @@
         const mobileMenu = document.querySelector('.mobile-menu');
         const navLinks = document.querySelector('.nav-links');
         const navOverlay = document.getElementById('navOverlay');
+        const mobileThemeToggle = document.getElementById('mobileThemeToggle');
+    
 
         // initialize accessibility attributes
         if (mobileMenu) mobileMenu.setAttribute('aria-expanded', 'false');
@@ -1692,6 +1624,22 @@
             // Hamburger only opens the mobile nav; closing is handled by the X button only
             mobileMenu.addEventListener('click', () => {
                 openMobileNav();
+            });
+        }
+
+        // (mobile login link removed)
+
+        // wire mobile theme toggle inside the nav to the existing theme toggle behavior
+        if(mobileThemeToggle){
+            mobileThemeToggle.addEventListener('click', function(e){
+                e.preventDefault();
+                try{ closeMobileNav(); } catch(e) {}
+                // reuse existing toggle handler
+                const themeToggleBtn = document.getElementById('themeToggle');
+                if(themeToggleBtn){ themeToggleBtn.click(); return; }
+                // fallback: toggle dark-mode and update icons
+                const isDark = document.body.classList.toggle('dark-mode');
+                updateThemeIcon(isDark);
             });
         }
 
@@ -1724,12 +1672,29 @@
         
         bookingForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            // Collect form data
+
+            const submitBtn = bookingForm.querySelector('button[type="submit"]');
+            const originalBtnText = submitBtn ? submitBtn.textContent : 'Book Now';
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Submitting...'; }
+
+            // Collect form data and use registered user details when available
+            let authUser = null;
+            try { authUser = JSON.parse(localStorage.getItem('authUser') || 'null'); } catch (e) { authUser = null; }
+            const userName = authUser ? (authUser.name || authUser.phone || '') : '';
+            const userEmail = authUser ? (authUser.email || '') : '';
+
+            // If there's no authenticated user, prompt to sign in/register
+            if (!userName) {
+                alert('Please sign in or register before booking.');
+                const loginBtn = document.getElementById('loginBtn');
+                if (loginBtn) { loginBtn.click(); }
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
+                return;
+            }
+
             const formData = {
-                name: document.getElementById('name').value,
-                email: document.getElementById('email').value,
-                whatsapp: document.getElementById('whatsapp').value,
+                name: userName,
+                email: userEmail,
                 pickup: document.getElementById('pickup').value,
                 destination: document.getElementById('destination').value,
                 serviceType: document.getElementById('serviceType').value,
@@ -1738,31 +1703,36 @@
             };
 
             try {
-                // Create WhatsApp message
-                const message = `🚕 New Booking Request\n\n` +
-                    `Customer Details:\n` +
-                    `👤 Name: ${formData.name}\n` +
-                    `📞 WhatsApp: ${formData.whatsapp}\n` +
-                    `📍 Pickup: ${formData.pickup}\n` +
-                    `🏁 Destination: ${formData.destination}\n` +
-                    `🚖 Service: ${formData.serviceType}\n` +
-                        `💰 Estimated Price: ${document.getElementById('priceDisplay').textContent}\n` +
-                    `📅 Date: ${formData.date}\n` +
-                    `⏰ Time: ${formData.time}\n\n` +
-                    `Please confirm my booking. Thank you!`;
+                // Send booking to server
+                const estimatedPrice = document.getElementById('priceDisplay')?.innerText || '';
+                const resp = await fetch('/api/bookings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: formData.name,
+                        email: formData.email,
+                        pickup: formData.pickup,
+                        destination: formData.destination,
+                        serviceType: formData.serviceType,
+                        date: formData.date,
+                        time: formData.time,
+                        estimatedPrice
+                    })
+                });
 
-                // Ensure the business phone number is clean (only digits)
-                const businessPhoneNumber = '256788408032';
-                
-                // Open WhatsApp with the booking message using the standard wa.me format
-                const whatsappUrl = `https://wa.me/${businessPhoneNumber}?text=${encodeURIComponent(message)}`;
-                window.open(whatsappUrl, '_blank');
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || `Server responded with status ${resp.status}`);
+                }
 
-                alert('Thank you for your booking! We will contact you shortly via WhatsApp to confirm your ride.');
+                const created = await resp.json();
+                alert('Thank you, ' + (created.name || '') + '! Your booking was submitted.');
                 bookingForm.reset();
             } catch (error) {
                 console.error('Booking error:', error);
-                alert('Sorry, there was an error submitting your booking. Please try again.');
+                alert('Sorry, there was an error submitting your booking: ' + (error.message || String(error)));
+            } finally {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
             }
         });
 
@@ -1833,10 +1803,10 @@
             function openModal(type, value) {
                 modal.setAttribute('aria-hidden', 'false');
                 modal.classList.add('open');
-                modalDetails.innerHTML = `<div style="margin-bottom:8px"><strong>${type === 'email' ? 'Email' : type === 'whatsapp' ? 'WhatsApp' : 'Phone'}</strong></div><div class="contact-value">${value}</div>`;
+                modalDetails.innerHTML = `<div style="margin-bottom:8px"><strong>${type === 'email' ? 'Email' : 'Phone'}</strong></div><div class="contact-value">${value}</div>`;
                 modalActions.innerHTML = '';
 
-                if (type === 'phone') {
+                if (type === 'phone' || type === 'whatsapp') {
                     const callBtn = document.createElement('a');
                     callBtn.className = 'btn';
                     callBtn.href = `tel:${value.replace(/\s+/g,'')}`;
@@ -1848,22 +1818,6 @@
                     smsBtn.href = `sms:${value.replace(/\s+/g,'')}`;
                     smsBtn.textContent = 'Send SMS';
                     modalActions.appendChild(smsBtn);
-                } else if (type === 'whatsapp') {
-                    const waBtn = document.createElement('a');
-                    waBtn.className = 'btn';
-                    // Ensure the number doesn't have spaces or special characters
-                    const cleanNumber = value.replace(/\D/g, '');
-                    waBtn.href = `https://wa.me/${cleanNumber}`;
-                    waBtn.target = '_blank';
-                    waBtn.rel = 'noopener noreferrer';
-                    waBtn.textContent = 'Start WhatsApp Chat';
-                    modalActions.appendChild(waBtn);
-
-                    const callBtn = document.createElement('a');
-                    callBtn.className = 'btn btn-outline';
-                    callBtn.href = `tel:+${value.replace(/\D/g, '')}`;
-                    callBtn.textContent = 'Call';
-                    modalActions.appendChild(callBtn);
                 } else if (type === 'email') {
                     const mailBtn = document.createElement('a');
                     mailBtn.className = 'btn';
@@ -1977,5 +1931,258 @@
             // which fetches from /api/calculate-price endpoint on server
         });
     </script>
+        <!-- Auth Modal -->
+        <div class="auth-backdrop" id="authBackdrop" aria-hidden="true">
+            <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+                <div class="auth-header">
+                    <div class="auth-title" id="authTitle">Welcome</div>
+                    <button class="auth-close" id="authClose" aria-label="Close">&times;</button>
+                </div>
+                <div class="auth-body">
+                    <div class="auth-tabs" role="tablist">
+                        <div class="auth-tab active" data-target="login" role="tab">Login</div>
+                        <div class="auth-tab" data-target="register" role="tab">Register</div>
+                    </div>
+
+                    <form class="auth-form" id="loginForm" data-form="login">
+                        <div class="form-group">
+                            <label for="loginEmail">Email or Phone</label>
+                            <input id="loginEmail" name="identifier" type="text" placeholder="you@example.com or 2567xxxxxxx" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input id="loginPassword" name="password" type="password" placeholder="••••••••" required>
+                        </div>
+                        <div class="auth-actions">
+                            <button class="btn" type="submit">Sign In</button>
+                            <a href="#" class="auth-aux" id="forgotLink">Forgot?</a>
+                        </div>
+                    </form>
+
+                    <form class="auth-form" id="registerForm" data-form="register" style="display:none;">
+                        <div class="form-group">
+                            <label for="regName">Full name</label>
+                            <input id="regName" name="name" type="text" placeholder="Your full name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="regPhone">Phone</label>
+                            <input id="regPhone" name="phone" type="text" placeholder="2567xxxxxxx" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="regEmail">Email</label>
+                            <input id="regEmail" name="email" type="email" placeholder="you@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="regPassword">Password</label>
+                            <input id="regPassword" name="password" type="password" placeholder="Create a password" required>
+                        </div>
+                        <div class="auth-actions">
+                            <button class="btn" type="submit">Create Account</button>
+                            <div class="auth-aux">By creating an account you agree to our <a href="privacy-policy.html">Privacy</a>.</div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            (function(){
+                const openBtn = document.getElementById('loginBtn');
+                const backdrop = document.getElementById('authBackdrop');
+                const closeBtn = document.getElementById('authClose');
+                const tabs = Array.from(document.querySelectorAll('.auth-tab'));
+                const loginForm = document.getElementById('loginForm');
+                const registerForm = document.getElementById('registerForm');
+
+                // create error container
+                let authError = document.getElementById('authError');
+                if(!authError){
+                    authError = document.createElement('div');
+                    authError.id = 'authError';
+                    authError.className = 'auth-error';
+                    authError.style.display = 'none';
+                    authError.style.color = '#ef4444';
+                    authError.style.marginBottom = '10px';
+                    const body = document.querySelector('.auth-body');
+                    body.insertBefore(authError, body.firstChild);
+                }
+
+                function showModal(tab){
+                    backdrop.style.display = 'flex';
+                    backdrop.setAttribute('aria-hidden','false');
+                    document.body.style.overflow = 'hidden';
+                    setActiveTab(tab || 'login');
+                    clearError();
+                }
+
+                function closeModal(){
+                    backdrop.style.display = 'none';
+                    backdrop.setAttribute('aria-hidden','true');
+                    document.body.style.overflow = '';
+                }
+
+                function setActiveTab(name){
+                    tabs.forEach(t => {
+                        const target = t.getAttribute('data-target');
+                        if(target === name){ t.classList.add('active'); }
+                        else { t.classList.remove('active'); }
+                    });
+                    if(name === 'login'){
+                        loginForm.style.display = 'block'; registerForm.style.display = 'none';
+                    } else {
+                        loginForm.style.display = 'none'; registerForm.style.display = 'block';
+                    }
+                    clearError();
+                }
+
+                function clearError(){ authError.style.display = 'none'; authError.textContent = ''; }
+                function showError(msg){ authError.textContent = msg || 'An error occurred'; authError.style.display = 'block'; }
+
+                async function postJSON(url, data){
+                    try{
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(data)
+                        });
+                        let json = null;
+                        try{ json = await res.json(); } catch(e) { json = null; }
+                        return { ok: res.ok, status: res.status, json };
+                    } catch(err){
+                        return { ok: false, error: err };
+                    }
+                }
+
+                function updateAuthUI(){
+                    try{
+                        const raw = localStorage.getItem('authUser');
+                        if(!raw){
+                            openBtn.textContent = 'Login';
+                            openBtn.classList.remove('user-btn');
+                            openBtn.setAttribute('aria-label','Open login');
+                            return;
+                        }
+                        const user = JSON.parse(raw);
+                        const display = (user && (user.name || user.phone)) ? (user.name || user.phone) : 'Account';
+                            openBtn.textContent = display;
+                        openBtn.classList.add('user-btn');
+                        openBtn.setAttribute('aria-label','User menu');
+                    }catch(e){
+                        openBtn.textContent = 'Login';
+                        openBtn.classList.remove('user-btn');
+                    }
+                }
+
+                // click handler: if not authenticated, open login modal; if authenticated, show a small menu (logout)
+                openBtn?.addEventListener('click', function(e){
+                    e.preventDefault();
+                    try{
+                        const raw = localStorage.getItem('authUser');
+                        if(!raw){
+                            showModal('login');
+                            return;
+                        }
+                        // simple prompt-based menu: allow logout or go to profile
+                        const user = JSON.parse(raw);
+                        const choice = window.confirm("Sign out from " + (user.name || user.phone) + "? Click OK to sign out, Cancel to keep signed in.");
+                        if(choice){
+                            localStorage.removeItem('authToken');
+                            localStorage.removeItem('authUser');
+                            location.reload();
+                        }
+                    }catch(err){
+                        showModal('login');
+                    }
+                });
+
+                // initialize auth UI on load
+                updateAuthUI();
+                // adapt login button appearance for small screens (icon-only) and restore on larger screens
+                function adaptLoginForSmallScreens(){
+                    try{
+                        const btn = document.getElementById('loginBtn');
+                        if(!btn) return;
+                        if(window.innerWidth <= 768){
+                            if(!btn.dataset.origText) btn.dataset.origText = btn.textContent;
+                            // replace content with user icon for compact display
+                            btn.innerHTML = '<i class="fas fa-user" aria-hidden="true"></i>';
+                            btn.setAttribute('aria-label', 'Open login');
+                        } else {
+                            if(btn.dataset.origText){ btn.textContent = btn.dataset.origText; delete btn.dataset.origText; }
+                            btn.setAttribute('aria-label', 'Open login');
+                        }
+                    }catch(e){}
+                }
+                adaptLoginForSmallScreens();
+                window.addEventListener('resize', adaptLoginForSmallScreens);
+                closeBtn?.addEventListener('click', closeModal);
+                backdrop?.addEventListener('click', function(e){ if(e.target === backdrop) closeModal(); });
+                tabs.forEach(t => t.addEventListener('click', () => setActiveTab(t.getAttribute('data-target'))));
+
+                loginForm?.addEventListener('submit', async function(e){
+                    e.preventDefault();
+                    clearError();
+                    const submitBtn = loginForm.querySelector('button[type=submit]');
+                    const origText = submitBtn.textContent;
+                    submitBtn.textContent = 'Signing in...';
+                    submitBtn.disabled = true;
+
+                    const identifier = document.getElementById('loginEmail').value.trim();
+                    const password = document.getElementById('loginPassword').value;
+                    if(!identifier || !password){ showError('Please enter both identifier and password'); submitBtn.textContent = origText; submitBtn.disabled = false; return; }
+
+                    const res = await postJSON('/api/auth/login', { identifier, password });
+                    if(res.ok && res.json && res.json.token){
+                        localStorage.setItem('authToken', res.json.token);
+                        if(res.json.user) localStorage.setItem('authUser', JSON.stringify(res.json.user));
+                        if(res.json.redirect) window.location.href = res.json.redirect;
+                        else { closeModal(); location.reload(); }
+                    } else {
+                        const msg = (res.json && (res.json.message || res.json.error)) || (res.error && res.error.message) || 'Invalid credentials';
+                        showError(msg);
+                        submitBtn.textContent = origText;
+                        submitBtn.disabled = false;
+                    }
+                });
+
+                registerForm?.addEventListener('submit', async function(e){
+                    e.preventDefault();
+                    clearError();
+                    const submitBtn = registerForm.querySelector('button[type=submit]');
+                    const origText = submitBtn.textContent;
+                    submitBtn.textContent = 'Creating...';
+                    submitBtn.disabled = true;
+
+                    const name = document.getElementById('regName').value.trim();
+                    const phone = document.getElementById('regPhone').value.trim();
+                    const email = document.getElementById('regEmail').value.trim();
+                    const password = document.getElementById('regPassword').value;
+
+                    if(!name || !phone || !password){ showError('Name, phone and password are required'); submitBtn.textContent = origText; submitBtn.disabled = false; return; }
+
+                    const res = await postJSON('/api/auth/register', { name, phone, email, password });
+                    if(res.ok && res.json){
+                        // If server returns token, store and redirect; otherwise show success and switch to login
+                        if(res.json.token){
+                            localStorage.setItem('authToken', res.json.token);
+                            if(res.json.user) localStorage.setItem('authUser', JSON.stringify(res.json.user));
+                            if(res.json.redirect) window.location.href = res.json.redirect;
+                            else { closeModal(); location.reload(); }
+                        } else {
+                            // show message then switch to login
+                            showError(res.json.message || 'Account created. Please sign in.');
+                            submitBtn.textContent = origText;
+                            submitBtn.disabled = false;
+                            setActiveTab('login');
+                        }
+                    } else {
+                        const msg = (res.json && (res.json.message || res.json.error)) || (res.error && res.error.message) || 'Registration failed';
+                        showError(msg);
+                        submitBtn.textContent = origText;
+                        submitBtn.disabled = false;
+                    }
+                });
+            })();
+        </script>
 </body>
 </html>

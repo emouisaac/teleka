@@ -6,8 +6,23 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware to parse JSON bodies
-app.use(express.json());
+// Middleware to parse JSON bodies and capture the raw body for debugging
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, res, buf) => {
+    try { req.rawBody = buf.toString(); } catch (e) { req.rawBody = '' + buf; }
+  }
+}));
+// Also accept URL-encoded bodies
+app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { try { req.rawBody = req.rawBody || buf.toString(); } catch(e){ req.rawBody = req.rawBody || '' + buf; } } }));
+
+// Simple request logger to help debug incoming requests
+app.use((req, res, next) => {
+  try {
+    console.log('[req] %s %s', req.method, req.url);
+  } catch (e) {}
+  next();
+});
 
 // Serve static files from the root and ims directory
 app.use(express.static(path.join(__dirname)));
@@ -214,6 +229,228 @@ app.get('/api/places/nearby', async (req, res) => {
   }
 });
 
+// --- Simple auth endpoints (file-backed) ---
+const USERS_FILE = path.join(__dirname, 'data', 'users.json');
+const crypto = require('crypto');
+
+function readUsers() {
+  try {
+    if (!fs.existsSync(USERS_FILE)) {
+      try { fs.mkdirSync(path.dirname(USERS_FILE), { recursive: true }); } catch (e) {}
+      fs.writeFileSync(USERS_FILE, '[]', 'utf8');
+    }
+    const raw = fs.readFileSync(USERS_FILE, 'utf8');
+    return JSON.parse(raw || '[]');
+  } catch (err) {
+    console.error('[users] readUsers error', err);
+    return [];
+  }
+}
+
+function writeUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+}
+
+function hashPassword(password, salt=null) {
+  salt = salt || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return { salt, hash };
+}
+
+function verifyPassword(password, salt, hash) {
+  const h = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(h, 'hex'), Buffer.from(hash, 'hex'));
+}
+
+function signToken(payload) {
+  // simple token: base64(payload) + '.' + hmac
+  const secret = process.env.AUTH_SECRET || 'dev-secret-change-me';
+  const json = JSON.stringify(payload);
+  const b64 = Buffer.from(json).toString('base64');
+  const sig = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
+  return `${b64}.${sig}`;
+}
+
+function sanitizeUser(user) {
+  const u = Object.assign({}, user);
+  delete u.passwordHash; delete u.salt;
+  return u;
+}
+
+// --- Admin credential handling (file-backed, salted hash)
+const ADMIN_FILE = path.join(__dirname, 'data', 'admin.json');
+
+function readAdmin() {
+  try {
+    if (!fs.existsSync(ADMIN_FILE)) return null;
+    const raw = fs.readFileSync(ADMIN_FILE, 'utf8');
+    return JSON.parse(raw || 'null');
+  } catch (err) {
+    console.error('[admin] readAdmin error', err);
+    return null;
+  }
+}
+
+function writeAdmin(admin) {
+  fs.writeFileSync(ADMIN_FILE, JSON.stringify(admin, null, 2), 'utf8');
+}
+
+function ensureAdminCredential(){
+  // Priority: env ADMIN_PASSWORD > existing file > generate a random password
+  try{
+    const envPass = process.env.ADMIN_PASSWORD;
+    const envEmail = process.env.ADMIN_EMAIL;
+    let admin = readAdmin();
+    // If admin exists and has credentials, leave as-is
+    if(admin && admin.hash && admin.salt && admin.email) return { plain: null, admin };
+
+    // Use environment variables if provided
+    if(envPass || envEmail){
+      const password = envPass || envPass === '' ? envPass : null;
+      const email = envEmail || '';
+      if(password){
+        const { salt, hash } = hashPassword(password);
+        admin = { id: 'admin', email: email || 'admin@local', salt, hash, createdAt: new Date().toISOString() };
+        writeAdmin(admin);
+        console.log('[admin] ADMIN credentials taken from environment and stored (hashed) in data/admin.json');
+        return { plain: null, admin };
+      }
+    }
+
+    // If no admin file, create one with a default admin from user request
+    // Default admin per request: email 'emouisaac1@gmail.com' password 'Ap.23082017.'
+    const defaultEmail = 'emouisaac1@gmail.com';
+    const defaultPassword = 'Ap.23082017.';
+    const { salt, hash } = hashPassword(defaultPassword);
+    admin = { id: 'admin', email: defaultEmail, salt, hash, createdAt: new Date().toISOString() };
+    try { writeAdmin(admin); } catch(e) { console.error('[admin] failed to write admin file', e); }
+    console.log('[admin] Admin credential created with provided default email and password (stored hashed)');
+    return { plain: null, admin };
+  }catch(err){
+    console.error('[admin] ensureAdminCredential error', err);
+    return { plain: null, admin: null };
+  }
+}
+
+function verifyAdminPassword(password){
+  try{
+    const admin = readAdmin();
+    if(!admin || !admin.salt || !admin.hash) return false;
+    return verifyPassword(password, admin.salt, admin.hash);
+  }catch(e){
+    return false;
+  }
+}
+
+// Ensure admin credential exists on startup
+// (will be invoked after `fs` is defined to avoid module initialization order issues)
+
+// Register
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { name, phone, email, password } = req.body || {};
+    if (!name || !phone || !password) return res.status(400).json({ message: 'Name, phone and password are required' });
+
+    const users = readUsers();
+    // prevent duplicate phone or email
+    if (users.find(u => u.phone === phone)) return res.status(409).json({ message: 'Phone already registered' });
+    if (email && users.find(u => u.email && u.email.toLowerCase() === (email||'').toLowerCase())) return res.status(409).json({ message: 'Email already registered' });
+
+    const { salt, hash } = hashPassword(password);
+    const now = new Date().toISOString();
+    const newUser = {
+      id: String(Date.now()),
+      name: name.toString(),
+      phone: phone.toString(),
+      email: email ? email.toString().toLowerCase() : '',
+      passwordHash: hash,
+      salt,
+      createdAt: now,
+      updatedAt: now
+    };
+    users.push(newUser);
+    writeUsers(users);
+
+    // Optionally sign a token and return it
+    const token = signToken({ sub: newUser.id, iat: Math.floor(Date.now()/1000) });
+    return res.status(201).json({ message: 'Account created', token, user: sanitizeUser(newUser) });
+  } catch (err) {
+    console.error('[auth register] error', err && err.stack ? err.stack : err);
+    return res.status(500).json({ message: 'Registration failed' });
+  }
+});
+
+// Login
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { identifier, password } = req.body || {};
+    if (!identifier || !password) return res.status(400).json({ message: 'Identifier and password are required' });
+
+    // Allow an 'admin' identifier to authenticate against admin credential
+    const id = identifier.toString();
+    if(id.toLowerCase() === 'admin' || id.toLowerCase() === 'administrator'){
+      if(verifyAdminPassword(password)){
+        const admin = readAdmin();
+        const adminEmail = admin && admin.email ? admin.email : 'admin@local';
+        const adminUser = { id: 'admin', name: 'Administrator', email: adminEmail, role: 'admin', createdAt: new Date().toISOString() };
+        const token = signToken({ sub: adminUser.id, role: 'admin', iat: Math.floor(Date.now()/1000) });
+        return res.json({ token, user: sanitizeUser(adminUser) });
+      }
+      return res.status(401).json({ message: 'Invalid admin credentials' });
+    }
+
+    // Also accept login when identifier matches admin email
+    const maybeAdmin = readAdmin();
+    if(maybeAdmin && maybeAdmin.email && id.toLowerCase() === (maybeAdmin.email||'').toLowerCase()){
+      if(verifyAdminPassword(password)){
+        const adminUser = { id: 'admin', name: 'Administrator', email: maybeAdmin.email, role: 'admin', createdAt: new Date().toISOString() };
+        const token = signToken({ sub: adminUser.id, role: 'admin', iat: Math.floor(Date.now()/1000) });
+        return res.json({ token, user: sanitizeUser(adminUser) });
+      }
+      return res.status(401).json({ message: 'Invalid admin credentials' });
+    }
+
+    const users = readUsers();
+    const user = users.find(u => u.phone === id || (u.email && u.email.toLowerCase() === id.toLowerCase()));
+    if (!user) return res.status(401).json({ message: 'Invalid credentials' });
+
+    const ok = verifyPassword(password, user.salt, user.passwordHash);
+    if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
+
+    const token = signToken({ sub: user.id, iat: Math.floor(Date.now()/1000) });
+    return res.json({ token, user: sanitizeUser(user) });
+  } catch (err) {
+    console.error('[auth login] error', err && err.stack ? err.stack : err);
+    return res.status(500).json({ message: 'Login failed' });
+  }
+});
+
+// Quick test register via query params (useful from PowerShell/browser)
+app.get('/api/auth/register-test', (req, res) => {
+  try {
+    const name = (req.query.name || '').toString();
+    const phone = (req.query.phone || '').toString();
+    const email = (req.query.email || '').toString();
+    const password = (req.query.password || '').toString();
+    if (!name || !phone || !password) return res.status(400).json({ message: 'name, phone and password are required as query params' });
+
+    const users = readUsers();
+    if (users.find(u => u.phone === phone)) return res.status(409).json({ message: 'Phone already registered' });
+    if (email && users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase())) return res.status(409).json({ message: 'Email already registered' });
+
+    const { salt, hash } = hashPassword(password);
+    const now = new Date().toISOString();
+    const newUser = { id: String(Date.now()), name, phone, email: email ? email.toLowerCase() : '', passwordHash: hash, salt, createdAt: now, updatedAt: now };
+    users.push(newUser);
+    writeUsers(users);
+    const token = signToken({ sub: newUser.id, iat: Math.floor(Date.now()/1000) });
+    return res.status(201).json({ message: 'Account created', token, user: sanitizeUser(newUser) });
+  } catch (err) {
+    console.error('[auth register-test] error', err);
+    return res.status(500).json({ message: 'Registration failed' });
+  }
+});
+
 // Quick test endpoint: compute price from a given distance (km) and optional traffic level
 app.get('/api/price-from-distance', (req, res) => {
   try {
@@ -230,11 +467,267 @@ app.get('/api/price-from-distance', (req, res) => {
   }
 });
 
+// --- Bookings storage and SSE (server-sent events) ---
+const fs = require('fs');
+// Ensure admin credential exists on startup (fs is now available)
+try{ ensureAdminCredential(); } catch(e){ console.error('[admin] ensureAdminCredential failed at startup', e); }
+const BOOKINGS_FILE = path.join(__dirname, 'data', 'bookings.json');
+
+// Notification helpers (email + SMS)
+const nodemailer = require('nodemailer');
+
+async function sendEmailNotification(booking){
+  try{
+    // Require SMTP config via env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO
+    const host = process.env.SMTP_HOST;
+    if(!host) return; // SMTP not configured
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const secure = (process.env.SMTP_SECURE === 'true');
+    const user = process.env.SMTP_USER || '';
+    const pass = process.env.SMTP_PASS || '';
+    const to = process.env.EMAIL_TO || process.env.ADMIN_EMAIL || '';
+    if(!to) { console.log('[notify] EMAIL_TO not configured, skipping email'); return; }
+
+    const transporter = nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined });
+    const subject = `Teleka: New booking — ${booking.name} (${booking.pickup} → ${booking.destination})`;
+    const adminUrl = `http://localhost:${PORT}/admin/`;
+    const text = `New booking received:\n\nName: ${booking.name}\nEmail: ${booking.email || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nService: ${booking.serviceType || 'N/A'}\nDate & Time: ${booking.date || ''} ${booking.time || ''}\nStatus: ${booking.status || 'pending'}\nCreated: ${booking.createdAt}\n\nOpen admin dashboard: ${adminUrl}`;
+    const html = `
+      <p><strong>New booking received</strong></p>
+      <ul>
+        <li><strong>Name:</strong> ${booking.name}</li>
+        <li><strong>Email:</strong> ${booking.email || 'N/A'}</li>
+        <li><strong>Pickup:</strong> ${booking.pickup}</li>
+        <li><strong>Destination:</strong> ${booking.destination}</li>
+        <li><strong>Service:</strong> ${booking.serviceType || 'N/A'}</li>
+        <li><strong>Date & Time:</strong> ${booking.date || ''} ${booking.time || ''}</li>
+        <li><strong>Status:</strong> ${booking.status || 'pending'}</li>
+      </ul>
+      <p>Open the <a href="${adminUrl}">admin dashboard</a> to view details.</p>
+    `;
+
+    const from = process.env.EMAIL_FROM || user || `no-reply@${require('os').hostname()}`;
+    await transporter.sendMail({ from, to, subject, text, html });
+    console.log('[notify] email sent to', to);
+  }catch(err){ console.error('[notify] sendEmailNotification failed', err && err.stack ? err.stack : err); }
+}
+
+async function sendSmsNotification(booking){
+  try{
+    // Expect TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, SMS_RECIPIENT
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const from = process.env.TWILIO_FROM;
+    const to = process.env.SMS_RECIPIENT || '+256788408032';
+    if(!sid || !token || !from) return; // Twilio not configured
+
+    const twilio = require('twilio')(sid, token);
+    const body = `New booking: ${booking.name} — ${booking.pickup} → ${booking.destination}. Status: ${booking.status || 'pending'}`;
+    await twilio.messages.create({ body, from, to });
+    console.log('[notify] SMS sent to', to);
+  }catch(err){ console.error('[notify] sendSmsNotification failed', err && err.stack ? err.stack : err); }
+}
+
+function readBookings() {
+  try {
+    if (!fs.existsSync(BOOKINGS_FILE)) {
+      // ensure directory exists
+      try { fs.mkdirSync(path.dirname(BOOKINGS_FILE), { recursive: true }); } catch (e) {}
+      fs.writeFileSync(BOOKINGS_FILE, '[]', 'utf8');
+    }
+    const raw = fs.readFileSync(BOOKINGS_FILE, 'utf8');
+    return JSON.parse(raw || '[]');
+  } catch (err) {
+    console.error('[bookings] readBookings error', err);
+    return [];
+  }
+}
+
+function writeBookings(bookings) {
+  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2), 'utf8');
+}
+
+// SSE clients
+const sseClients = new Set();
+
+// Get all bookings
+app.get('/api/bookings', (req, res) => {
+  const bookings = readBookings();
+  res.json(bookings);
+});
+
+// Test notification endpoint: triggers email and SMS for the latest booking or provided id
+app.get('/api/notify-test', (req, res) => {
+  try {
+    const bookings = readBookings();
+    let booking = null;
+    const id = req.query.id;
+    if (id) booking = bookings.find(b => b._id === id);
+    if (!booking) booking = bookings[0];
+    if (!booking) return res.status(404).json({ error: 'No bookings to notify about' });
+
+    // fire-and-forget
+    sendEmailNotification(booking).catch(e => console.error('[notify-test] email error', e));
+    sendSmsNotification(booking).catch(e => console.error('[notify-test] sms error', e));
+
+    res.json({ success: true, booking });
+  } catch (err) {
+    console.error('[notify-test] failed', err);
+    res.status(500).json({ error: 'notify-test failed', detail: err && err.message });
+  }
+});
+
+// Stream bookings via SSE for admin real-time notifications
+app.get('/api/bookings/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const clientId = Date.now() + Math.random();
+  const client = { id: clientId, res };
+  sseClients.add(client);
+
+  req.on('close', () => {
+    sseClients.delete(client);
+  });
+});
+
+// Create a new booking
+app.post('/api/bookings', (req, res) => {
+  try {
+    const data = req.body;
+    console.log('[bookings] create request body:', data);
+    // Basic validation
+    if (!data || typeof data !== 'object') {
+      console.warn('[bookings] invalid payload');
+      return res.status(400).json({ error: 'Invalid booking payload' });
+    }
+    const name = (data.name || '').toString().trim();
+    const pickup = (data.pickup || '').toString().trim();
+    const destination = (data.destination || '').toString().trim();
+    if (!name || !pickup || !destination) {
+      console.warn('[bookings] missing required fields', { name, pickup, destination });
+      return res.status(400).json({ error: 'Missing required booking fields: name, pickup and destination are required' });
+    }
+
+    const bookings = readBookings();
+    const now = new Date().toISOString();
+    const newBooking = {
+      _id: String(Date.now()),
+      name: data.name,
+      email: data.email || '',
+      pickup: data.pickup,
+      destination: data.destination,
+      serviceType: data.serviceType || '',
+      date: data.date || '',
+      time: data.time || '',
+      estimatedPrice: data.estimatedPrice || '',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    bookings.unshift(newBooking);
+    try {
+      writeBookings(bookings);
+    } catch (writeErr) {
+      console.error('[bookings] failed to persist booking', writeErr);
+      return res.status(500).json({ error: 'Failed to persist booking' });
+    }
+
+    // Send email & SMS notifications (best-effort, only if configured)
+    try { sendEmailNotification(newBooking); } catch(e){ console.error('[notify] email call failed', e); }
+    try { sendSmsNotification(newBooking); } catch(e){ console.error('[notify] sms call failed', e); }
+
+    // Notify SSE clients
+    const payload = JSON.stringify(newBooking);
+    for (const client of sseClients) {
+      try {
+        client.res.write(`event: new-booking\ndata: ${payload}\n\n`);
+      } catch (err) {
+        // ignore write errors
+      }
+    }
+
+    res.status(201).json(newBooking);
+  } catch (err) {
+    console.error('[bookings] unhandled error in create booking:', err && err.stack ? err.stack : err);
+    res.status(500).json({ error: 'Failed to create booking', detail: err && err.message ? err.message : String(err) });
+  }
+});
+
+// Debug helper: create booking via query params (bypass JSON body parsing issues)
+app.get('/api/bookings/create-test', (req, res) => {
+  try {
+    const name = (req.query.name || 'Test').toString();
+    const pickup = (req.query.pickup || 'X').toString();
+    const destination = (req.query.destination || 'Y').toString();
+    const bookings = readBookings();
+    const now = new Date().toISOString();
+    const newBooking = {
+      _id: String(Date.now()),
+      name, email: req.query.email || '', pickup, destination,
+      serviceType: req.query.serviceType || '', date: req.query.date || '', time: req.query.time || '',
+      estimatedPrice: req.query.estimatedPrice || '', status: 'pending', createdAt: now, updatedAt: now
+    };
+    bookings.unshift(newBooking);
+    writeBookings(bookings);
+    // notify
+    // Send email & SMS notifications (best-effort, only if configured)
+    try { sendEmailNotification(newBooking); } catch(e){ console.error('[notify] email call failed', e); }
+    try { sendSmsNotification(newBooking); } catch(e){ console.error('[notify] sms call failed', e); }
+
+    const payload = JSON.stringify(newBooking);
+    for (const client of sseClients) {
+      try { client.res.write(`event: new-booking\ndata: ${payload}\n\n`); } catch (e) {}
+    }
+    res.json(newBooking);
+  } catch (err) {
+    console.error('[bookings debug] create-test failed', err);
+    res.status(500).json({ error: 'create-test failed', detail: err && err.message });
+  }
+});
+
+// Delete booking by id
+app.delete('/api/bookings/:id', (req, res) => {
+  try {
+    const id = req.params.id;
+    let bookings = readBookings();
+    const idx = bookings.findIndex(b => b._id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Booking not found' });
+    bookings.splice(idx, 1);
+    writeBookings(bookings);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete booking' });
+  }
+});
+
+// Clear-all bookings (admin)
+app.post('/api/bookings/clear-all', (req, res) => {
+  try {
+    writeBookings([]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear bookings' });
+  }
+});
+
 app.listen(PORT, () => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
     console.warn('\x1b[33m%s\x1b[0m', 'Warning: GOOGLE_MAPS_API_KEY environment variable is not set');
   }
   console.log(`Teleka Taxi server running on http://localhost:${PORT}`);
+});
+
+// Body-parser / JSON parse error handler — return JSON with raw body snippet to aid debugging
+app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.parse.failed' || err instanceof SyntaxError)) {
+    console.warn('[body-parser] JSON parse error. rawBody=', (req && req.rawBody) ? req.rawBody.slice(0,200) : '<empty>');
+    return res.status(400).json({ error: 'Invalid JSON payload', raw: req.rawBody ? req.rawBody.slice(0,200) : '' });
+  }
+  next(err);
 });
 
 
