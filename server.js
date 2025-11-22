@@ -704,6 +704,32 @@ app.delete('/api/bookings/:id', (req, res) => {
   }
 });
 
+// Confirm booking by id (mark status as 'confirmed')
+app.post('/api/bookings/:id/confirm', (req, res) => {
+  try {
+    const id = req.params.id;
+    const bookings = readBookings();
+    const idx = bookings.findIndex(b => b._id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Booking not found' });
+    bookings[idx].status = 'confirmed';
+    bookings[idx].updatedAt = new Date().toISOString();
+    writeBookings(bookings);
+
+    // Optionally notify SSE clients about update
+    try {
+      const payload = JSON.stringify(bookings[idx]);
+      for (const client of sseClients) {
+        try { client.res.write(`event: booking-updated\ndata: ${payload}\n\n`); } catch (e) {}
+      }
+    } catch (e) {}
+
+    res.json(bookings[idx]);
+  } catch (err) {
+    console.error('[bookings] confirm error', err);
+    res.status(500).json({ error: 'Failed to confirm booking' });
+  }
+});
+
 // Clear-all bookings (admin)
 app.post('/api/bookings/clear-all', (req, res) => {
   try {

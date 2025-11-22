@@ -764,13 +764,15 @@
             <div class="modal-body" id="detailModalBody">
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="closeDetailModal()">Close</button>
+                        <button class="btn btn-success" id="confirmBtn" style="display:none;" onclick="confirmBooking()">Confirm</button>
+                        <button class="btn" onclick="closeDetailModal()">Close</button>
             </div>
         </div>
     </div>
 
     <script>
         let allBookings = [];
+        let currentDetailIndex = null;
 
         // Load bookings from server
         async function loadBookings() {
@@ -893,6 +895,13 @@
                     <div class="detail-value"><span class="badge badge-${booking.status || 'pending'}">${booking.status || 'Pending'}</span></div>
                 </div>
             `;
+            // store current index for actions like confirm
+            currentDetailIndex = index;
+            // show/hide confirm button depending on status
+            const confirmBtn = document.getElementById('confirmBtn');
+            if (confirmBtn) {
+                confirmBtn.style.display = (booking.status && booking.status.toLowerCase() === 'pending') ? 'inline-flex' : 'none';
+            }
             modal.classList.add('open');
         }
 
@@ -919,6 +928,38 @@
             } catch (error) {
                 console.error('Error deleting booking:', error);
                 alert('Error deleting booking: ' + error.message);
+            }
+        }
+
+        // Confirm booking (mark as confirmed)
+        async function confirmBooking() {
+            try {
+                if (currentDetailIndex === null) return;
+                const index = currentDetailIndex;
+                const booking = allBookings[index];
+                if (!booking) return alert('Booking not found');
+                if (!confirm('Confirm this booking?')) return;
+
+                const bookingId = booking._id || index;
+                const response = await fetch(`/api/bookings/${bookingId}/confirm`, { method: 'POST' });
+                if (!response.ok) {
+                    const txt = await response.text().catch(()=>null);
+                    throw new Error('Failed to confirm booking' + (txt ? (': '+txt) : ''));
+                }
+                const updated = await response.json();
+                // update local state
+                allBookings[index] = updated;
+                renderBookings(allBookings);
+                updateStats();
+                // update modal status badge
+                const confirmBtn = document.getElementById('confirmBtn');
+                if (confirmBtn) confirmBtn.style.display = 'none';
+                // refresh modal contents to show updated status
+                viewDetail(index);
+                alert('Booking confirmed');
+            } catch (error) {
+                console.error('Error confirming booking:', error);
+                alert('Error confirming booking: ' + (error && error.message));
             }
         }
 
