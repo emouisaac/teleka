@@ -528,6 +528,46 @@ async function sendSmsNotification(booking){
   }catch(err){ console.error('[notify] sendSmsNotification failed', err && err.stack ? err.stack : err); }
 }
 
+// Send notification to user when booking is confirmed (email + optional SMS to user's phone)
+async function sendBookingConfirmedNotification(booking){
+  try{
+    if(!booking) return;
+
+    // Email notification to user
+    const host = process.env.SMTP_HOST;
+    if(host && booking.email){
+      try{
+        const port = parseInt(process.env.SMTP_PORT || '587', 10);
+        const secure = (process.env.SMTP_SECURE === 'true');
+        const user = process.env.SMTP_USER || '';
+        const pass = process.env.SMTP_PASS || '';
+        const from = process.env.EMAIL_FROM || user || `no-reply@${require('os').hostname()}`;
+        const transporter = nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined });
+        const subject = `Teleka: Your booking is confirmed`;
+        const text = `Hello ${booking.name || ''},\n\nYour booking from ${booking.pickup} to ${booking.destination} on ${booking.date || ''} ${booking.time || ''} has been confirmed.\n\nStatus: confirmed\n\nThank you for choosing Teleka.`;
+        const html = `<p>Hello ${booking.name || ''},</p><p>Your booking from <strong>${booking.pickup}</strong> to <strong>${booking.destination}</strong> on <strong>${booking.date || ''} ${booking.time || ''}</strong> has been <strong>confirmed</strong>.</p><p>Status: <strong>confirmed</strong></p><p>Thank you for choosing Teleka.</p>`;
+        await transporter.sendMail({ from, to: booking.email, subject, text, html });
+        console.log('[notify] confirmation email sent to', booking.email);
+      }catch(err){ console.error('[notify] sendBookingConfirmedNotification email failed', err && err.stack ? err.stack : err); }
+    } else {
+      if(!booking.email) console.log('[notify] booking has no email; skipping user email notification');
+    }
+
+    // SMS to user's phone if provided and Twilio configured
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const fromPhone = process.env.TWILIO_FROM;
+    if(sid && token && fromPhone && booking.phone){
+      try{
+        const tw = require('twilio')(sid, token);
+        const body = `Your Teleka booking from ${booking.pickup} to ${booking.destination} on ${booking.date || ''} ${booking.time || ''} is confirmed.`;
+        await tw.messages.create({ body, from: fromPhone, to: booking.phone });
+        console.log('[notify] confirmation SMS sent to', booking.phone);
+      }catch(err){ console.error('[notify] sendBookingConfirmedNotification sms failed', err && err.stack ? err.stack : err); }
+    }
+  }catch(err){ console.error('[notify] sendBookingConfirmedNotification error', err && err.stack ? err.stack : err); }
+}
+
 function readBookings() {
   try {
     if (!fs.existsSync(BOOKINGS_FILE)) {
@@ -722,6 +762,8 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
         try { client.res.write(`event: booking-updated\ndata: ${payload}\n\n`); } catch (e) {}
       }
     } catch (e) {}
+    // Send notification to the booking owner (email/sms) - best-effort
+    try { sendBookingConfirmedNotification(bookings[idx]); } catch(e){ console.error('[bookings] notify confirm failed', e); }
 
     res.json(bookings[idx]);
   } catch (err) {
