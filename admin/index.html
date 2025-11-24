@@ -797,7 +797,11 @@
                         const soundOn = localStorage.getItem('soundEnabled') !== 'false';
                         if (soundOn) {
                             // play ringtone (audio must have been unlocked via a user gesture earlier)
-                            try{ playRingtone(); }catch(e){}
+                            try{
+                                // play immediately and then repeat until acknowledged or focus
+                                playRingtone();
+                                startRepeatingRingtone(6, 2000);
+                            }catch(e){}
                         }
 
                         // show a system notification for the newest booking when available
@@ -1159,7 +1163,7 @@
                 if(!C) return false;
                 const ctx = new C();
                 // set a modest gain so playback respects device speaker volume but is audible
-                const g = ctx.createGain(); g.gain.value = 0.18; g.connect(ctx.destination);
+                const g = ctx.createGain(); g.gain.value = 0.6; g.connect(ctx.destination);
                 window.__audioCtx = ctx; window.__audioGain = g;
                 // ensure context is resumed if it starts suspended
                 if(ctx.state === 'suspended' && typeof ctx.resume === 'function') ctx.resume();
@@ -1177,24 +1181,37 @@
                 if(!ctx) return;
                 if(ctx.state === 'suspended' && typeof ctx.resume === 'function') ctx.resume();
                 const now = ctx.currentTime;
-                const freqs = [880, 1100, 880];
+                const freqs = [660, 880, 1100, 880, 660];
                 const globalGain = window.__audioGain || ctx.createGain();
-                // play three short beeps using the shared global gain so device volume applies
+                // slightly boost the global gain for louder output (still respects device volume)
+                try{ if(globalGain && typeof globalGain.gain !== 'undefined') globalGain.gain.value = Math.max(globalGain.gain.value, 0.75); }catch(e){}
+                // play 5 beeps with a small sub-bass to make it more noticeable
                 freqs.forEach((f, i) => {
                     const o = ctx.createOscillator();
                     const g = ctx.createGain();
                     o.type = 'sine'; o.frequency.value = f;
-                    // envelope to avoid clicks
-                    g.gain.setValueAtTime(0, now + i * 0.18);
-                    g.gain.linearRampToValueAtTime(0.85, now + i * 0.18 + 0.02);
-                    g.gain.linearRampToValueAtTime(0.0, now + i * 0.18 + 0.22);
+                    // envelope to avoid clicks and make tone prominent
+                    const start = now + i * 0.28;
+                    g.gain.setValueAtTime(0, start);
+                    g.gain.linearRampToValueAtTime(1.0, start + 0.03);
+                    g.gain.linearRampToValueAtTime(0.0, start + 0.26);
                     o.connect(g);
-                    // route through global gain if available so overall volume respects device speaker volume
                     if (globalGain && typeof globalGain.connect === 'function') g.connect(globalGain); else g.connect(ctx.destination);
-                    const start = now + i * 0.18;
                     o.start(start);
-                    o.stop(start + 0.24);
+                    o.stop(start + 0.3);
                 });
+                // add a short low-frequency thump for extra presence
+                try{
+                    const o2 = ctx.createOscillator();
+                    const g2 = ctx.createGain();
+                    o2.type = 'sine'; o2.frequency.value = 120;
+                    const s2 = now + 0.08;
+                    g2.gain.setValueAtTime(0, s2);
+                    g2.gain.linearRampToValueAtTime(1.0, s2 + 0.02);
+                    g2.gain.linearRampToValueAtTime(0.0, s2 + 0.28);
+                    o2.connect(g2); g2.connect(globalGain || ctx.destination);
+                    o2.start(s2); o2.stop(s2 + 0.3);
+                }catch(e){}
             }catch(e){ console.warn('playRingtone failed', e); }
         }
 
@@ -1209,14 +1226,46 @@
             try{ if(unlockAudio()) playRingtone(); else console.warn('Audio unlock failed'); }catch(e){ console.warn(e); }
         };
 
+        // Repeating ringtone controller
+        function startRepeatingRingtone(repeats = 4, interval = 2000) {
+            try{
+                stopRepeatingRingtone();
+                let count = 0;
+                // play first time immediately
+                try{ playRingtone(); }catch(e){}
+                window.__ringerInterval = setInterval(() => {
+                    // stop if window is focused or visible
+                    if(document.visibilityState === 'visible' || document.hasFocus()) { stopRepeatingRingtone(); return; }
+                    if(typeof window.__ringerCount === 'number' && window.__ringerCount >= repeats) { stopRepeatingRingtone(); return; }
+                    try{ playRingtone(); }catch(e){}
+                    window.__ringerCount = (window.__ringerCount || 0) + 1;
+                    if(window.__ringerCount >= repeats) stopRepeatingRingtone();
+                }, interval);
+            }catch(e){ console.warn('startRepeatingRingtone failed', e); }
+        }
+
+        function stopRepeatingRingtone(){
+            try{
+                if(window.__ringerInterval){ clearInterval(window.__ringerInterval); window.__ringerInterval = null; }
+                window.__ringerCount = 0;
+                // close last system notification if any
+                try{ if(window.__lastNotification && typeof window.__lastNotification.close === 'function') window.__lastNotification.close(); }catch(e){}
+            }catch(e){ console.warn('stopRepeatingRingtone failed', e); }
+        }
+
+        // stop ringer when user focuses or interacts
+        window.addEventListener('focus', () => { try{ stopRepeatingRingtone(); if(window.__audioCtx && window.__audioCtx.state === 'suspended') window.__audioCtx.resume(); }catch(e){} });
+        document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') stopRepeatingRingtone(); });
+
         // System notification helper (uses the Notifications API)
         function showSystemNotification(title, body){
             try{
                 if(!('Notification' in window)) return;
                 if(Notification.permission === 'granted'){
-                    const n = new Notification(title, { body: body, icon: '/ims/1110.png' });
-                    // close after a few seconds
-                    setTimeout(() => { try{ n.close(); }catch(e){} }, 7000);
+                    // use requireInteraction so notification stays until user dismisses (where supported)
+                    const n = new Notification(title, { body: body, icon: '/ims/1110.png', requireInteraction: true, tag: 'teleka-new-booking' });
+                    // keep reference so we can close it on focus
+                    window.__lastNotification = n;
                 }
             }catch(e){ console.warn('showSystemNotification failed', e); }
         }
