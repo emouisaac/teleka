@@ -473,100 +473,7 @@ const fs = require('fs');
 try{ ensureAdminCredential(); } catch(e){ console.error('[admin] ensureAdminCredential failed at startup', e); }
 const BOOKINGS_FILE = path.join(__dirname, 'data', 'bookings.json');
 
-// Notification helpers (email + SMS)
-const nodemailer = require('nodemailer');
-
-async function sendEmailNotification(booking){
-  try{
-    // Require SMTP config via env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_TO
-    const host = process.env.SMTP_HOST;
-    if(!host) return; // SMTP not configured
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    const secure = (process.env.SMTP_SECURE === 'true');
-    const user = process.env.SMTP_USER || '';
-    const pass = process.env.SMTP_PASS || '';
-    const to = process.env.EMAIL_TO || process.env.ADMIN_EMAIL || '';
-    if(!to) { console.log('[notify] EMAIL_TO not configured, skipping email'); return; }
-
-    const transporter = nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined });
-    const subject = `Teleka: New booking — ${booking.name} (${booking.pickup} → ${booking.destination})`;
-    const adminUrl = `http://localhost:${PORT}/admin/`;
-    const text = `New booking received:\n\nName: ${booking.name}\nEmail: ${booking.email || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nService: ${booking.serviceType || 'N/A'}\nDate & Time: ${booking.date || ''} ${booking.time || ''}\nStatus: ${booking.status || 'pending'}\nCreated: ${booking.createdAt}\n\nOpen admin dashboard: ${adminUrl}`;
-    const html = `
-      <p><strong>New booking received</strong></p>
-      <ul>
-        <li><strong>Name:</strong> ${booking.name}</li>
-        <li><strong>Email:</strong> ${booking.email || 'N/A'}</li>
-        <li><strong>Pickup:</strong> ${booking.pickup}</li>
-        <li><strong>Destination:</strong> ${booking.destination}</li>
-        <li><strong>Service:</strong> ${booking.serviceType || 'N/A'}</li>
-        <li><strong>Date & Time:</strong> ${booking.date || ''} ${booking.time || ''}</li>
-        <li><strong>Status:</strong> ${booking.status || 'pending'}</li>
-      </ul>
-      <p>Open the <a href="${adminUrl}">admin dashboard</a> to view details.</p>
-    `;
-
-    const from = process.env.EMAIL_FROM || user || `no-reply@${require('os').hostname()}`;
-    await transporter.sendMail({ from, to, subject, text, html });
-    console.log('[notify] email sent to', to);
-  }catch(err){ console.error('[notify] sendEmailNotification failed', err && err.stack ? err.stack : err); }
-}
-
-async function sendSmsNotification(booking){
-  try{
-    // Expect TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, SMS_RECIPIENT
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-    const from = process.env.TWILIO_FROM;
-    const to = process.env.SMS_RECIPIENT || '+256788408032';
-    if(!sid || !token || !from) return; // Twilio not configured
-
-    const twilio = require('twilio')(sid, token);
-    const body = `New booking: ${booking.name} — ${booking.pickup} → ${booking.destination}. Status: ${booking.status || 'pending'}`;
-    await twilio.messages.create({ body, from, to });
-    console.log('[notify] SMS sent to', to);
-  }catch(err){ console.error('[notify] sendSmsNotification failed', err && err.stack ? err.stack : err); }
-}
-
-// Send notification to user when booking is confirmed (email + optional SMS to user's phone)
-async function sendBookingConfirmedNotification(booking){
-  try{
-    if(!booking) return;
-
-    // Email notification to user
-    const host = process.env.SMTP_HOST;
-    if(host && booking.email){
-      try{
-        const port = parseInt(process.env.SMTP_PORT || '587', 10);
-        const secure = (process.env.SMTP_SECURE === 'true');
-        const user = process.env.SMTP_USER || '';
-        const pass = process.env.SMTP_PASS || '';
-        const from = process.env.EMAIL_FROM || user || `no-reply@${require('os').hostname()}`;
-        const transporter = nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined });
-        const subject = `Teleka: Your booking is confirmed`;
-        const text = `Hello ${booking.name || ''},\n\nYour booking from ${booking.pickup} to ${booking.destination} on ${booking.date || ''} ${booking.time || ''} has been confirmed.\n\nStatus: confirmed\n\nThank you for choosing Teleka.`;
-        const html = `<p>Hello ${booking.name || ''},</p><p>Your booking from <strong>${booking.pickup}</strong> to <strong>${booking.destination}</strong> on <strong>${booking.date || ''} ${booking.time || ''}</strong> has been <strong>confirmed</strong>.</p><p>Status: <strong>confirmed</strong></p><p>Thank you for choosing Teleka.</p>`;
-        await transporter.sendMail({ from, to: booking.email, subject, text, html });
-        console.log('[notify] confirmation email sent to', booking.email);
-      }catch(err){ console.error('[notify] sendBookingConfirmedNotification email failed', err && err.stack ? err.stack : err); }
-    } else {
-      if(!booking.email) console.log('[notify] booking has no email; skipping user email notification');
-    }
-
-    // SMS to user's phone if provided and Twilio configured
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-    const fromPhone = process.env.TWILIO_FROM;
-    if(sid && token && fromPhone && booking.phone){
-      try{
-        const tw = require('twilio')(sid, token);
-        const body = `Your Teleka booking from ${booking.pickup} to ${booking.destination} on ${booking.date || ''} ${booking.time || ''} is confirmed.`;
-        await tw.messages.create({ body, from: fromPhone, to: booking.phone });
-        console.log('[notify] confirmation SMS sent to', booking.phone);
-      }catch(err){ console.error('[notify] sendBookingConfirmedNotification sms failed', err && err.stack ? err.stack : err); }
-    }
-  }catch(err){ console.error('[notify] sendBookingConfirmedNotification error', err && err.stack ? err.stack : err); }
-}
+// Notification helpers removed per request
 
 function readBookings() {
   try {
@@ -587,8 +494,7 @@ function writeBookings(bookings) {
   fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2), 'utf8');
 }
 
-// SSE clients
-const sseClients = new Set();
+// Server-Sent Events (SSE) removed — real-time notifications disabled
 
 // Get all bookings
 app.get('/api/bookings', (req, res) => {
@@ -596,42 +502,9 @@ app.get('/api/bookings', (req, res) => {
   res.json(bookings);
 });
 
-// Test notification endpoint: triggers email and SMS for the latest booking or provided id
-app.get('/api/notify-test', (req, res) => {
-  try {
-    const bookings = readBookings();
-    let booking = null;
-    const id = req.query.id;
-    if (id) booking = bookings.find(b => b._id === id);
-    if (!booking) booking = bookings[0];
-    if (!booking) return res.status(404).json({ error: 'No bookings to notify about' });
+// /api/notify-test removed (notification helpers disabled)
 
-    // fire-and-forget
-    sendEmailNotification(booking).catch(e => console.error('[notify-test] email error', e));
-    sendSmsNotification(booking).catch(e => console.error('[notify-test] sms error', e));
-
-    res.json({ success: true, booking });
-  } catch (err) {
-    console.error('[notify-test] failed', err);
-    res.status(500).json({ error: 'notify-test failed', detail: err && err.message });
-  }
-});
-
-// Stream bookings via SSE for admin real-time notifications
-app.get('/api/bookings/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
-
-  const clientId = Date.now() + Math.random();
-  const client = { id: clientId, res };
-  sseClients.add(client);
-
-  req.on('close', () => {
-    sseClients.delete(client);
-  });
-});
+// /api/bookings/stream removed (SSE disabled)
 
 // Create a new booking
 app.post('/api/bookings', (req, res) => {
@@ -676,19 +549,9 @@ app.post('/api/bookings', (req, res) => {
       return res.status(500).json({ error: 'Failed to persist booking' });
     }
 
-    // Send email & SMS notifications (best-effort, only if configured)
-    try { sendEmailNotification(newBooking); } catch(e){ console.error('[notify] email call failed', e); }
-    try { sendSmsNotification(newBooking); } catch(e){ console.error('[notify] sms call failed', e); }
+    // notifications disabled
 
-    // Notify SSE clients
-    const payload = JSON.stringify(newBooking);
-    for (const client of sseClients) {
-      try {
-        client.res.write(`event: new-booking\ndata: ${payload}\n\n`);
-      } catch (err) {
-        // ignore write errors
-      }
-    }
+    // real-time SSE notifications disabled
 
     res.status(201).json(newBooking);
   } catch (err) {
@@ -714,14 +577,9 @@ app.get('/api/bookings/create-test', (req, res) => {
     bookings.unshift(newBooking);
     writeBookings(bookings);
     // notify
-    // Send email & SMS notifications (best-effort, only if configured)
-    try { sendEmailNotification(newBooking); } catch(e){ console.error('[notify] email call failed', e); }
-    try { sendSmsNotification(newBooking); } catch(e){ console.error('[notify] sms call failed', e); }
+    // notifications disabled
 
-    const payload = JSON.stringify(newBooking);
-    for (const client of sseClients) {
-      try { client.res.write(`event: new-booking\ndata: ${payload}\n\n`); } catch (e) {}
-    }
+    // real-time SSE notifications disabled
     res.json(newBooking);
   } catch (err) {
     console.error('[bookings debug] create-test failed', err);
@@ -755,15 +613,7 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
     bookings[idx].updatedAt = new Date().toISOString();
     writeBookings(bookings);
 
-    // Optionally notify SSE clients about update
-    try {
-      const payload = JSON.stringify(bookings[idx]);
-      for (const client of sseClients) {
-        try { client.res.write(`event: booking-updated\ndata: ${payload}\n\n`); } catch (e) {}
-      }
-    } catch (e) {}
-    // Send notification to the booking owner (email/sms) - best-effort
-    try { sendBookingConfirmedNotification(bookings[idx]); } catch(e){ console.error('[bookings] notify confirm failed', e); }
+    // real-time SSE notifications disabled
 
     res.json(bookings[idx]);
   } catch (err) {

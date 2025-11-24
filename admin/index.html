@@ -665,7 +665,7 @@
                         <i class="fas fa-trash"></i>
                         Clear All
                     </button>
-                    <button class="btn" id="enableSoundBtn" title="Enable sound notifications">🔔</button>
+                    <!-- sound/notification controls removed -->
                     <button type="button" class="btn btn-outline" id="loginBtn">Login</button>
                 </div>
             </div>
@@ -772,7 +772,7 @@
 
     <script>
         let allBookings = [];
-        let currentDetailIndex = null;
+        let currentDetailId = null;
 
         // Load bookings from server
         async function loadBookings() {
@@ -823,8 +823,8 @@
                     <td data-label="Status"><span class="badge badge-${booking.status || 'pending'}">${booking.status || 'Pending'}</span></td>
                     <td data-label="Actions">
                         <div class="action-buttons">
-                            <button class="action-btn action-btn-view" onclick="viewDetail(${index})">View</button>
-                            <button class="action-btn action-btn-delete" onclick="deleteBooking(${index})">Delete</button>
+                            <button class="action-btn action-btn-view" onclick="viewDetailById('${booking._id}')">View</button>
+                            <button class="action-btn action-btn-delete" onclick="deleteBookingById('${booking._id}')">Delete</button>
                         </div>
                     </td>
                 </tr>
@@ -847,8 +847,10 @@
         }
 
         // View booking details
-        function viewDetail(index) {
-            const booking = allBookings[index];
+        function viewDetailById(id) {
+            const idx = allBookings.findIndex(b => b._id === id);
+            if (idx === -1) return alert('Booking not found');
+            const booking = allBookings[idx];
             const modal = document.getElementById('detailModal');
             const body = document.getElementById('detailModalBody');
 
@@ -895,8 +897,8 @@
                     <div class="detail-value"><span class="badge badge-${booking.status || 'pending'}">${booking.status || 'Pending'}</span></div>
                 </div>
             `;
-            // store current index for actions like confirm
-            currentDetailIndex = index;
+            // store current id for actions like confirm/delete
+            currentDetailId = id;
             // show/hide confirm button depending on status
             const confirmBtn = document.getElementById('confirmBtn');
             if (confirmBtn) {
@@ -910,37 +912,35 @@
             document.getElementById('detailModal').classList.remove('open');
         }
 
-        // Delete booking
-        async function deleteBooking(index) {
+        // Delete booking by id
+        async function deleteBookingById(id) {
             if (!confirm('Are you sure you want to delete this booking?')) return;
-
             try {
-                const bookingId = allBookings[index]._id || index;
-                const response = await fetch(`/api/bookings/${bookingId}`, {
-                    method: 'DELETE'
-                });
-
+                const idx = allBookings.findIndex(b => b._id === id);
+                const bookingId = id;
+                const response = await fetch(`/api/bookings/${bookingId}`, { method: 'DELETE' });
                 if (!response.ok) throw new Error('Failed to delete booking');
-                allBookings.splice(index, 1);
+                if (idx !== -1) allBookings.splice(idx, 1);
                 renderBookings(allBookings);
                 updateStats();
                 alert('Booking deleted successfully!');
             } catch (error) {
                 console.error('Error deleting booking:', error);
-                alert('Error deleting booking: ' + error.message);
+                alert('Error deleting booking: ' + (error && error.message));
             }
         }
 
         // Confirm booking (mark as confirmed)
         async function confirmBooking() {
             try {
-                if (currentDetailIndex === null) return;
-                const index = currentDetailIndex;
-                const booking = allBookings[index];
+                if (!currentDetailId) return;
+                const id = currentDetailId;
+                const idx = allBookings.findIndex(b => b._id === id);
+                const booking = (idx !== -1) ? allBookings[idx] : null;
                 if (!booking) return alert('Booking not found');
                 if (!confirm('Confirm this booking?')) return;
 
-                const bookingId = booking._id || index;
+                const bookingId = booking._id || id;
                 const response = await fetch(`/api/bookings/${bookingId}/confirm`, { method: 'POST' });
                 if (!response.ok) {
                     const txt = await response.text().catch(()=>null);
@@ -948,14 +948,14 @@
                 }
                 const updated = await response.json();
                 // update local state
-                allBookings[index] = updated;
+                if (idx !== -1) allBookings[idx] = updated;
                 renderBookings(allBookings);
                 updateStats();
                 // update modal status badge
                 const confirmBtn = document.getElementById('confirmBtn');
                 if (confirmBtn) confirmBtn.style.display = 'none';
                 // refresh modal contents to show updated status
-                viewDetail(index);
+                viewDetailById(bookingId);
                 alert('Booking confirmed');
             } catch (error) {
                 console.error('Error confirming booking:', error);
@@ -1035,81 +1035,7 @@
         // Auto-refresh every 10 seconds
         setInterval(loadBookings, 10000);
 
-        // Real-time notifications via Server-Sent Events
-        (function initSSE() {
-            if (!window.EventSource) return;
-            // Audio helper: try to use an unlocked AudioContext created on user gesture
-            function unlockAudio(){
-                try{
-                    if(window.__sseAudioCtx) return true;
-                    const C = window.AudioContext || window.webkitAudioContext;
-                    if(!C) return false;
-                    const ctx = new C();
-                    const g = ctx.createGain(); g.gain.value = 0.002;
-                    g.connect(ctx.destination);
-                    window.__sseAudioCtx = ctx;
-                    window.__sseAudioGain = g;
-                    console.log('[sse] audio unlocked');
-                    return true;
-                }catch(e){ console.warn('[sse] unlockAudio failed', e); return false; }
-            }
-
-            function playBeep(){
-                try{
-                    if(window.__sseAudioCtx){
-                        const ctx = window.__sseAudioCtx;
-                        const o = ctx.createOscillator();
-                        o.type = 'sine'; o.frequency.value = 880;
-                        o.connect(window.__sseAudioGain || ctx.destination);
-                        o.start();
-                        setTimeout(()=>{ try{ o.stop(); }catch(e){} }, 220);
-                        return;
-                    }
-                    // fallback ephemeral context (may be blocked by autoplay policies)
-                    const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
-                    const o2 = ctx2.createOscillator();
-                    const g2 = ctx2.createGain(); g2.gain.value = 0.0015;
-                    o2.connect(g2); g2.connect(ctx2.destination);
-                    o2.start();
-                    setTimeout(()=>{ o2.stop(); try{ ctx2.close(); }catch(e){} }, 220);
-                }catch(e){ console.warn('beep failed', e); }
-            }
-
-            // small visual toast
-            function showToast(msg){
-                try{
-                    const t = document.createElement('div');
-                    t.className = 'sse-toast';
-                    t.textContent = msg;
-                    Object.assign(t.style, {
-                        position: 'fixed', right: '16px', top: '16px', background: 'var(--primary)', color: '#fff', padding: '10px 14px', borderRadius: '8px', boxShadow: '0 6px 18px rgba(0,0,0,0.12)', zIndex: 3000, fontWeight: 700
-                    });
-                    document.body.appendChild(t);
-                    setTimeout(()=>{ t.style.opacity = '0'; t.style.transform = 'translateY(-6px)'; setTimeout(()=>t.remove(),300); }, 4000);
-                }catch(e){}
-            }
-
-            try {
-                const es = new EventSource('/api/bookings/stream');
-                es.addEventListener('new-booking', (ev) => {
-                    try {
-                        const booking = JSON.parse(ev.data);
-                        // Play short beep and show a small toast, then refresh the table
-                        playBeep();
-                        showToast('New booking: ' + (booking.name || ''));
-                        loadBookings();
-                    } catch (err) {
-                        console.log('Malformed booking SSE payload', err);
-                    }
-                });
-                es.addEventListener('error', (e) => {
-                    // handle reconnects silently
-                    console.warn('Booking SSE error', e);
-                });
-            } catch (err) {
-                console.warn('SSE unavailable', err);
-            }
-        })();
+        // Server-Sent Events / sound notifications removed
     </script>
 
     <!-- Auth Modal -->
@@ -1277,19 +1203,7 @@
             // initialize
             updateAuthUI();
 
-            // wire enable sound button
-            const enableSoundBtn = document.getElementById('enableSoundBtn');
-            enableSoundBtn?.addEventListener('click', function(e){
-                try{
-                    const ok = unlockAudio();
-                    if(ok) {
-                        enableSoundBtn.textContent = '🔔 On';
-                        enableSoundBtn.classList.add('btn-success');
-                    } else {
-                        enableSoundBtn.textContent = '🔕';
-                    }
-                }catch(ex){ console.warn('enableSound failed', ex); }
-            });
+            // sound/notification controls removed
 
             // Clear login inputs to avoid browser autofill values and ensure no prefilled credentials
             try{
