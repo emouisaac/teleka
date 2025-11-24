@@ -1034,6 +1034,20 @@
             } else {
                 renderBookings(allBookings);
             }
+            // On small screens, bring the bookings table (and first row) to the top
+            try {
+                if (window.innerWidth <= 768) {
+                    const tableContent = document.getElementById('tableContent');
+                    if (tableContent) {
+                        tableContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        // after a short delay, ensure first row is visible at top
+                        setTimeout(() => {
+                            const firstRow = document.querySelector('#bookingsTableBody tr');
+                            if (firstRow) firstRow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 260);
+                    }
+                }
+            } catch (e) { /* ignore scrolling errors */ }
         }
 
         // attach handlers once DOM is ready
