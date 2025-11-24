@@ -469,9 +469,66 @@ app.get('/api/price-from-distance', (req, res) => {
 
 // --- Bookings storage and SSE (server-sent events) ---
 const fs = require('fs');
+const webpush = require('web-push');
 // Ensure admin credential exists on startup (fs is now available)
 try{ ensureAdminCredential(); } catch(e){ console.error('[admin] ensureAdminCredential failed at startup', e); }
 const BOOKINGS_FILE = path.join(__dirname, 'data', 'bookings.json');
+const PUSH_FILE = path.join(__dirname, 'data', 'push_subscriptions.json');
+
+// VAPID keys: prefer env, otherwise generate temporarily for this run and log them
+let VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
+let VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
+if(!VAPID_PUBLIC || !VAPID_PRIVATE){
+  try{
+    const keys = webpush.generateVAPIDKeys();
+    VAPID_PUBLIC = keys.publicKey;
+    VAPID_PRIVATE = keys.privateKey;
+    console.log('[webpush] Generated ephemeral VAPID keys. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in .env for persistence.');
+    console.log('[webpush] VAPID_PUBLIC_KEY=' + VAPID_PUBLIC);
+  }catch(e){ console.warn('[webpush] generateVAPIDKeys failed', e); }
+}
+try{ webpush.setVapidDetails('mailto:admin@teleka.local', VAPID_PUBLIC, VAPID_PRIVATE); }catch(e){ console.warn('[webpush] setVapidDetails failed', e); }
+
+function readPushSubs(){
+  try{
+    if(!fs.existsSync(PUSH_FILE)){ try{ fs.mkdirSync(path.dirname(PUSH_FILE), { recursive: true }); }catch(e){}; fs.writeFileSync(PUSH_FILE, '[]', 'utf8'); }
+    const raw = fs.readFileSync(PUSH_FILE, 'utf8'); return JSON.parse(raw || '[]');
+  }catch(err){ console.error('[push] readPushSubs error', err); return []; }
+}
+
+function writePushSubs(list){
+  try{ fs.writeFileSync(PUSH_FILE, JSON.stringify(list, null, 2), 'utf8'); }catch(e){ console.error('[push] writePushSubs failed', e); }
+}
+
+// send push to subscriptions matching provided filter (matcher fn)
+async function sendPushTo(filterFn, payload){
+  const subs = readPushSubs();
+  const toRemove = [];
+  for(const s of subs){
+    try{
+      if(!filterFn(s)) continue;
+      await webpush.sendNotification(s.subscription, JSON.stringify(payload));
+    }catch(err){
+      // remove unsubscribed/expired
+      const status = err && err.statusCode ? err.statusCode : null;
+      if(status === 410 || status === 404) toRemove.push(s);
+      console.warn('[push] send failed', err && err.message ? err.message : err);
+    }
+  }
+  if(toRemove.length){
+    const remaining = subs.filter(x => !toRemove.includes(x)); writePushSubs(remaining);
+  }
+}
+
+function sendPushToUserByEmail(email, payload){
+  if(!email) return Promise.resolve();
+  return sendPushTo(s => (s.email && s.email.toLowerCase() === (email||'').toLowerCase()), payload);
+}
+
+function sendPushToRole(role, payload){
+  if(!role) return Promise.resolve();
+  return sendPushTo(s => (s.role === role), payload);
+}
 
 // Notification helpers removed per request
 
@@ -547,6 +604,26 @@ app.get('/api/bookings', (req, res) => {
   res.json(bookings);
 });
 
+// Expose VAPID public key for clients to use when subscribing
+app.get('/api/push/vapidPublicKey', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC || '' });
+});
+
+// Accept push subscription from clients
+app.post('/api/push/subscribe', (req, res) => {
+  try{
+    const sub = req.body && req.body.subscription;
+    const email = req.body && req.body.email;
+    const role = req.body && req.body.role; // optional: 'admin' or 'user'
+    if(!sub) return res.status(400).json({ error: 'Missing subscription' });
+    const list = readPushSubs();
+    // prevent duplicates by endpoint
+    const exists = list.find(s => s.subscription && s.subscription.endpoint === sub.endpoint);
+    if(!exists){ list.push({ subscription: sub, email: email || '', role: role || '' , createdAt: new Date().toISOString() }); writePushSubs(list); }
+    res.json({ success: true });
+  }catch(e){ console.error('[push] subscribe failed', e); res.status(500).json({ error: 'subscribe failed' }); }
+});
+
 // /api/notify-test removed (notification helpers disabled)
 
 // /api/bookings/stream removed (SSE disabled)
@@ -594,9 +671,16 @@ app.post('/api/bookings', (req, res) => {
       return res.status(500).json({ error: 'Failed to persist booking' });
     }
 
-    // notifications disabled
+    // Broadcast SSE event for new booking so connected admin/user clients can react
+    try {
+      broadcastSse('booking-created', { booking: newBooking });
+    } catch (e) { console.warn('[sse] booking-created broadcast failed', e); }
 
-    // real-time SSE notifications disabled
+    // Also send Web Push to admin role subscriptions
+    try{
+      const payload = { title: 'New Booking Received', body: `${newBooking.name} — ${newBooking.pickup} → ${newBooking.destination}`, data: { booking: newBooking, url: '/admin' } };
+      sendPushToRole('admin', payload).catch(e => console.warn('[push] admin notify failed', e));
+    }catch(e){ console.warn('[push] notify admin failed', e); }
 
     res.status(201).json(newBooking);
   } catch (err) {
@@ -632,6 +716,30 @@ app.get('/api/bookings/create-test', (req, res) => {
   }
 });
 
+  // When creating booking via create-test, also broadcast
+  app.get('/api/bookings/create-test', (req, res) => {
+    try {
+      const name = (req.query.name || 'Test').toString();
+      const pickup = (req.query.pickup || 'X').toString();
+      const destination = (req.query.destination || 'Y').toString();
+      const bookings = readBookings();
+      const now = new Date().toISOString();
+      const newBooking = {
+        _id: String(Date.now()),
+        name, email: req.query.email || '', pickup, destination,
+        serviceType: req.query.serviceType || '', date: req.query.date || '', time: req.query.time || '',
+        estimatedPrice: req.query.estimatedPrice || '', status: 'pending', createdAt: now, updatedAt: now
+      };
+      bookings.unshift(newBooking);
+      writeBookings(bookings);
+      try{ broadcastSse('booking-created', { booking: newBooking }); } catch(e){ console.warn('[sse] create-test broadcast failed', e); }
+      res.json(newBooking);
+    } catch (err) {
+      console.error('[bookings debug] create-test failed', err);
+      res.status(500).json({ error: 'create-test failed', detail: err && err.message });
+    }
+  });
+
 // Delete booking by id
 app.delete('/api/bookings/:id', (req, res) => {
   try {
@@ -663,6 +771,13 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
       const payload = { booking: bookings[idx] };
       broadcastSse('booking-confirmed', payload);
     } catch (e) { console.warn('[sse] broadcast failed', e); }
+
+    // send web-push to the booking owner (by email) if subscription exists
+    try{
+      const booking = bookings[idx];
+      const payload = { title: 'Booking Confirmed', body: `${booking.name || 'Your booking'} has been confirmed`, data: { booking } };
+      if(booking.email) sendPushToUserByEmail(booking.email, payload).catch(e => console.warn('[push] notify user failed', e));
+    }catch(e){ console.warn('[push] notify user failed', e); }
 
     res.json(bookings[idx]);
   } catch (err) {

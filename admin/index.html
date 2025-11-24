@@ -1148,6 +1148,35 @@
 
                 updateEnableSoundUI();
             }
+                // Register service worker and subscribe admin for push notifications
+                (async function(){
+                    try{
+                        if(!('serviceWorker' in navigator)) return;
+                        const reg = await navigator.serviceWorker.register('/sw.js');
+                        const resp = await fetch('/api/push/vapidPublicKey');
+                        const j = await resp.json();
+                        const pub = j.publicKey;
+                        if(!pub) return;
+                        if (Notification.permission === 'default') {
+                            await Notification.requestPermission();
+                        }
+                        if (Notification.permission !== 'granted') return;
+                        function urlBase64ToUint8Array(base64String) {
+                            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+                            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+                            const rawData = window.atob(base64);
+                            const outputArray = new Uint8Array(rawData.length);
+                            for (let i = 0; i < rawData.length; ++i) {
+                                outputArray[i] = rawData.charCodeAt(i);
+                            }
+                            return outputArray;
+                        }
+                        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(pub) });
+                        // send subscription to server for admin role
+                        await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ subscription: sub, role: 'admin', email: (JSON.parse(localStorage.getItem('authUser')||'null') || {}).email || '' }) });
+                        console.log('[push:admin] subscribed');
+                    }catch(e){ console.warn('[push:admin] subscribe failed', e); }
+                })();
         });
 
         // Format date and time
@@ -1257,6 +1286,11 @@
         window.addEventListener('focus', () => { try{ stopRepeatingRingtone(); if(window.__audioCtx && window.__audioCtx.state === 'suspended') window.__audioCtx.resume(); }catch(e){} });
         document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') stopRepeatingRingtone(); });
 
+        // Also stop repeating and close system notification when admin acknowledges popup
+        function acknowledgeAdminNotification(){
+            try{ stopRepeatingRingtone(); if(window.__lastNotification && typeof window.__lastNotification.close === 'function') window.__lastNotification.close(); }catch(e){}
+        }
+
         // System notification helper (uses the Notifications API)
         function showSystemNotification(title, body){
             try{
@@ -1275,6 +1309,63 @@
         document.getElementById('detailModal').addEventListener('click', (e) => {
             if (e.target.id === 'detailModal') closeDetailModal();
         });
+
+        // Admin-side EventSource for incoming bookings
+        try{
+            const adminEs = new EventSource('/api/notifications/stream');
+            adminEs.addEventListener('open', () => console.log('[sse:admin] connected'));
+            adminEs.addEventListener('error', (e) => { /* ignore */ });
+
+            // create admin popup container
+            function createAdminPopup(){
+                if(document.getElementById('adminNotifyPopup')) return;
+                const el = document.createElement('div');
+                el.id = 'adminNotifyPopup';
+                el.style.position = 'fixed';
+                el.style.left = '20px';
+                el.style.bottom = '20px';
+                el.style.zIndex = 99999;
+                el.style.maxWidth = '380px';
+                el.style.background = 'linear-gradient(180deg,#fff,#f8fafc)';
+                el.style.border = '1px solid rgba(0,0,0,0.08)';
+                el.style.boxShadow = '0 10px 30px rgba(2,6,23,0.18)';
+                el.style.borderRadius = '12px';
+                el.style.padding = '14px 16px';
+                el.style.display = 'none';
+                el.style.cursor = 'pointer';
+                el.innerHTML = `<strong id="adminNotifyTitle" style="display:block;margin-bottom:6px;font-size:1rem;color:#0f172a">New Booking</strong><div id="adminNotifyBody" style="font-size:0.95rem;color:#334155"></div>`;
+                el.addEventListener('click', () => { el.style.display = 'none'; stopRepeatingRingtone(); try{ if(window.__lastNotification && typeof window.__lastNotification.close === 'function') window.__lastNotification.close(); }catch(e){} });
+                document.body.appendChild(el);
+            }
+
+            function showAdminPopup(title, body){
+                try{ createAdminPopup(); const el = document.getElementById('adminNotifyPopup'); document.getElementById('adminNotifyTitle').textContent = title; document.getElementById('adminNotifyBody').textContent = body; el.style.display = 'block'; setTimeout(()=>{ try{ el.style.display='none'; }catch(e){} }, 20000); }catch(e){ console.warn('showAdminPopup failed', e); }
+            }
+
+            adminEs.addEventListener('booking-created', (ev) => {
+                try{
+                    const data = JSON.parse(ev.data || '{}');
+                    const b = data.booking || {};
+                    // play sound if enabled
+                    try{ if(localStorage.getItem('soundEnabled') !== 'false'){ unlockAudio(); playRingtone(); startRepeatingRingtone(8, 2500); } }catch(e){}
+                    // show system notification
+                    try{ if('Notification' in window && Notification.permission === 'granted'){ const n = new Notification('New booking received', { body: `${b.name || 'Customer'} — ${b.pickup} → ${b.destination}`, icon: '/ims/1110.png', requireInteraction: true }); window.__lastNotification = n; } }catch(e){}
+                    // show on-page popup and reload bookings list so it appears immediately
+                    showAdminPopup('New booking received', `${b.name || 'Customer'} — ${b.pickup} → ${b.destination}`);
+                    try{ loadBookings(); }catch(e){}
+                }catch(e){ console.warn('[sse:admin] booking-created handler error', e); }
+            });
+
+            adminEs.addEventListener('booking-confirmed', (ev) => {
+                try{
+                    const data = JSON.parse(ev.data || '{}');
+                    const b = data.booking || {};
+                    // admin may want to know when bookings are confirmed too
+                    showAdminPopup('Booking confirmed', `${b.name || 'Customer'} — ${b.pickup} → ${b.destination}`);
+                    try{ loadBookings(); }catch(e){}
+                }catch(e){ console.warn('[sse:admin] booking-confirmed handler error', e); }
+            });
+        }catch(e){ console.warn('Admin EventSource not available', e); }
 
         // Navigation
         document.querySelectorAll('[data-page]').forEach(link => {

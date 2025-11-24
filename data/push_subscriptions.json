@@ -1,0 +1,15 @@
+[
+  {
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/c4qKFprhWf0:APA91bFLn-_qUx3ffooIXwETufaVmTz5e1STwM41fi_qlci-92JKVM_VTjYQB1J4EUIJ5YB360yjg4O1kujoQjaJqFbST3HvDoN3teLPaRbFq-esphGpjcpi_Cwfbkr1cOgvF1DxuY8u",
+      "expirationTime": null,
+      "keys": {
+        "p256dh": "BCabFoRBUsNf_qm6sG8HLkbUygsjk4_MV55STVZf0z3t9pUJoR30tOqnDJsQOQ-lFnZJjTlaqp8zATbylpn4TGo",
+        "auth": "G1il1WTvqZc4xSE20gTQug"
+      }
+    },
+    "email": "emouisaac1@gmail.com",
+    "role": "user",
+    "createdAt": "2025-11-24T18:07:26.673Z"
+  }
+]
