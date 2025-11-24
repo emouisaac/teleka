@@ -496,6 +496,51 @@ function writeBookings(bookings) {
 
 // Server-Sent Events (SSE) removed — real-time notifications disabled
 
+// --- Server-Sent Events (SSE) support ---
+const sseClients = new Set();
+
+function sendSseEvent(clientRes, event, data) {
+  try {
+    clientRes.write(`event: ${event}\n`);
+    clientRes.write(`data: ${JSON.stringify(data)}\n\n`);
+  } catch (e) {
+    console.warn('[sse] failed to write to client', e);
+  }
+}
+
+function broadcastSse(event, data) {
+  for (const res of Array.from(sseClients)) {
+    sendSseEvent(res, event, data);
+  }
+}
+
+app.get('/api/notifications/stream', (req, res) => {
+  // Allow CORS for EventSource if needed
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders && res.flushHeaders();
+
+  // send initial comment to establish the stream
+  res.write(': connected\n\n');
+
+  sseClients.add(res);
+  console.log('[sse] client connected, total=', sseClients.size);
+
+  // ping to keep connection alive
+  const keepAlive = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch (e) {}
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseClients.delete(res);
+    try { res.end(); } catch (e) {}
+    console.log('[sse] client disconnected, total=', sseClients.size);
+  });
+});
+
 // Get all bookings
 app.get('/api/bookings', (req, res) => {
   const bookings = readBookings();
@@ -613,7 +658,11 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
     bookings[idx].updatedAt = new Date().toISOString();
     writeBookings(bookings);
 
-    // real-time SSE notifications disabled
+    // Broadcast SSE event to connected clients so users can be notified in real-time
+    try {
+      const payload = { booking: bookings[idx] };
+      broadcastSse('booking-confirmed', payload);
+    } catch (e) { console.warn('[sse] broadcast failed', e); }
 
     res.json(bookings[idx]);
   } catch (err) {
