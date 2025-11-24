@@ -1367,6 +1367,26 @@
             });
         }catch(e){ console.warn('Admin EventSource not available', e); }
 
+        // Also handle push messages forwarded from Service Worker when page is open
+        try{
+            if(navigator.serviceWorker && navigator.serviceWorker.addEventListener){
+                navigator.serviceWorker.addEventListener('message', (ev) => {
+                    try{
+                        const msg = ev.data || {};
+                        if(!msg || msg.type !== 'push') return;
+                        const payload = msg.data || {};
+                        const b = payload.booking || payload.data && payload.data.booking;
+                        const title = payload.title || payload.body || 'New booking received';
+                        const body = payload.body || (b ? `${b.name || 'Customer'} — ${b.pickup} → ${b.destination}` : 'You have a new booking');
+                        try{ if(localStorage.getItem('soundEnabled') !== 'false'){ unlockAudio(); playRingtone(); startRepeatingRingtone(8,2500); } }catch(e){}
+                        try{ if('Notification' in window && Notification.permission === 'granted'){ const n = new Notification(title, { body, icon: '/ims/1110.png', requireInteraction: true }); window.__lastNotification = n; } }catch(e){}
+                        showAdminPopup(title, body);
+                        try{ loadBookings(); }catch(e){}
+                    }catch(err){ console.warn('[push:admin] message handler error', err); }
+                });
+            }
+        }catch(e){ console.warn('serviceWorker message listener failed', e); }
+
         // Navigation
         document.querySelectorAll('[data-page]').forEach(link => {
             link.addEventListener('click', (e) => {

@@ -2292,6 +2292,24 @@
 
                 window.registerMyBooking = function(id){ try{ sessionStorage.setItem('myBookingId', String(id)); }catch(e){} };
             })();
+            // Handle push messages forwarded from Service Worker when page is open
+            try{
+                if(navigator.serviceWorker && navigator.serviceWorker.addEventListener){
+                    navigator.serviceWorker.addEventListener('message', (ev) => {
+                        try{
+                            const msg = ev.data || {};
+                            if(!msg || msg.type !== 'push') return;
+                            const payload = msg.data || {};
+                            const booking = payload.booking || (payload.data && payload.data.booking);
+                            const title = payload.title || payload.body || 'Booking Update';
+                            const body = payload.body || (booking ? `${booking.name || 'Your booking'} — ${booking.pickup} → ${booking.destination}` : 'You have a new notification');
+                            try{ if(userUnlockAudio()) userPlayRingtone(); }catch(e){}
+                            showUserPopup(title, body);
+                            try{ if('Notification' in window && Notification.permission === 'granted'){ const n = new Notification(title, { body, icon: '/ims/1110.png', requireInteraction: true }); window.__lastUserNotification = n; } }catch(e){}
+                        }catch(err){ console.warn('[push:user] message handler error', err); }
+                    });
+                }
+            }catch(e){ console.warn('user serviceWorker message listener failed', e); }
         </script>
         <script>
             // Web Push subscription for users

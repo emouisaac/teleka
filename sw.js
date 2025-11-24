@@ -11,6 +11,15 @@ self.addEventListener('push', function(event) {
   }, data.options || {});
 
   event.waitUntil(self.registration.showNotification(title, options));
+  // Also notify open clients (pages) so they can show in-page UI and play sound
+  event.waitUntil((async () => {
+    try{
+      const all = await clients.matchAll({ includeUncontrolled: true, type: 'window' });
+      for(const c of all){
+        try{ c.postMessage({ type: 'push', data }); }catch(e){}
+      }
+    }catch(e){ /* ignore */ }
+  })());
 });
 
 self.addEventListener('notificationclick', function(event) {
