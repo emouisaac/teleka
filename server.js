@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
+const webpush = require('web-push');
 require('dotenv').config();
 
 const app = express();
@@ -490,7 +491,6 @@ app.get('/api/price-from-distance', (req, res) => {
 
 // --- Bookings storage and SSE (server-sent events) ---
 const fs = require('fs');
-const webpush = require('web-push');
 // Ensure admin credential exists on startup (fs is now available)
 try{ ensureAdminCredential(); } catch(e){ console.error('[admin] ensureAdminCredential failed at startup', e); }
 const BOOKINGS_FILE = path.join(__dirname, 'data', 'bookings.json');
