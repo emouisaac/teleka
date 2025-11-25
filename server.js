@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const axios = require('axios');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -25,7 +26,8 @@ app.use((req, res, next) => {
 });
 
 // Serve static files from the root and ims directory
-app.use(express.static(path.join(__dirname)));
+// NOTE: This should come AFTER API routes to avoid interfering with POST/PUT/DELETE
+// app.use(express.static(path.join(__dirname)));
 app.use('/ims', express.static(path.join(__dirname, 'ims')));
 
 // Fallback to index.html for root
@@ -508,6 +510,59 @@ if(!VAPID_PUBLIC || !VAPID_PRIVATE){
 }
 try{ webpush.setVapidDetails('mailto:admin@teleka.local', VAPID_PUBLIC, VAPID_PRIVATE); }catch(e){ console.warn('[webpush] setVapidDetails failed', e); }
 
+// --- Email (nodemailer) setup ---
+let mailTransport = null;
+function initMailTransport(){
+  try{
+    const host = process.env.MAIL_HOST;
+    const user = process.env.MAIL_USER;
+    const pass = process.env.MAIL_PASS;
+    console.log('[mail] init: host=%s user=%s pass=%s', host, user, pass ? '***' : '(missing)');
+    if(!host || !user || !pass){
+      console.warn('[mail] SMTP not configured (MAIL_HOST/MAIL_USER/MAIL_PASS missing). Email notifications disabled.');
+      return;
+    }
+    const port = Number(process.env.MAIL_PORT || 587);
+    const secure = (process.env.MAIL_SECURE === 'true') || port === 465;
+    const transportOpts = { host, port, secure, auth: { user, pass } };
+    console.log('[mail] transport opts: host=%s port=%d secure=%s', host, port, secure);
+    // Special-case Gmail to use the well-known 'gmail' service and require TLS on port 587
+    if (host && host.toLowerCase().includes('gmail')) {
+      transportOpts.service = 'gmail';
+      if (!transportOpts.secure && transportOpts.port === 587) transportOpts.requireTLS = true;
+      console.log('[mail] gmail detected, using gmail service with requireTLS=%s', transportOpts.requireTLS);
+    } else {
+      // For non-Gmail SMTP, prefer STARTTLS when using port 587
+      if (!transportOpts.secure && transportOpts.port === 587) transportOpts.requireTLS = true;
+    }
+    // Enforce a modern TLS cipher preference where possible
+    transportOpts.tls = Object.assign({ ciphers: 'TLSv1.2' }, transportOpts.tls || {});
+    mailTransport = nodemailer.createTransport(transportOpts);
+    console.log('[mail] transport created');
+    // verify connection (best-effort)
+    mailTransport.verify()
+      .then(() => console.log('[mail] SMTP transport verified successfully'))
+      .catch(err => console.warn('[mail] SMTP verify failed:', err && err.message ? err.message : err));
+  }catch(e){ console.error('[mail] initMailTransport failed:', e); }
+}
+console.log('[app] calling initMailTransport...');
+initMailTransport();
+console.log('[app] initMailTransport completed');
+
+async function sendEmail(to, subject, text, html){
+  try{
+    if(!to) return;
+    if(!mailTransport){
+      console.log('[mail] (dry-run) would send email to', to, 'subject=', subject);
+      return;
+    }
+    const from = process.env.MAIL_FROM || process.env.MAIL_USER;
+    const msg = { from, to, subject, text: text || subject, html: html };
+    const info = await mailTransport.sendMail(msg);
+    console.log('[mail] sent', info && info.messageId ? info.messageId : '(ok)', 'to=', to);
+  }catch(e){ console.warn('[mail] sendEmail failed', e && e.message ? e.message : e); }
+}
+
 function readPushSubs(){
   try{
     if(!fs.existsSync(PUSH_FILE)){ try{ fs.mkdirSync(path.dirname(PUSH_FILE), { recursive: true }); }catch(e){}; fs.writeFileSync(PUSH_FILE, '[]', 'utf8'); }
@@ -668,6 +723,7 @@ app.post('/api/push/subscribe', (req, res) => {
 
 // Create a new booking
 app.post('/api/bookings', (req, res) => {
+  console.log('[bookings:post] starting handler');
   try {
     const data = req.body;
     console.log('[bookings] create request body:', data);
@@ -820,6 +876,56 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
       if(booking.email) sendPushToUserByEmail(booking.email, payload).catch(e => console.warn('[push] notify user failed', e));
     }catch(e){ console.warn('[push] notify user failed', e); }
 
+    // Send email notifications to booking owner and admin(s)
+    (async () => {
+      try{
+        const booking = bookings[idx];
+        console.log('[mail] start email notifications for booking', booking._id);
+        // send to booking owner email if present
+        if(booking.email){
+          const subj = 'Your Teleka booking has been confirmed';
+          const txt = `Hello ${booking.name || ''},\n\nYour booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\nThank you,\nTeleka`;
+          const html = `<p>Hello ${booking.name || ''},</p><p>Your booking (ID: <strong>${booking._id}</strong>) from <strong>${booking.pickup}</strong> to <strong>${booking.destination}</strong> has been <strong>confirmed</strong>.</p><p>Thank you,<br/>Teleka</p>`;
+          console.log('[mail] sending confirmation email to user:', booking.email);
+          try{ 
+            await sendEmail(booking.email, subj, txt, html); 
+            console.log('[mail] confirmation email sent to user:', booking.email); 
+          }catch(e){ 
+            console.error('[mail] user notify failed:', e && e.message ? e.message : e); 
+          }
+        }
+
+        // notify admin email(s): prefer ADMIN_EMAILS env (comma-separated), fallback to data/admin.json
+        const adminList = [];
+        if(process.env.ADMIN_EMAILS){
+          process.env.ADMIN_EMAILS.split(',').map(s => s.trim()).filter(Boolean).forEach(e => adminList.push(e));
+        }
+        try{
+          const adminJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'admin.json'), 'utf8') || '{}');
+          if(adminJson && adminJson.email) adminList.push(adminJson.email);
+        }catch(e){}
+
+        const uniqueAdmins = Array.from(new Set(adminList));
+        if(uniqueAdmins.length){
+          const subjA = 'New booking confirmed — Teleka';
+          const txtA = `A booking has been confirmed. Booking ID: ${booking._id}\nCustomer: ${booking.name || 'Unknown'} (${booking.email || 'N/A'})\nPickup: ${booking.pickup}\nDestination: ${booking.destination}`;
+          const htmlA = `<p>A new booking has been confirmed.</p><p><strong>Booking ID:</strong> ${booking._id}<br/><strong>Customer:</strong> ${booking.name || 'Unknown'} (${booking.email || 'N/A'})<br/><strong>Pickup:</strong> ${booking.pickup}<br/><strong>Destination:</strong> ${booking.destination}</p>`;
+          for(const a of uniqueAdmins){
+            console.log('[mail] sending confirmation email to admin:', a);
+            try{ 
+              await sendEmail(a, subjA, txtA, htmlA); 
+              console.log('[mail] confirmation email sent to admin:', a); 
+            }catch(e){ 
+              console.error('[mail] admin notify failed for', a, ':', e && e.message ? e.message : e); 
+            }
+          }
+        }
+        console.log('[mail] email notifications completed for booking', booking._id);
+      }catch(e){ 
+        console.error('[mail] notify flow failed:', e); 
+      }
+    })().catch(err => console.error('[mail] async email handler error:', err));
+
     res.json(bookings[idx]);
   } catch (err) {
     console.error('[bookings] confirm error', err);
@@ -836,6 +942,9 @@ app.post('/api/bookings/clear-all', (req, res) => {
     res.status(500).json({ error: 'Failed to clear bookings' });
   }
 });
+
+// Serve public static files from root AFTER all API routes
+app.use(express.static(path.join(__dirname)));
 
 app.listen(PORT, () => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
