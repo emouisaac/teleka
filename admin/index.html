@@ -1312,7 +1312,17 @@
 
         // Admin-side EventSource for incoming bookings
         try{
-            const adminEs = new EventSource('/api/notifications/stream');
+            // Open SSE with identifying query params so server can target messages
+            let adminEs;
+            (function(){
+                let adminSseUrl = '/api/notifications/stream?role=admin';
+                try{
+                    const raw = localStorage.getItem('authUser');
+                    const user = raw ? JSON.parse(raw) : null;
+                    if(user && user.email) adminSseUrl += '&email=' + encodeURIComponent(user.email);
+                }catch(e){}
+                adminEs = new EventSource(adminSseUrl);
+            })();
             adminEs.addEventListener('open', () => console.log('[sse:admin] connected'));
             adminEs.addEventListener('error', (e) => { /* ignore */ });
 

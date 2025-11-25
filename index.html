@@ -2262,7 +2262,10 @@
                 }
 
                 try{
-                    const es = new EventSource('/api/notifications/stream');
+                    let userSseUrl = '/api/notifications/stream?role=user';
+                    try{ const raw = localStorage.getItem('authUser'); const user = raw ? JSON.parse(raw) : null; if(user && user.email) userSseUrl += '&email=' + encodeURIComponent(user.email); }catch(e){}
+                    try{ const myBooking = sessionStorage.getItem('myBookingId'); if(myBooking) userSseUrl += '&bookingId=' + encodeURIComponent(myBooking); }catch(e){}
+                    const es = new EventSource(userSseUrl);
                     es.addEventListener('open', () => console.log('[sse:user] connected'));
                     es.addEventListener('error', (e) => { /* ignore */ });
                     es.addEventListener('booking-confirmed', (ev) => {

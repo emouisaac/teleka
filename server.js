@@ -247,8 +247,27 @@ function readUsers() {
   }
 }
 
+function writeAtomicJson(filePath, obj) {
+  try {
+    try { fs.mkdirSync(path.dirname(filePath), { recursive: true }); } catch (e) {}
+    const tmp = filePath + '.' + crypto.randomBytes(6).toString('hex') + '.tmp';
+    const dataStr = JSON.stringify(obj, null, 2);
+    fs.writeFileSync(tmp, dataStr, 'utf8');
+    fs.renameSync(tmp, filePath);
+    try {
+      const logLine = JSON.stringify({ ts: new Date().toISOString(), file: path.relative(__dirname, filePath), bytes: Buffer.byteLength(dataStr, 'utf8') });
+      const logFile = path.join(__dirname, 'data', 'write_log.log');
+      try { fs.mkdirSync(path.dirname(logFile), { recursive: true }); } catch (e) {}
+      fs.appendFileSync(logFile, logLine + '\n', 'utf8');
+    } catch (e) { console.warn('[writeAtomicJson] logging failed', e); }
+  } catch (err) {
+    console.error('[writeAtomicJson] failed for', filePath, err);
+    throw err;
+  }
+}
+
 function writeUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+  writeAtomicJson(USERS_FILE, users);
 }
 
 function hashPassword(password, salt=null) {
@@ -292,7 +311,7 @@ function readAdmin() {
 }
 
 function writeAdmin(admin) {
-  fs.writeFileSync(ADMIN_FILE, JSON.stringify(admin, null, 2), 'utf8');
+  writeAtomicJson(ADMIN_FILE, admin);
 }
 
 function ensureAdminCredential(){
@@ -497,7 +516,7 @@ function readPushSubs(){
 }
 
 function writePushSubs(list){
-  try{ fs.writeFileSync(PUSH_FILE, JSON.stringify(list, null, 2), 'utf8'); }catch(e){ console.error('[push] writePushSubs failed', e); }
+  try{ writeAtomicJson(PUSH_FILE, list); }catch(e){ console.error('[push] writePushSubs failed', e); }
 }
 
 // send push to subscriptions matching provided filter (matcher fn)
@@ -507,12 +526,16 @@ async function sendPushTo(filterFn, payload){
   for(const s of subs){
     try{
       if(!filterFn(s)) continue;
-      await webpush.sendNotification(s.subscription, JSON.stringify(payload));
+      // log send attempt to help debug delivery issues
+      try{ console.log('[push] sending to', s && s.subscription && s.subscription.endpoint ? s.subscription.endpoint : '(unknown endpoint)'); }catch(e){}
+      // Use a short TTL for more immediate delivery behavior (adjust as needed).
+      await webpush.sendNotification(s.subscription, JSON.stringify(payload), { TTL: 60 });
+      try{ console.log('[push] send ok to', s && s.subscription && s.subscription.endpoint ? s.subscription.endpoint : '(unknown)'); }catch(e){}
     }catch(err){
       // remove unsubscribed/expired
       const status = err && err.statusCode ? err.statusCode : null;
       if(status === 410 || status === 404) toRemove.push(s);
-      console.warn('[push] send failed', err && err.message ? err.message : err);
+      console.warn('[push] send failed', err && err.message ? err.message : err, 'statusCode=', status);
     }
   }
   if(toRemove.length){
@@ -548,13 +571,14 @@ function readBookings() {
 }
 
 function writeBookings(bookings) {
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2), 'utf8');
+  writeAtomicJson(BOOKINGS_FILE, bookings);
 }
 
 // Server-Sent Events (SSE) removed — real-time notifications disabled
 
 // --- Server-Sent Events (SSE) support ---
-const sseClients = new Set();
+// Track clients with metadata so we can target notifications to specific users or roles
+const sseClients = new Map(); // res -> { role, email, bookingId }
 
 function sendSseEvent(clientRes, event, data) {
   try {
@@ -566,8 +590,16 @@ function sendSseEvent(clientRes, event, data) {
 }
 
 function broadcastSse(event, data) {
-  for (const res of Array.from(sseClients)) {
+  for (const res of Array.from(sseClients.keys())) {
     sendSseEvent(res, event, data);
+  }
+}
+
+function sendSseTo(filterFn, event, data) {
+  for (const [res, meta] of Array.from(sseClients.entries())) {
+    try {
+      if (filterFn(meta)) sendSseEvent(res, event, data);
+    } catch (e) { /* ignore per-client errors */ }
   }
 }
 
@@ -582,8 +614,14 @@ app.get('/api/notifications/stream', (req, res) => {
   // send initial comment to establish the stream
   res.write(': connected\n\n');
 
-  sseClients.add(res);
-  console.log('[sse] client connected, total=', sseClients.size);
+  // parse identifying query params if present
+  const role = (req.query.role || '').toString();
+  const email = (req.query.email || '').toString();
+  const bookingId = (req.query.bookingId || '').toString();
+  const meta = { role: role || '', email: email || '', bookingId: bookingId || '' };
+
+  sseClients.set(res, meta);
+  console.log('[sse] client connected, total=', sseClients.size, 'meta=', meta);
 
   // ping to keep connection alive
   const keepAlive = setInterval(() => {
@@ -769,7 +807,10 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
     // Broadcast SSE event to connected clients so users can be notified in real-time
     try {
       const payload = { booking: bookings[idx] };
-      broadcastSse('booking-confirmed', payload);
+      // send to all admins and to any client that identified itself with matching email or bookingId
+      try { sendSseTo(m => (m && (m.role === 'admin' || (m.email && bookings[idx].email && m.email.toLowerCase() === bookings[idx].email.toLowerCase()) || (m.bookingId && m.bookingId === String(bookings[idx]._id)))), 'booking-confirmed', payload); } catch (e) { console.warn('[sse] targeted send failed', e); }
+      // also broadcast to everyone as a fallback
+      try { broadcastSse('booking-confirmed', payload); } catch (e) { console.warn('[sse] broadcast failed', e); }
     } catch (e) { console.warn('[sse] broadcast failed', e); }
 
     // send web-push to the booking owner (by email) if subscription exists
