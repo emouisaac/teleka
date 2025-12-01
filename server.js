@@ -299,6 +299,46 @@ function sanitizeUser(user) {
   return u;
 }
 
+// Verify token produced by signToken(). Returns payload or null.
+function verifyToken(token) {
+  try {
+    if (!token) return null;
+    const parts = String(token).split('.');
+    if (parts.length !== 2) return null;
+    const b64 = parts[0];
+    const sig = parts[1];
+    const secret = process.env.AUTH_SECRET || 'dev-secret-change-me';
+    const expected = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
+    // timingSafeEqual expects Buffers of same length
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return null;
+    if (!crypto.timingSafeEqual(a, b)) return null;
+    const json = Buffer.from(b64, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Middleware to require admin token (Bearer token from /api/auth/login)
+function requireAdmin(req, res, next) {
+  try {
+    const auth = req.headers.authorization || req.headers.Authorization || req.headers['x-access-token'] || req.headers['x-auth-token'];
+    let token = null;
+    if (!auth) return res.status(401).json({ error: 'Unauthorized' });
+    if (String(auth).startsWith('Bearer ')) token = String(auth).slice(7).trim(); else token = String(auth).trim();
+    const payload = verifyToken(token);
+    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    if (payload.sub !== 'admin' && payload.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    // attach payload for downstream handlers if needed
+    req.auth = payload;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+
 // --- Admin credential handling (file-backed, salted hash)
 const ADMIN_FILE = path.join(__dirname, 'data', 'admin.json');
 
@@ -583,8 +623,12 @@ async function sendPushTo(filterFn, payload){
       if(!filterFn(s)) continue;
       // log send attempt to help debug delivery issues
       try{ console.log('[push] sending to', s && s.subscription && s.subscription.endpoint ? s.subscription.endpoint : '(unknown endpoint)'); }catch(e){}
+      // Ensure payload contains sensible notification options for visibility and vibration
+      const defaultOptions = { vibrate: [200, 100, 200], tag: 'teleka-notify', requireInteraction: true };
+      const sendPayload = Object.assign({}, payload || {});
+      sendPayload.options = Object.assign({}, defaultOptions, (payload && payload.options) || {});
       // Use a short TTL for more immediate delivery behavior (adjust as needed).
-      await webpush.sendNotification(s.subscription, JSON.stringify(payload), { TTL: 60 });
+      await webpush.sendNotification(s.subscription, JSON.stringify(sendPayload), { TTL: 60 });
       try{ console.log('[push] send ok to', s && s.subscription && s.subscription.endpoint ? s.subscription.endpoint : '(unknown)'); }catch(e){}
     }catch(err){
       // remove unsubscribed/expired
@@ -933,8 +977,8 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
   }
 });
 
-// Clear-all bookings (admin)
-app.post('/api/bookings/clear-all', (req, res) => {
+// Clear-all bookings (admin) - protected: requires admin Bearer token
+app.post('/api/bookings/clear-all', requireAdmin, (req, res) => {
   try {
     writeBookings([]);
     res.json({ success: true });
