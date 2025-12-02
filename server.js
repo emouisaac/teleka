@@ -567,18 +567,28 @@ async function _ensureTransporter() {
     const host = process.env.SMTP_HOST || process.env.MAIL_HOST;
     const port = process.env.SMTP_PORT || process.env.MAIL_PORT || '587';
     const secure = process.env.SMTP_SECURE || process.env.MAIL_SECURE || 'false';
-    const user = process.env.SMTP_USER || process.env.MAIL_USER;
-    const pass = process.env.SMTP_PASS || process.env.MAIL_PASS;
+    let user = process.env.SMTP_USER || process.env.MAIL_USER;
+    let pass = process.env.SMTP_PASS || process.env.MAIL_PASS;
+    
+    // Remove spaces from Gmail App Password (Google provides them with spaces for readability)
+    if (pass) pass = pass.replace(/\s+/g, '');
     
     if (host) {
       const options = {
         host: host,
         port: parseInt(port, 10),
         secure: (String(secure) === 'true'),
+        // Disable SSL verification as workaround for some network issues (can be stricter in production)
+        tls: { rejectUnauthorized: false },
+        // Add connection timeout to prevent hanging on network issues
+        connectionTimeout: 5000,
+        socketTimeout: 5000
       };
-      if (user) options.auth = { user: user, pass: pass };
+      if (user && pass) {
+        options.auth = { user: user, pass: pass };
+      }
       _ensureTransporter.transporter = nodemailer.createTransport(options);
-      console.log('[mail] Using SMTP transport', host + ':' + port);
+      console.log('[mail] ✓ Using SMTP transport:', host + ':' + port, 'user:', user);
     } else {
       // create ethereal test account for local/dev if no SMTP configured
       const testAccount = await nodemailer.createTestAccount();
@@ -589,10 +599,10 @@ async function _ensureTransporter() {
         secure: false,
         auth: { user: testAccount.user, pass: testAccount.pass }
       });
-      console.log('[mail] No SMTP configured — using Ethereal test account. Preview URLs will be logged.');
+      console.log('[mail] ✓ No SMTP configured — using Ethereal test account. Preview URLs will be logged.');
     }
   } catch (e) {
-    console.warn('[mail] failed to create transporter', e);
+    console.error('[mail] ✗ failed to create transporter:', e && e.message ? e.message : e);
     throw e;
   }
   return _ensureTransporter.transporter;
@@ -606,6 +616,20 @@ async function sendEmail(to, subject, text, html) {
     }
     const transporter = await _ensureTransporter();
     const fromAddr = process.env.FROM_EMAIL || process.env.MAIL_FROM || process.env.SMTP_FROM || ('Teleka <no-reply@teleka.local>');
+    
+    // Verify SMTP connection is working (first time only)
+    if (!_ensureTransporter.verified) {
+      try {
+        console.log('[mail] verifying SMTP connection...');
+        await transporter.verify();
+        _ensureTransporter.verified = true;
+        console.log('[mail] ✓ SMTP connection verified');
+      } catch (verifyErr) {
+        console.error('[mail] ✗ SMTP connection verification failed:', verifyErr && verifyErr.message ? verifyErr.message : verifyErr);
+        throw verifyErr;
+      }
+    }
+    
     console.log('[mail] attempting to send:', { from: fromAddr, to, subject });
     const info = await transporter.sendMail({ from: fromAddr, to, subject, text, html });
     console.log('[mail] ✓ sent successfully', { to, subject, messageId: info.messageId });
