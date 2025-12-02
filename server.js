@@ -555,6 +555,8 @@ try{ webpush.setVapidDetails('mailto:admin@teleka.local', VAPID_PUBLIC, VAPID_PR
 
 // --- Email (nodemailer) setup ---
 let mailTransport = null;
+let mailVerified = false;
+let mailVerifyError = null;
 function initMailTransport(){
   try{
     const host = process.env.MAIL_HOST;
@@ -584,8 +586,8 @@ function initMailTransport(){
     console.log('[mail] transport created');
     // verify connection (best-effort)
     mailTransport.verify()
-      .then(() => console.log('[mail] SMTP transport verified successfully'))
-      .catch(err => console.warn('[mail] SMTP verify failed:', err && err.message ? err.message : err));
+      .then(() => { mailVerified = true; mailVerifyError = null; console.log('[mail] SMTP transport verified successfully'); })
+      .catch(err => { mailVerified = false; mailVerifyError = err && err.message ? err.message : String(err); console.warn('[mail] SMTP verify failed:', mailVerifyError); });
   }catch(e){ console.error('[mail] initMailTransport failed:', e); }
 }
 console.log('[app] calling initMailTransport...');
@@ -599,15 +601,55 @@ async function sendEmail(to, subject, text, html){
       console.log('[mail] (dry-run) would send email to', to, 'subject=', subject);
       return;
     }
-    const from = process.env.MAIL_FROM || process.env.MAIL_USER;
-    const msg = { from, to, subject, text: text || subject, html: html };
-    console.log('[mail] attempting to send email to', to, 'from', from, 'subject=', subject);
+    // For SMTP authenticated transports (eg Gmail) ensure the SMTP envelope-from
+    // uses the authenticated user. The visible `From` header can still be the
+    // configured `MAIL_FROM` for branding, but the SMTP MAIL FROM must match
+    // the authenticated account to avoid provider rejections.
+    const headerFrom = process.env.MAIL_FROM || process.env.MAIL_USER;
+    const envelopeFrom = process.env.MAIL_USER || headerFrom;
+    const msg = { from: headerFrom, to, subject, text: text || subject, html: html, envelope: { from: envelopeFrom, to } };
+    console.log('[mail] attempting to send email to', to, 'headerFrom=', headerFrom, 'envelopeFrom=', envelopeFrom, 'subject=', subject);
     const info = await mailTransport.sendMail(msg);
-    console.log('[mail] ✓ EMAIL SENT successfully', info && info.messageId ? 'messageId=' + info.messageId : '(ok)', 'to=', to);
+    console.log('[mail] ✓ EMAIL SENT successfully', info && info.messageId ? 'messageId=' + info.messageId : '(ok)', 'to=', to, 'response=', info && info.response ? info.response : '(no-response)');
+    return info;
   }catch(e){ 
-    console.error('[mail] ✗ EMAIL FAILED to send to', to, '- Error:', e && e.message ? e.message : e); 
+    const emsg = e && e.message ? e.message : String(e);
+    console.error('[mail] ✗ EMAIL FAILED to send to', to, '- Error:', emsg); 
+    // Re-throw so callers can handle failures (and our endpoints/tests see the error)
+    throw e;
   }
 }
+
+// Diagnostic endpoints for mail status and quick test
+app.get('/api/mail/status', (req, res) => {
+  try{
+    const config = {
+      MAIL_HOST: process.env.MAIL_HOST || null,
+      MAIL_PORT: process.env.MAIL_PORT || null,
+      MAIL_SECURE: process.env.MAIL_SECURE || null,
+      MAIL_USER: process.env.MAIL_USER ? '***' : null,
+      MAIL_FROM: process.env.MAIL_FROM || null,
+      mailVerified: !!mailVerified,
+      mailVerifyError: mailVerifyError || null
+    };
+    res.json(config);
+  }catch(e){ res.status(500).json({ error: 'failed', detail: e && e.message }); }
+});
+
+app.get('/api/mail/test', async (req, res) => {
+  try{
+    const to = (req.query.to || '').toString();
+    if(!to) return res.status(400).json({ error: 'Provide ?to=you@domain.tld' });
+    const subj = 'Teleka email test';
+    const body = `This is a test message sent at ${new Date().toISOString()} from ${req.get('host') || 'server'}`;
+    try{
+      const info = await sendEmail(to, subj, body, `<p>${body}</p>`);
+      return res.json({ success: true, info: info });
+    }catch(e){
+      return res.status(500).json({ success: false, error: e && e.message ? e.message : String(e) });
+    }
+  }catch(e){ res.status(500).json({ error: 'failed', detail: e && e.message }); }
+});
 
 // SMS sending function
 async function sendSMS(phoneNumber, message){

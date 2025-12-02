@@ -38,5 +38,15 @@
     "salt": "12e6abf2659578b5c5a661ca30f1002a",
     "createdAt": "2025-11-21T19:49:17.438Z",
     "updatedAt": "2025-11-21T19:49:17.438Z"
+  },
+  {
+    "id": "1764701711985",
+    "name": "grace",
+    "phone": "788608032",
+    "email": "acangrace769@gmail.com",
+    "passwordHash": "09386dd1e0141a0d2a79ad776d129b91df733e7ac6cde52e65e93242192825e95cceb98391ffd9fc2e6a524e3f0f5f42112a68444762b84089c9b7a90b3fd71a",
+    "salt": "938d26754e33fcabd04285ea15d48f09",
+    "createdAt": "2025-12-02T18:55:11.985Z",
+    "updatedAt": "2025-12-02T18:55:11.985Z"
   }
 ]

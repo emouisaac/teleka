@@ -24,5 +24,18 @@
     "email": "emouisaac1@gmail.com",
     "role": "admin",
     "createdAt": "2025-11-25T14:10:59.285Z"
+  },
+  {
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/dsrVg8Vnzd0:APA91bHXXIyu-4PNoomdV-oizqvexj7E96n6yvOfzy33JmKn-9ykeShO5idB0O3ei_OTLrUKZxoLDxWG3PFuTAydJCbyLeLJURemDlMHMetLsLBbxVCn6GPPk4s9w1T0GMx7VIeBCdrs",
+      "expirationTime": null,
+      "keys": {
+        "p256dh": "BPFBOpgS83zvyyhkVlVlwTs9xMxtXCIX6hCX5k76IRrOFzSaAE7CZ5Aih-w5uhEIBdHG7gvxmr3xnC7nBh1Cyuw",
+        "auth": "tkuTtKdCTMy74yne1kQVcg"
+      }
+    },
+    "email": "",
+    "role": "user",
+    "createdAt": "2025-12-02T18:53:08.820Z"
   }
 ]
