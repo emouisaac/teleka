@@ -1,9 +1,9 @@
 const express = require('express');
 const path = require('path');
 const axios = require('axios');
-const nodemailer = require('nodemailer');
 const webpush = require('web-push');
 require('dotenv').config();
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -554,102 +554,94 @@ if(!VAPID_PUBLIC || !VAPID_PRIVATE){
 try{ webpush.setVapidDetails('mailto:admin@teleka.local', VAPID_PUBLIC, VAPID_PRIVATE); }catch(e){ console.warn('[webpush] setVapidDetails failed', e); }
 
 // --- Email (nodemailer) setup ---
-let mailTransport = null;
-let mailVerified = false;
-let mailVerifyError = null;
-function initMailTransport(){
-  try{
-    const host = process.env.MAIL_HOST;
-    const user = process.env.MAIL_USER;
-    const pass = process.env.MAIL_PASS;
-    console.log('[mail] init: host=%s user=%s pass=%s', host, user, pass ? '***' : '(missing)');
-    if(!host || !user || !pass){
-      console.warn('[mail] SMTP not configured (MAIL_HOST/MAIL_USER/MAIL_PASS missing). Email notifications disabled.');
-      return;
-    }
-    const port = Number(process.env.MAIL_PORT || 587);
-    const secure = (process.env.MAIL_SECURE === 'true') || port === 465;
-    const transportOpts = { host, port, secure, auth: { user, pass } };
-    console.log('[mail] transport opts: host=%s port=%d secure=%s', host, port, secure);
-    // Special-case Gmail to use the well-known 'gmail' service and require TLS on port 587
-    if (host && host.toLowerCase().includes('gmail')) {
-      transportOpts.service = 'gmail';
-      if (!transportOpts.secure && transportOpts.port === 587) transportOpts.requireTLS = true;
-      console.log('[mail] gmail detected, using gmail service with requireTLS=%s', transportOpts.requireTLS);
-    } else {
-      // For non-Gmail SMTP, prefer STARTTLS when using port 587
-      if (!transportOpts.secure && transportOpts.port === 587) transportOpts.requireTLS = true;
-    }
-    // Enforce a modern TLS cipher preference where possible
-    transportOpts.tls = Object.assign({ ciphers: 'TLSv1.2' }, transportOpts.tls || {});
-    mailTransport = nodemailer.createTransport(transportOpts);
-    console.log('[mail] transport created');
-    // verify connection (best-effort)
-    mailTransport.verify()
-      .then(() => { mailVerified = true; mailVerifyError = null; console.log('[mail] SMTP transport verified successfully'); })
-      .catch(err => { mailVerified = false; mailVerifyError = err && err.message ? err.message : String(err); console.warn('[mail] SMTP verify failed:', mailVerifyError); });
-  }catch(e){ console.error('[mail] initMailTransport failed:', e); }
-}
-console.log('[app] calling initMailTransport...');
-initMailTransport();
-console.log('[app] initMailTransport completed');
+// Email notification setup using nodemailer.
+// Environment options (set in .env):
+// SMTP_HOST, SMTP_PORT, SMTP_SECURE (true/false), SMTP_USER, SMTP_PASS, FROM_EMAIL, ADMIN_EMAIL, APP_BASE_URL
 
-async function sendEmail(to, subject, text, html){
-  try{
-    if(!to) return;
-    if(!mailTransport){
-      console.log('[mail] (dry-run) would send email to', to, 'subject=', subject);
-      return;
+// Lazy-initialized transporter. If no SMTP settings are provided, an Ethereal test account
+// will be created for local development and preview links will be logged.
+async function _ensureTransporter() {
+  if (_ensureTransporter.transporter) return _ensureTransporter.transporter;
+  try {
+    // Support both SMTP_* and MAIL_* env variable names
+    const host = process.env.SMTP_HOST || process.env.MAIL_HOST;
+    const port = process.env.SMTP_PORT || process.env.MAIL_PORT || '587';
+    const secure = process.env.SMTP_SECURE || process.env.MAIL_SECURE || 'false';
+    const user = process.env.SMTP_USER || process.env.MAIL_USER;
+    const pass = process.env.SMTP_PASS || process.env.MAIL_PASS;
+    
+    if (host) {
+      const options = {
+        host: host,
+        port: parseInt(port, 10),
+        secure: (String(secure) === 'true'),
+      };
+      if (user) options.auth = { user: user, pass: pass };
+      _ensureTransporter.transporter = nodemailer.createTransport(options);
+      console.log('[mail] Using SMTP transport', host + ':' + port);
+    } else {
+      // create ethereal test account for local/dev if no SMTP configured
+      const testAccount = await nodemailer.createTestAccount();
+      _ensureTransporter.testAccount = testAccount;
+      _ensureTransporter.transporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: { user: testAccount.user, pass: testAccount.pass }
+      });
+      console.log('[mail] No SMTP configured — using Ethereal test account. Preview URLs will be logged.');
     }
-    // For SMTP authenticated transports (eg Gmail) ensure the SMTP envelope-from
-    // uses the authenticated user. The visible `From` header can still be the
-    // configured `MAIL_FROM` for branding, but the SMTP MAIL FROM must match
-    // the authenticated account to avoid provider rejections.
-    const headerFrom = process.env.MAIL_FROM || process.env.MAIL_USER;
-    const envelopeFrom = process.env.MAIL_USER || headerFrom;
-    const msg = { from: headerFrom, to, subject, text: text || subject, html: html, envelope: { from: envelopeFrom, to } };
-    console.log('[mail] attempting to send email to', to, 'headerFrom=', headerFrom, 'envelopeFrom=', envelopeFrom, 'subject=', subject);
-    const info = await mailTransport.sendMail(msg);
-    console.log('[mail] ✓ EMAIL SENT successfully', info && info.messageId ? 'messageId=' + info.messageId : '(ok)', 'to=', to, 'response=', info && info.response ? info.response : '(no-response)');
+  } catch (e) {
+    console.warn('[mail] failed to create transporter', e);
+    throw e;
+  }
+  return _ensureTransporter.transporter;
+}
+
+async function sendEmail(to, subject, text, html) {
+  try {
+    const transporter = await _ensureTransporter();
+    const fromAddr = process.env.FROM_EMAIL || process.env.MAIL_FROM || process.env.SMTP_FROM || ('Teleka <no-reply@teleka.local>');
+    const info = await transporter.sendMail({ from: fromAddr, to, subject, text, html });
+    console.log('[mail] sent', { to, subject, messageId: info.messageId });
+    if (_ensureTransporter.testAccount) {
+      const url = nodemailer.getTestMessageUrl(info);
+      if (url) console.log('[mail] preview URL:', url);
+    }
     return info;
-  }catch(e){ 
-    const emsg = e && e.message ? e.message : String(e);
-    console.error('[mail] ✗ EMAIL FAILED to send to', to, '- Error:', emsg); 
-    // Re-throw so callers can handle failures (and our endpoints/tests see the error)
+  } catch (e) {
+    console.error('[mail] sendEmail failed', e && e.message ? e.message : e);
     throw e;
   }
 }
 
-// Diagnostic endpoints for mail status and quick test
-app.get('/api/mail/status', (req, res) => {
-  try{
-    const config = {
-      MAIL_HOST: process.env.MAIL_HOST || null,
-      MAIL_PORT: process.env.MAIL_PORT || null,
-      MAIL_SECURE: process.env.MAIL_SECURE || null,
-      MAIL_USER: process.env.MAIL_USER ? '***' : null,
-      MAIL_FROM: process.env.MAIL_FROM || null,
-      mailVerified: !!mailVerified,
-      mailVerifyError: mailVerifyError || null
-    };
-    res.json(config);
-  }catch(e){ res.status(500).json({ error: 'failed', detail: e && e.message }); }
-});
+function _buildBookingSummary(booking){
+  return `Booking ID: ${booking._id}\nName: ${booking.name}\nPhone: ${booking.phone || 'N/A'}\nEmail: ${booking.email || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nEstimated Price: ${booking.estimatedPrice || 'N/A'}\nDate: ${booking.date || 'N/A'}\nTime: ${booking.time || 'N/A'}`;
+}
 
-app.get('/api/mail/test', async (req, res) => {
+async function sendBookingNotificationToAdmin(booking){
   try{
-    const to = (req.query.to || '').toString();
-    if(!to) return res.status(400).json({ error: 'Provide ?to=you@domain.tld' });
-    const subj = 'Teleka email test';
-    const body = `This is a test message sent at ${new Date().toISOString()} from ${req.get('host') || 'server'}`;
-    try{
-      const info = await sendEmail(to, subj, body, `<p>${body}</p>`);
-      return res.json({ success: true, info: info });
-    }catch(e){
-      return res.status(500).json({ success: false, error: e && e.message ? e.message : String(e) });
-    }
-  }catch(e){ res.status(500).json({ error: 'failed', detail: e && e.message }); }
-});
+    const admin = readAdmin();
+    const adminEmail = (process.env.ADMIN_EMAIL || process.env.ADMIN_EMAILS || (admin && admin.email) || 'admin@teleka.local');
+    if(!adminEmail) return;
+    const host = (booking && booking._meta && booking._meta.host) ? booking._meta.host : (process.env.APP_BASE_URL || `localhost:${PORT}`);
+    const url = `http://${host}/admin`;
+    const subject = `New Teleka Booking — ${booking.name} (${booking._id})`;
+    const text = `A new booking was received:\n\n${_buildBookingSummary(booking)}\n\nOpen admin: ${url}`;
+    const html = `<p>A new booking was received:</p><pre>${_buildBookingSummary(booking)}</pre><p><a href="${url}">Open admin</a></p>`;
+    await sendEmail(adminEmail, subject, text, html);
+  }catch(e){ console.warn('[mail] sendBookingNotificationToAdmin failed', e && e.message ? e.message : e); }
+}
+
+async function sendBookingConfirmationToClient(booking){
+  try{
+    if(!booking || !booking.email) return;
+    const subject = `Your Teleka booking ${booking._id} is confirmed`;
+    const text = `Hello ${booking.name || ''},\n\nYour Teleka booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\n${_buildBookingSummary(booking)}\n\nThank you,\nTeleka`;
+    const html = `<p>Hello ${booking.name || ''},</p><p>Your Teleka booking (ID: ${booking._id}) has been confirmed.</p><pre>${_buildBookingSummary(booking)}</pre><p>Thank you,<br/>Teleka</p>`;
+    await sendEmail(booking.email, subject, text, html);
+  }catch(e){ console.warn('[mail] sendBookingConfirmationToClient failed', e && e.message ? e.message : e); }
+}
 
 // SMS sending function
 async function sendSMS(phoneNumber, message){
@@ -957,39 +949,12 @@ app.post('/api/bookings', (req, res) => {
       sendPushToRole('admin', payload).catch(e => console.warn('[push] admin notify failed', e));
     }catch(e){ console.warn('[push] notify admin failed', e); }
 
-    // Send email notification to admin about new booking
+    // Email: notify admin of new booking (runs async, failures are non-blocking)
     (async () => {
       try {
-        console.log('[mail] sending admin notification for new booking', newBooking._id);
-        
-        // Get admin email(s): prefer ADMIN_EMAILS env (comma-separated), fallback to data/admin.json
-        const adminList = [];
-        if(process.env.ADMIN_EMAILS){
-          process.env.ADMIN_EMAILS.split(',').map(s => s.trim()).filter(Boolean).forEach(e => adminList.push(e));
-        }
-        try {
-          const adminJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'admin.json'), 'utf8') || '{}');
-          if(adminJson && adminJson.email && !adminList.includes(adminJson.email)) adminList.push(adminJson.email);
-        } catch(e) {}
-        
-        const uniqueAdmins = Array.from(new Set(adminList));
-        if(uniqueAdmins.length){
-          const subj = 'New Booking Received — Teleka';
-          const txt = `A new booking has been received.\n\nCustomer: ${newBooking.name}\nEmail: ${newBooking.email || 'N/A'}\nPickup: ${newBooking.pickup}\nDestination: ${newBooking.destination}\nDate: ${newBooking.date || 'N/A'}\nTime: ${newBooking.time || 'N/A'}\nBooking ID: ${newBooking._id}`;
-          const html = `<p>A new booking has been received.</p><p><strong>Customer:</strong> ${newBooking.name}<br/><strong>Email:</strong> ${newBooking.email || 'N/A'}<br/><strong>Pickup:</strong> ${newBooking.pickup}<br/><strong>Destination:</strong> ${newBooking.destination}<br/><strong>Date:</strong> ${newBooking.date || 'N/A'}<br/><strong>Time:</strong> ${newBooking.time || 'N/A'}<br/><strong>Booking ID:</strong> ${newBooking._id}</p>`;
-          
-          for(const adminEmail of uniqueAdmins){
-            try {
-              await sendEmail(adminEmail, subj, txt, html);
-              console.log('[mail] admin notification email sent to', adminEmail);
-            } catch(e) {
-              console.error('[mail] failed to notify admin', adminEmail, ':', e && e.message ? e.message : e);
-            }
-          }
-        }
-        console.log('[mail] admin notification flow completed for booking', newBooking._id);
+        await sendBookingNotificationToAdmin(newBooking);
       } catch(e) {
-        console.error('[mail] admin notification flow failed:', e);
+        console.error('[mail] admin notify flow failed:', e && e.message ? e.message : e);
       }
     })().catch(err => console.error('[mail] async admin notification error:', err));
 
@@ -1066,70 +1031,19 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
       if(booking.email) sendPushToUserByEmail(booking.email, payload).catch(e => console.warn('[push] notify user failed', e));
     }catch(e){ console.warn('[push] notify user failed', e); }
 
-    // Send email notifications to booking owner and admin(s)
+    // Email: notify client that booking was confirmed (runs async, non-blocking)
     (async () => {
       try{
         const booking = bookings[idx];
-        console.log('[mail] start email and SMS notifications for booking', booking._id);
-        
-        // send to booking owner email if present
-        if(booking.email){
-          const subj = 'Your Teleka booking has been confirmed';
-          const txt = `Hello ${booking.name || ''},\n\nYour booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\nEstimated Price: ${booking.estimatedPrice || 'N/A'}\nDate: ${booking.date || 'N/A'}\nTime: ${booking.time || 'N/A'}\n\nThank you,\nTeleka`;
-          const html = `<p>Hello ${booking.name || ''},</p><p>Your booking (ID: <strong>${booking._id}</strong>) from <strong>${booking.pickup}</strong> to <strong>${booking.destination}</strong> has been <strong>confirmed</strong>.</p><p><strong>Estimated Price:</strong> ${booking.estimatedPrice || 'N/A'}<br/><strong>Date:</strong> ${booking.date || 'N/A'}<br/><strong>Time:</strong> ${booking.time || 'N/A'}</p><p>Thank you,<br/>Teleka</p>`;
-          console.log('[mail] sending confirmation email to user:', booking.email);
-          try{ 
-            await sendEmail(booking.email, subj, txt, html); 
-            console.log('[mail] confirmation email sent to user:', booking.email); 
-          }catch(e){ 
-            console.error('[mail] user notify failed:', e && e.message ? e.message : e); 
-          }
-        } else {
-          console.warn('[mail] booking has no email, skipping email notification');
-        }
+        await sendBookingConfirmationToClient(booking);
 
-        // send SMS to booking owner phone if present
+        // Still attempt SMS and push notifications as configured
         if(booking.phone){
           const smsMsg = `Hello ${booking.name || ''},\n\nYour Teleka booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\nEstimated Price: ${booking.estimatedPrice || 'N/A'}\nDate: ${booking.date || 'N/A'}\nTime: ${booking.time || 'N/A'}\n\nThank you,\nTeleka`;
-          console.log('[sms] sending confirmation SMS to user:', booking.phone);
-          try{
-            await sendSMS(booking.phone, smsMsg);
-            console.log('[sms] confirmation SMS sent to user:', booking.phone);
-          }catch(e){
-            console.error('[sms] user notify failed:', e && e.message ? e.message : e);
-          }
-        } else {
-          console.warn('[sms] booking has no phone, skipping SMS notification');
+          try{ await sendSMS(booking.phone, smsMsg); console.log('[sms] confirmation SMS sent to user:', booking.phone); }catch(e){ console.error('[sms] user notify failed:', e && e.message ? e.message : e); }
         }
-
-        // notify admin email(s): prefer ADMIN_EMAILS env (comma-separated), fallback to data/admin.json
-        const adminList = [];
-        if(process.env.ADMIN_EMAILS){
-          process.env.ADMIN_EMAILS.split(',').map(s => s.trim()).filter(Boolean).forEach(e => adminList.push(e));
-        }
-        try{
-          const adminJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'admin.json'), 'utf8') || '{}');
-          if(adminJson && adminJson.email && !adminList.includes(adminJson.email)) adminList.push(adminJson.email);
-        }catch(e){}
-
-        const uniqueAdmins = Array.from(new Set(adminList));
-        if(uniqueAdmins.length){
-          const subjA = 'Booking Confirmed — Teleka';
-          const txtA = `You have confirmed a booking.\n\nBooking ID: ${booking._id}\nCustomer: ${booking.name || 'Unknown'}\nEmail: ${booking.email || 'N/A'}\nPhone: ${booking.phone || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nEstimated Price: ${booking.estimatedPrice || 'N/A'}`;
-          const htmlA = `<p>You have confirmed a booking.</p><p><strong>Booking ID:</strong> ${booking._id}<br/><strong>Customer:</strong> ${booking.name || 'Unknown'}<br/><strong>Email:</strong> ${booking.email || 'N/A'}<br/><strong>Phone:</strong> ${booking.phone || 'N/A'}<br/><strong>Pickup:</strong> ${booking.pickup}<br/><strong>Destination:</strong> ${booking.destination}<br/><strong>Estimated Price:</strong> ${booking.estimatedPrice || 'N/A'}</p>`;
-          for(const a of uniqueAdmins){
-            console.log('[mail] sending confirmation email to admin:', a);
-            try{ 
-              await sendEmail(a, subjA, txtA, htmlA); 
-              console.log('[mail] confirmation email sent to admin:', a); 
-            }catch(e){ 
-              console.error('[mail] admin notify failed for', a, ':', e && e.message ? e.message : e); 
-            }
-          }
-        }
-        console.log('[mail] email and SMS notifications completed for booking', booking._id);
-      }catch(e){ 
-        console.error('[mail] notify flow failed:', e); 
+      }catch(e){
+        console.error('[mail] notify flow failed:', e);
       }
     })().catch(err => console.error('[mail] async email handler error:', err));
 
