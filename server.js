@@ -598,9 +598,89 @@ async function sendEmail(to, subject, text, html){
     }
     const from = process.env.MAIL_FROM || process.env.MAIL_USER;
     const msg = { from, to, subject, text: text || subject, html: html };
+    console.log('[mail] attempting to send email to', to, 'from', from, 'subject=', subject);
     const info = await mailTransport.sendMail(msg);
-    console.log('[mail] sent', info && info.messageId ? info.messageId : '(ok)', 'to=', to);
-  }catch(e){ console.warn('[mail] sendEmail failed', e && e.message ? e.message : e); }
+    console.log('[mail] ✓ EMAIL SENT successfully', info && info.messageId ? 'messageId=' + info.messageId : '(ok)', 'to=', to);
+  }catch(e){ 
+    console.error('[mail] ✗ EMAIL FAILED to send to', to, '- Error:', e && e.message ? e.message : e); 
+  }
+}
+
+// SMS sending function
+async function sendSMS(phoneNumber, message){
+  try{
+    if(!phoneNumber || !message) return;
+    
+    const provider = process.env.SMS_PROVIDER || 'africastalking';
+    
+    if(provider === 'africastalking'){
+      return sendSMS_AfricasTalking(phoneNumber, message);
+    } else if(provider === 'nexmo'){
+      return sendSMS_Nexmo(phoneNumber, message);
+    } else {
+      console.log('[sms] (dry-run) would send SMS to', phoneNumber, 'message=', message);
+      return;
+    }
+  }catch(e){ console.warn('[sms] sendSMS failed', e && e.message ? e.message : e); }
+}
+
+// Africa's Talking SMS implementation
+async function sendSMS_AfricasTalking(phoneNumber, message){
+  try{
+    const apiKey = process.env.SMS_API_KEY;
+    const username = process.env.SMS_USERNAME;
+    const from = process.env.SMS_FROM || 'Teleka';
+    
+    if(!apiKey || !username){
+      console.log('[sms:at] (dry-run) would send SMS to', phoneNumber, 'via Africa\'s Talking');
+      return;
+    }
+
+    const response = await axios.post('https://api.africastalking.com/version1/messaging', 
+      new URLSearchParams({
+        username: username,
+        message: message,
+        recipients: phoneNumber
+      }),
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'apiKey': apiKey
+        }
+      }
+    );
+    
+    console.log('[sms:at] sent to', phoneNumber, 'response=', response.data);
+    return response.data;
+  }catch(e){ console.warn('[sms:at] sendSMS_AfricasTalking failed', e && e.message ? e.message : e); }
+}
+
+// Nexmo/Vonage SMS implementation
+async function sendSMS_Nexmo(phoneNumber, message){
+  try{
+    const apiKey = process.env.SMS_API_KEY;
+    const apiSecret = process.env.SMS_API_SECRET;
+    const from = process.env.SMS_FROM || 'Teleka';
+    
+    if(!apiKey || !apiSecret){
+      console.log('[sms:nexmo] (dry-run) would send SMS to', phoneNumber, 'via Nexmo');
+      return;
+    }
+
+    const response = await axios.post('https://rest.nexmo.com/sms/json',
+      {
+        api_key: apiKey,
+        api_secret: apiSecret,
+        from: from,
+        to: phoneNumber,
+        text: message
+      }
+    );
+    
+    console.log('[sms:nexmo] sent to', phoneNumber, 'response=', response.data);
+    return response.data;
+  }catch(e){ console.warn('[sms:nexmo] sendSMS_Nexmo failed', e && e.message ? e.message : e); }
 }
 
 function readPushSubs(){
@@ -790,6 +870,7 @@ app.post('/api/bookings', (req, res) => {
       _id: String(Date.now()),
       name: data.name,
       email: data.email || '',
+      phone: data.phone || '',
       pickup: data.pickup,
       destination: data.destination,
       serviceType: data.serviceType || '',
@@ -873,46 +954,19 @@ app.get('/api/bookings/create-test', (req, res) => {
     const now = new Date().toISOString();
     const newBooking = {
       _id: String(Date.now()),
-      name, email: req.query.email || '', pickup, destination,
+      name, email: req.query.email || '', phone: req.query.phone || '', pickup, destination,
       serviceType: req.query.serviceType || '', date: req.query.date || '', time: req.query.time || '',
       estimatedPrice: req.query.estimatedPrice || '', status: 'pending', createdAt: now, updatedAt: now
     };
     bookings.unshift(newBooking);
     writeBookings(bookings);
-    // notify
-    // notifications disabled
-
-    // real-time SSE notifications disabled
+    try{ broadcastSse('booking-created', { booking: newBooking }); } catch(e){ console.warn('[sse] create-test broadcast failed', e); }
     res.json(newBooking);
   } catch (err) {
     console.error('[bookings debug] create-test failed', err);
     res.status(500).json({ error: 'create-test failed', detail: err && err.message });
   }
 });
-
-  // When creating booking via create-test, also broadcast
-  app.get('/api/bookings/create-test', (req, res) => {
-    try {
-      const name = (req.query.name || 'Test').toString();
-      const pickup = (req.query.pickup || 'X').toString();
-      const destination = (req.query.destination || 'Y').toString();
-      const bookings = readBookings();
-      const now = new Date().toISOString();
-      const newBooking = {
-        _id: String(Date.now()),
-        name, email: req.query.email || '', pickup, destination,
-        serviceType: req.query.serviceType || '', date: req.query.date || '', time: req.query.time || '',
-        estimatedPrice: req.query.estimatedPrice || '', status: 'pending', createdAt: now, updatedAt: now
-      };
-      bookings.unshift(newBooking);
-      writeBookings(bookings);
-      try{ broadcastSse('booking-created', { booking: newBooking }); } catch(e){ console.warn('[sse] create-test broadcast failed', e); }
-      res.json(newBooking);
-    } catch (err) {
-      console.error('[bookings debug] create-test failed', err);
-      res.status(500).json({ error: 'create-test failed', detail: err && err.message });
-    }
-  });
 
 // Delete booking by id
 app.delete('/api/bookings/:id', (req, res) => {
@@ -960,7 +1014,7 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
     (async () => {
       try{
         const booking = bookings[idx];
-        console.log('[mail] start email notifications for booking', booking._id);
+        console.log('[mail] start email and SMS notifications for booking', booking._id);
         
         // send to booking owner email if present
         if(booking.email){
@@ -975,7 +1029,21 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
             console.error('[mail] user notify failed:', e && e.message ? e.message : e); 
           }
         } else {
-          console.warn('[mail] booking has no email, skipping client notification');
+          console.warn('[mail] booking has no email, skipping email notification');
+        }
+
+        // send SMS to booking owner phone if present
+        if(booking.phone){
+          const smsMsg = `Hello ${booking.name || ''},\n\nYour Teleka booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\nEstimated Price: ${booking.estimatedPrice || 'N/A'}\nDate: ${booking.date || 'N/A'}\nTime: ${booking.time || 'N/A'}\n\nThank you,\nTeleka`;
+          console.log('[sms] sending confirmation SMS to user:', booking.phone);
+          try{
+            await sendSMS(booking.phone, smsMsg);
+            console.log('[sms] confirmation SMS sent to user:', booking.phone);
+          }catch(e){
+            console.error('[sms] user notify failed:', e && e.message ? e.message : e);
+          }
+        } else {
+          console.warn('[sms] booking has no phone, skipping SMS notification');
         }
 
         // notify admin email(s): prefer ADMIN_EMAILS env (comma-separated), fallback to data/admin.json
@@ -991,8 +1059,8 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
         const uniqueAdmins = Array.from(new Set(adminList));
         if(uniqueAdmins.length){
           const subjA = 'Booking Confirmed — Teleka';
-          const txtA = `You have confirmed a booking.\n\nBooking ID: ${booking._id}\nCustomer: ${booking.name || 'Unknown'}\nEmail: ${booking.email || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nEstimated Price: ${booking.estimatedPrice || 'N/A'}`;
-          const htmlA = `<p>You have confirmed a booking.</p><p><strong>Booking ID:</strong> ${booking._id}<br/><strong>Customer:</strong> ${booking.name || 'Unknown'}<br/><strong>Email:</strong> ${booking.email || 'N/A'}<br/><strong>Pickup:</strong> ${booking.pickup}<br/><strong>Destination:</strong> ${booking.destination}<br/><strong>Estimated Price:</strong> ${booking.estimatedPrice || 'N/A'}</p>`;
+          const txtA = `You have confirmed a booking.\n\nBooking ID: ${booking._id}\nCustomer: ${booking.name || 'Unknown'}\nEmail: ${booking.email || 'N/A'}\nPhone: ${booking.phone || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nEstimated Price: ${booking.estimatedPrice || 'N/A'}`;
+          const htmlA = `<p>You have confirmed a booking.</p><p><strong>Booking ID:</strong> ${booking._id}<br/><strong>Customer:</strong> ${booking.name || 'Unknown'}<br/><strong>Email:</strong> ${booking.email || 'N/A'}<br/><strong>Phone:</strong> ${booking.phone || 'N/A'}<br/><strong>Pickup:</strong> ${booking.pickup}<br/><strong>Destination:</strong> ${booking.destination}<br/><strong>Estimated Price:</strong> ${booking.estimatedPrice || 'N/A'}</p>`;
           for(const a of uniqueAdmins){
             console.log('[mail] sending confirmation email to admin:', a);
             try{ 
@@ -1003,7 +1071,7 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
             }
           }
         }
-        console.log('[mail] email notifications completed for booking', booking._id);
+        console.log('[mail] email and SMS notifications completed for booking', booking._id);
       }catch(e){ 
         console.error('[mail] notify flow failed:', e); 
       }
@@ -1029,11 +1097,13 @@ app.post('/api/bookings/clear-all', requireAdmin, (req, res) => {
 // Serve public static files from root AFTER all API routes
 app.use(express.static(path.join(__dirname)));
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
     console.warn('\x1b[33m%s\x1b[0m', 'Warning: GOOGLE_MAPS_API_KEY environment variable is not set');
   }
-  console.log(`Teleka Taxi server running on http://localhost:${PORT}`);
+  console.log(`Teleka Taxi server running on http://0.0.0.0:${PORT} (accessible from all network interfaces)`);
+  console.log(`  - Local: http://localhost:${PORT}`);
+  console.log(`  - Network: http://<your-domain-or-ip>:${PORT}`);
 });
 
 // Body-parser / JSON parse error handler — return JSON with raw body snippet to aid debugging
