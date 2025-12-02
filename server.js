@@ -820,6 +820,42 @@ app.post('/api/bookings', (req, res) => {
       sendPushToRole('admin', payload).catch(e => console.warn('[push] admin notify failed', e));
     }catch(e){ console.warn('[push] notify admin failed', e); }
 
+    // Send email notification to admin about new booking
+    (async () => {
+      try {
+        console.log('[mail] sending admin notification for new booking', newBooking._id);
+        
+        // Get admin email(s): prefer ADMIN_EMAILS env (comma-separated), fallback to data/admin.json
+        const adminList = [];
+        if(process.env.ADMIN_EMAILS){
+          process.env.ADMIN_EMAILS.split(',').map(s => s.trim()).filter(Boolean).forEach(e => adminList.push(e));
+        }
+        try {
+          const adminJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'admin.json'), 'utf8') || '{}');
+          if(adminJson && adminJson.email && !adminList.includes(adminJson.email)) adminList.push(adminJson.email);
+        } catch(e) {}
+        
+        const uniqueAdmins = Array.from(new Set(adminList));
+        if(uniqueAdmins.length){
+          const subj = 'New Booking Received — Teleka';
+          const txt = `A new booking has been received.\n\nCustomer: ${newBooking.name}\nEmail: ${newBooking.email || 'N/A'}\nPickup: ${newBooking.pickup}\nDestination: ${newBooking.destination}\nDate: ${newBooking.date || 'N/A'}\nTime: ${newBooking.time || 'N/A'}\nBooking ID: ${newBooking._id}`;
+          const html = `<p>A new booking has been received.</p><p><strong>Customer:</strong> ${newBooking.name}<br/><strong>Email:</strong> ${newBooking.email || 'N/A'}<br/><strong>Pickup:</strong> ${newBooking.pickup}<br/><strong>Destination:</strong> ${newBooking.destination}<br/><strong>Date:</strong> ${newBooking.date || 'N/A'}<br/><strong>Time:</strong> ${newBooking.time || 'N/A'}<br/><strong>Booking ID:</strong> ${newBooking._id}</p>`;
+          
+          for(const adminEmail of uniqueAdmins){
+            try {
+              await sendEmail(adminEmail, subj, txt, html);
+              console.log('[mail] admin notification email sent to', adminEmail);
+            } catch(e) {
+              console.error('[mail] failed to notify admin', adminEmail, ':', e && e.message ? e.message : e);
+            }
+          }
+        }
+        console.log('[mail] admin notification flow completed for booking', newBooking._id);
+      } catch(e) {
+        console.error('[mail] admin notification flow failed:', e);
+      }
+    })().catch(err => console.error('[mail] async admin notification error:', err));
+
     res.status(201).json(newBooking);
   } catch (err) {
     console.error('[bookings] unhandled error in create booking:', err && err.stack ? err.stack : err);
@@ -925,11 +961,12 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
       try{
         const booking = bookings[idx];
         console.log('[mail] start email notifications for booking', booking._id);
+        
         // send to booking owner email if present
         if(booking.email){
           const subj = 'Your Teleka booking has been confirmed';
-          const txt = `Hello ${booking.name || ''},\n\nYour booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\nThank you,\nTeleka`;
-          const html = `<p>Hello ${booking.name || ''},</p><p>Your booking (ID: <strong>${booking._id}</strong>) from <strong>${booking.pickup}</strong> to <strong>${booking.destination}</strong> has been <strong>confirmed</strong>.</p><p>Thank you,<br/>Teleka</p>`;
+          const txt = `Hello ${booking.name || ''},\n\nYour booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\nEstimated Price: ${booking.estimatedPrice || 'N/A'}\nDate: ${booking.date || 'N/A'}\nTime: ${booking.time || 'N/A'}\n\nThank you,\nTeleka`;
+          const html = `<p>Hello ${booking.name || ''},</p><p>Your booking (ID: <strong>${booking._id}</strong>) from <strong>${booking.pickup}</strong> to <strong>${booking.destination}</strong> has been <strong>confirmed</strong>.</p><p><strong>Estimated Price:</strong> ${booking.estimatedPrice || 'N/A'}<br/><strong>Date:</strong> ${booking.date || 'N/A'}<br/><strong>Time:</strong> ${booking.time || 'N/A'}</p><p>Thank you,<br/>Teleka</p>`;
           console.log('[mail] sending confirmation email to user:', booking.email);
           try{ 
             await sendEmail(booking.email, subj, txt, html); 
@@ -937,6 +974,8 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
           }catch(e){ 
             console.error('[mail] user notify failed:', e && e.message ? e.message : e); 
           }
+        } else {
+          console.warn('[mail] booking has no email, skipping client notification');
         }
 
         // notify admin email(s): prefer ADMIN_EMAILS env (comma-separated), fallback to data/admin.json
@@ -946,14 +985,14 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
         }
         try{
           const adminJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'admin.json'), 'utf8') || '{}');
-          if(adminJson && adminJson.email) adminList.push(adminJson.email);
+          if(adminJson && adminJson.email && !adminList.includes(adminJson.email)) adminList.push(adminJson.email);
         }catch(e){}
 
         const uniqueAdmins = Array.from(new Set(adminList));
         if(uniqueAdmins.length){
-          const subjA = 'New booking confirmed — Teleka';
-          const txtA = `A booking has been confirmed. Booking ID: ${booking._id}\nCustomer: ${booking.name || 'Unknown'} (${booking.email || 'N/A'})\nPickup: ${booking.pickup}\nDestination: ${booking.destination}`;
-          const htmlA = `<p>A new booking has been confirmed.</p><p><strong>Booking ID:</strong> ${booking._id}<br/><strong>Customer:</strong> ${booking.name || 'Unknown'} (${booking.email || 'N/A'})<br/><strong>Pickup:</strong> ${booking.pickup}<br/><strong>Destination:</strong> ${booking.destination}</p>`;
+          const subjA = 'Booking Confirmed — Teleka';
+          const txtA = `You have confirmed a booking.\n\nBooking ID: ${booking._id}\nCustomer: ${booking.name || 'Unknown'}\nEmail: ${booking.email || 'N/A'}\nPickup: ${booking.pickup}\nDestination: ${booking.destination}\nEstimated Price: ${booking.estimatedPrice || 'N/A'}`;
+          const htmlA = `<p>You have confirmed a booking.</p><p><strong>Booking ID:</strong> ${booking._id}<br/><strong>Customer:</strong> ${booking.name || 'Unknown'}<br/><strong>Email:</strong> ${booking.email || 'N/A'}<br/><strong>Pickup:</strong> ${booking.pickup}<br/><strong>Destination:</strong> ${booking.destination}<br/><strong>Estimated Price:</strong> ${booking.estimatedPrice || 'N/A'}</p>`;
           for(const a of uniqueAdmins){
             console.log('[mail] sending confirmation email to admin:', a);
             try{ 
