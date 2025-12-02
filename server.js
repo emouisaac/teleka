@@ -600,17 +600,22 @@ async function _ensureTransporter() {
 
 async function sendEmail(to, subject, text, html) {
   try {
+    if (!to) {
+      console.warn('[mail] sendEmail: no recipient email provided');
+      return;
+    }
     const transporter = await _ensureTransporter();
     const fromAddr = process.env.FROM_EMAIL || process.env.MAIL_FROM || process.env.SMTP_FROM || ('Teleka <no-reply@teleka.local>');
+    console.log('[mail] attempting to send:', { from: fromAddr, to, subject });
     const info = await transporter.sendMail({ from: fromAddr, to, subject, text, html });
-    console.log('[mail] sent', { to, subject, messageId: info.messageId });
+    console.log('[mail] ✓ sent successfully', { to, subject, messageId: info.messageId });
     if (_ensureTransporter.testAccount) {
       const url = nodemailer.getTestMessageUrl(info);
       if (url) console.log('[mail] preview URL:', url);
     }
     return info;
   } catch (e) {
-    console.error('[mail] sendEmail failed', e && e.message ? e.message : e);
+    console.error('[mail] ✗ sendEmail FAILED:', e && e.message ? e.message : e, 'to:', to);
     throw e;
   }
 }
@@ -623,24 +628,28 @@ async function sendBookingNotificationToAdmin(booking){
   try{
     const admin = readAdmin();
     const adminEmail = (process.env.ADMIN_EMAIL || process.env.ADMIN_EMAILS || (admin && admin.email) || 'admin@teleka.local');
-    if(!adminEmail) return;
+    console.log('[mail:admin] admin notification triggered for booking', booking._id, 'adminEmail:', adminEmail);
+    if(!adminEmail) { console.warn('[mail:admin] no admin email configured'); return; }
     const host = (booking && booking._meta && booking._meta.host) ? booking._meta.host : (process.env.APP_BASE_URL || `localhost:${PORT}`);
     const url = `http://${host}/admin`;
     const subject = `New Teleka Booking — ${booking.name} (${booking._id})`;
     const text = `A new booking was received:\n\n${_buildBookingSummary(booking)}\n\nOpen admin: ${url}`;
     const html = `<p>A new booking was received:</p><pre>${_buildBookingSummary(booking)}</pre><p><a href="${url}">Open admin</a></p>`;
     await sendEmail(adminEmail, subject, text, html);
-  }catch(e){ console.warn('[mail] sendBookingNotificationToAdmin failed', e && e.message ? e.message : e); }
+    console.log('[mail:admin] ✓ admin notified successfully');
+  }catch(e){ console.error('[mail:admin] ✗ FAILED to send admin notification:', e && e.message ? e.message : e); }
 }
 
 async function sendBookingConfirmationToClient(booking){
   try{
-    if(!booking || !booking.email) return;
+    if(!booking || !booking.email) { console.warn('[mail:client] no client email in booking'); return; }
+    console.log('[mail:client] client notification triggered for booking', booking._id, 'clientEmail:', booking.email);
     const subject = `Your Teleka booking ${booking._id} is confirmed`;
     const text = `Hello ${booking.name || ''},\n\nYour Teleka booking (ID: ${booking._id}) from ${booking.pickup} to ${booking.destination} has been confirmed.\n\n${_buildBookingSummary(booking)}\n\nThank you,\nTeleka`;
     const html = `<p>Hello ${booking.name || ''},</p><p>Your Teleka booking (ID: ${booking._id}) has been confirmed.</p><pre>${_buildBookingSummary(booking)}</pre><p>Thank you,<br/>Teleka</p>`;
     await sendEmail(booking.email, subject, text, html);
-  }catch(e){ console.warn('[mail] sendBookingConfirmationToClient failed', e && e.message ? e.message : e); }
+    console.log('[mail:client] ✓ client notified successfully');
+  }catch(e){ console.error('[mail:client] ✗ FAILED to send client confirmation:', e && e.message ? e.message : e); }
 }
 
 // SMS sending function
