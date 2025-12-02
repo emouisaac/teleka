@@ -257,8 +257,11 @@ function writeAtomicJson(filePath, obj) {
     const dataStr = JSON.stringify(obj, null, 2);
     fs.writeFileSync(tmp, dataStr, 'utf8');
     fs.renameSync(tmp, filePath);
+    // Console-log the write for easier debugging (who/when wrote what)
     try {
-      const logLine = JSON.stringify({ ts: new Date().toISOString(), file: path.relative(__dirname, filePath), bytes: Buffer.byteLength(dataStr, 'utf8') });
+      const bytes = Buffer.byteLength(dataStr, 'utf8');
+      console.log('[writeAtomicJson] WROTE', path.relative(__dirname, filePath), 'bytes=', bytes, 'ts=', new Date().toISOString());
+      const logLine = JSON.stringify({ ts: new Date().toISOString(), file: path.relative(__dirname, filePath), bytes });
       const logFile = path.join(__dirname, 'data', 'write_log.log');
       try { fs.mkdirSync(path.dirname(logFile), { recursive: true }); } catch (e) {}
       fs.appendFileSync(logFile, logLine + '\n', 'utf8');
@@ -850,6 +853,8 @@ app.post('/api/bookings', (req, res) => {
   console.log('[bookings:post] starting handler');
   try {
     const data = req.body;
+    // Log request metadata to help identify which interface handled the request
+    try{ console.log('[bookings] request meta: ip=%s x-forwarded-for=%s host=%s origin=%s', req.ip, req.headers['x-forwarded-for'] || '-', req.get('host') || '-', req.headers.origin || '-'); }catch(e){}
     console.log('[bookings] create request body:', data);
     // Basic validation
     if (!data || typeof data !== 'object') {
@@ -879,12 +884,21 @@ app.post('/api/bookings', (req, res) => {
       estimatedPrice: data.estimatedPrice || '',
       status: 'pending',
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      // meta: capture request context so we can trace where bookings originate
+      _meta: {
+        ip: req.ip || '',
+        xForwardedFor: req.headers['x-forwarded-for'] || '',
+        host: req.get('host') || '',
+        origin: req.headers.origin || '',
+        userAgent: req.headers['user-agent'] || ''
+      }
     };
 
     bookings.unshift(newBooking);
     try {
       writeBookings(bookings);
+      try{ console.log('[bookings] persisted booking count=', bookings.length, 'latestId=', newBooking._id); }catch(e){}
     } catch (writeErr) {
       console.error('[bookings] failed to persist booking', writeErr);
       return res.status(500).json({ error: 'Failed to persist booking' });
@@ -1087,9 +1101,12 @@ app.post('/api/bookings/:id/confirm', (req, res) => {
 // Clear-all bookings (admin) - protected: requires admin Bearer token
 app.post('/api/bookings/clear-all', requireAdmin, (req, res) => {
   try {
+    try{ console.log('[bookings:clear-all] requested by ip=%s host=%s x-forwarded-for=%s auth=%s', req.ip, req.get('host')||'-', req.headers['x-forwarded-for']||'-', (req.headers.authorization||'(none)').toString().slice(0,40)); }catch(e){}
     writeBookings([]);
+    console.log('[bookings:clear-all] bookings cleared at', new Date().toISOString());
     res.json({ success: true });
   } catch (err) {
+    console.error('[bookings:clear-all] failed to clear bookings', err);
     res.status(500).json({ error: 'Failed to clear bookings' });
   }
 });
