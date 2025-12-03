@@ -58,5 +58,14 @@
     "salt": "97b7d4019594ef1a7c8948abef417b4d",
     "createdAt": "2025-12-03T05:06:03.754Z",
     "updatedAt": "2025-12-03T05:06:03.754Z"
+  },
+  {
+    "id": "1764754738328",
+    "name": "Isaac Emou",
+    "phone": "788408032",
+    "passwordHash": "0320753b739cbdac093677272db63fe6de6c05cb9f3df58dcbab89156a0be9c301514346a48d9638e5053aa6c22eb97df3c1dfa6bc1b34e70b8fee2f9b10d2ea",
+    "salt": "af66b6165ff5f0d9294376879a5749bf",
+    "createdAt": "2025-12-03T09:38:58.328Z",
+    "updatedAt": "2025-12-03T09:38:58.328Z"
   }
 ]

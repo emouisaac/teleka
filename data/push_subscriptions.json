@@ -50,5 +50,17 @@
     "email": "",
     "role": "user",
     "createdAt": "2025-12-03T05:05:15.911Z"
+  },
+  {
+    "subscription": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/eAk7JwLXPtk:APA91bHruEVnG7IKkOBTF2ZfEHfWehvyYDsL-fQM_NpEOQaYp_nVEVcWZioCm8q2EwosuZu_tGR7PiPZtbPTxJZPiGY0U-R5lpzWfY0o0anbObM3wklAIGSARFWZxfBuez5RofcAOR2h",
+      "expirationTime": null,
+      "keys": {
+        "p256dh": "BLGZU7xU1wzGTGxNluHJP4Dr9OhTppY14pkaa20BHsb8zpFAtRbCyNahe9YkWDSGTGs_2O15Zmr4_iWFIrbAPMk",
+        "auth": "vv7BMt9BsSWzP48PIotV2Q"
+      }
+    },
+    "role": "user",
+    "createdAt": "2025-12-03T09:36:46.370Z"
   }
 ]

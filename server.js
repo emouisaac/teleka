@@ -7,6 +7,31 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// If running behind a proxy (nginx, cloud load balancer), trust proxy headers
+app.set('trust proxy', true);
+
+// Simple CORS middleware for API routes. Allows the configured DOMAIN or any origin
+// (useful when frontend and backend are served from different hosts). Adjust as needed.
+app.use((req, res, next) => {
+  try {
+    if (req.path && req.path.indexOf('/api/') === 0) {
+      const allowed = (process.env.DOMAIN && process.env.DOMAIN.replace(/\/$/, '')) || '*';
+      const origin = req.headers.origin || req.headers.referer || '';
+      // If DOMAIN is set and matches origin, allow it; otherwise allow all (for debugging)
+      if (allowed !== '*' && origin && origin.indexOf(allowed) === 0) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      if (req.method === 'OPTIONS') return res.status(204).end();
+    }
+  } catch (e) {}
+  next();
+});
+
 // Middleware to parse JSON bodies and capture the raw body for debugging
 app.use(express.json({
   limit: '1mb',
@@ -852,6 +877,31 @@ app.get('/api/push/vapidPublicKey', (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC || '' });
 });
 
+// Diagnostics endpoint to help verify requests coming from your domain.
+// Returns request headers, remote IP, and server environment hints.
+app.get('/api/diagnostics', (req, res) => {
+  try {
+    const headers = req.headers || {};
+    const info = {
+      timestamp: new Date().toISOString(),
+      hostHeader: req.get('host') || null,
+      originHeader: req.get('origin') || null,
+      referer: req.get('referer') || null,
+      xForwardedFor: req.get('x-forwarded-for') || null,
+      xForwardedHost: req.get('x-forwarded-host') || null,
+      xForwardedProto: req.get('x-forwarded-proto') || null,
+      remoteAddress: req.ip || req.connection && req.connection.remoteAddress || null,
+      envDomain: process.env.DOMAIN || null,
+      envPort: process.env.PORT || null,
+      nodeEnv: process.env.NODE_ENV || null,
+      headers
+    };
+    return res.json(info);
+  } catch (e) {
+    return res.status(500).json({ error: 'diagnostics failed', detail: String(e) });
+  }
+});
+
 // Test email endpoint (useful for debugging)
 app.post('/api/email/test', (req, res) => {
   (async () => {
@@ -935,8 +985,11 @@ app.post('/api/bookings', (req, res) => {
       _meta: {
         ip: req.ip || '',
         xForwardedFor: req.headers['x-forwarded-for'] || '',
+        xForwardedHost: req.headers['x-forwarded-host'] || '',
+        xForwardedProto: req.headers['x-forwarded-proto'] || '',
         host: req.get('host') || '',
         origin: req.headers.origin || '',
+        referer: req.headers.referer || '',
         userAgent: req.headers['user-agent'] || ''
       }
     };
