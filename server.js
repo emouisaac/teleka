@@ -547,6 +547,64 @@ const fs = require('fs');
 // Ensure admin credential exists on startup (fs is now available)
 try{ ensureAdminCredential(); } catch(e){ console.error('[admin] ensureAdminCredential failed at startup', e); }
 const BOOKINGS_FILE = path.join(__dirname, 'data', 'bookings.json');
+// Database file (bookings storage)
+const DB_FILE = path.join(__dirname, 'data', 'teleka.db');
+let db = null;
+let SQL = null;
+let dbReady = false;
+
+// Initialize sql.js (pure WASM SQLite, no native build required)
+// This runs synchronously after require but before server listen
+const dbInit = (async function initDb() {
+  try {
+    SQL = require('sql.js');
+    // sql.js exports a factory function; call it to get the DB constructor
+    const SQL_Inst = await SQL();
+    
+    let dbData = null;
+    if (fs.existsSync(DB_FILE)) {
+      dbData = fs.readFileSync(DB_FILE);
+      db = new SQL_Inst.Database(dbData);
+      console.log('[db] Loaded existing teleka.db');
+    } else {
+      db = new SQL_Inst.Database();
+      console.log('[db] Created new in-memory database (will persist to teleka.db on write)');
+    }
+
+    // Create bookings table if not exists
+    db.run('CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, booking TEXT NOT NULL, createdAt TEXT, updatedAt TEXT, status TEXT)');
+
+    // Migrate from bookings.json if DB is empty and file exists
+    try {
+      const result = db.exec('SELECT COUNT(1) as c FROM bookings');
+      const count = (result && result[0] && result[0].values && result[0].values[0]) ? result[0].values[0][0] : 0;
+      if (count === 0 && fs.existsSync(BOOKINGS_FILE)) {
+        const raw = fs.readFileSync(BOOKINGS_FILE, 'utf8') || '[]';
+        const arr = JSON.parse(raw || '[]');
+        if (Array.isArray(arr) && arr.length) {
+          const stmt = db.prepare('INSERT OR REPLACE INTO bookings (id, booking, createdAt, updatedAt, status) VALUES (?, ?, ?, ?, ?)');
+          for (const it of arr) {
+            stmt.bind([it._id || String(Date.now()), JSON.stringify(it), it.createdAt || '', it.updatedAt || '', it.status || '']);
+            stmt.step();
+            stmt.reset();
+          }
+          stmt.free();
+          // Save to file after migration
+          const data = db.export();
+          fs.writeFileSync(DB_FILE, Buffer.from(data), 'binary');
+          console.log('[db] Migrated', arr.length, 'bookings from bookings.json into teleka.db');
+        }
+      }
+    } catch (e) { console.warn('[db] migration check failed', e); }
+    dbReady = true;
+    return true;
+  } catch (e) {
+    console.warn('[db] sql.js initialization failed. Will use JSON file storage.', e && e.message ? e.message : e);
+    db = null;
+    dbReady = true;
+    return false;
+  }
+})();
 const PUSH_FILE = path.join(__dirname, 'data', 'push_subscriptions.json');
 
 // VAPID keys: prefer env, otherwise generate temporarily for this run and log them
@@ -796,8 +854,19 @@ function sendPushToRole(role, payload){
 
 function readBookings() {
   try {
+    if (db) {
+      try {
+        const result = db.exec('SELECT booking FROM bookings ORDER BY createdAt DESC');
+        if (result && result[0] && result[0].values) {
+          return result[0].values.map(row => {
+            try { return JSON.parse(row[0]); } catch (e) { return null; }
+          }).filter(Boolean);
+        }
+      } catch (e) {
+        console.warn('[db] read query failed, falling back to JSON', e);
+      }
+    }
     if (!fs.existsSync(BOOKINGS_FILE)) {
-      // ensure directory exists
       try { fs.mkdirSync(path.dirname(BOOKINGS_FILE), { recursive: true }); } catch (e) {}
       fs.writeFileSync(BOOKINGS_FILE, '[]', 'utf8');
     }
@@ -810,7 +879,31 @@ function readBookings() {
 }
 
 function writeBookings(bookings) {
-  writeAtomicJson(BOOKINGS_FILE, bookings);
+  try {
+    if (db) {
+      try {
+        db.run('DELETE FROM bookings');
+        const stmt = db.prepare('INSERT OR REPLACE INTO bookings (id, booking, createdAt, updatedAt, status) VALUES (?, ?, ?, ?, ?)');
+        for (const b of bookings) {
+          stmt.bind([b._id || String(Date.now()), JSON.stringify(b), b.createdAt || '', b.updatedAt || '', b.status || '']);
+          stmt.step();
+          stmt.reset();
+        }
+        stmt.free();
+        // Export and persist to file
+        const data = db.export();
+        fs.writeFileSync(DB_FILE, Buffer.from(data), 'binary');
+        console.log('[db] WROTE', bookings.length, 'bookings to teleka.db');
+        return;
+      } catch (e) {
+        console.warn('[db] write to DB failed, falling back to JSON', e);
+      }
+    }
+    writeAtomicJson(BOOKINGS_FILE, bookings);
+  } catch (err) {
+    console.error('[bookings] writeBookings error', err);
+    throw err;
+  }
 }
 
 // --- Server-Sent Events (SSE) support ---
@@ -1210,18 +1303,24 @@ app.delete('/api/push/subscriptions-clear', (req, res) => {
 // Serve public static files from root AFTER all API routes
 app.use(express.static(path.join(__dirname)));
 
-app.listen(PORT, '0.0.0.0', () => {
-  if (!process.env.GOOGLE_MAPS_API_KEY) {
-    console.warn('\x1b[33m%s\x1b[0m', 'Warning: GOOGLE_MAPS_API_KEY environment variable is not set');
-  }
-  // Log VAPID key status
-  console.log('[startup] Web Push VAPID:', process.env.VAPID_PUBLIC_KEY ? '✓ configured (persistent)' : '⚠️  ephemeral (generated fresh, will break existing subscriptions on restart)');
-  // Log SMTP configuration for debugging
-  console.log('[startup] SMTP:', process.env.SMTP_HOST ? `✓ ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || '587'}` : '❌ not configured');
-  console.log('[startup] Admin emails:', process.env.ADMIN_EMAILS ? `✓ ${process.env.ADMIN_EMAILS}` : '❌ not configured');
-  console.log(`Teleka Taxi server running on http://0.0.0.0:${PORT} (accessible from all network interfaces)`);
-  console.log(`  - Local: http://localhost:${PORT}`);
-  console.log(`  - Network: http://<your-domain-or-ip>:${PORT}`);
+// Start server after DB is ready
+dbInit.then(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      console.warn('\x1b[33m%s\x1b[0m', 'Warning: GOOGLE_MAPS_API_KEY environment variable is not set');
+    }
+    // Log VAPID key status
+    console.log('[startup] Web Push VAPID:', process.env.VAPID_PUBLIC_KEY ? '✓ configured (persistent)' : '⚠️  ephemeral (generated fresh, will break existing subscriptions on restart)');
+    // Log SMTP configuration for debugging
+    console.log('[startup] SMTP:', process.env.SMTP_HOST ? `✓ ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || '587'}` : '❌ not configured');
+    console.log('[startup] Admin emails:', process.env.ADMIN_EMAILS ? `✓ ${process.env.ADMIN_EMAILS}` : '❌ not configured');
+    console.log(`Teleka Taxi server running on http://0.0.0.0:${PORT} (accessible from all network interfaces)`);
+    console.log(`  - Local: http://localhost:${PORT}`);
+    console.log(`  - Network: http://<your-domain-or-ip>:${PORT}`);
+  });
+}).catch(err => {
+  console.error('[startup] Failed to initialize database, exiting:', err);
+  process.exit(1);
 });
 
 // Body-parser / JSON parse error handler — return JSON with raw body snippet to aid debugging

@@ -1697,7 +1697,10 @@
             try {
                 // Send booking to server
                 const estimatedPrice = document.getElementById('priceDisplay')?.innerText || '';
-                const resp = await fetch('/api/bookings', {
+                // Allow overriding the API base (useful when site is hosted separately from the API)
+                const API_BASE = (window.API_BASE || '').toString().replace(/\/$/, '');
+                const apiUrl = API_BASE ? (API_BASE + '/api/bookings') : '/api/bookings';
+                const resp = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
