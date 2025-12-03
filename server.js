@@ -575,13 +575,31 @@ function getMailTransporter() {
   }
 
   try {
-    _mailTransporter = nodemailer.createTransport({
+    // Gmail-specific configuration
+    const isGmail = host.includes('gmail.com');
+    const transportConfig = {
       host,
       port: port || 587,
       secure: !!secure,
       auth: { user, pass },
       connectionUrl: `smtp${secure ? 's' : ''}://${user}:***@${host}:${port || 587}`
-    });
+    };
+    
+    // Add Gmail-specific settings to ensure reliability
+    if (isGmail) {
+      transportConfig.logger = false;
+      transportConfig.debug = false;
+      transportConfig.connectionTimeout = 5000;
+      transportConfig.socketTimeout = 5000;
+      transportConfig.pool = {
+        maxConnections: 5,
+        maxMessages: 100,
+        rateDelta: 1000,
+        rateLimit: 5
+      };
+    }
+    
+    _mailTransporter = nodemailer.createTransport(transportConfig);
     
     // Verify connection at first use (async, non-blocking)
     if (!_mailTestDone) {
@@ -589,8 +607,12 @@ function getMailTransporter() {
       _mailTransporter.verify((err, success) => {
         if (err) {
           console.warn('[email] SMTP verify failed (will retry on send):', err && err.message ? err.message : err);
+          if (err.code === 'EAUTH') {
+            console.error('[email] ⚠️  Authentication failed! Check SMTP_USER and SMTP_PASS in .env');
+            console.error('[email] For Gmail, ensure you are using an App Password, not your regular password');
+          }
         } else {
-          console.log('[email] ✓ SMTP connection verified');
+          console.log('[email] ✓ SMTP connection verified successfully');
         }
       });
     }
@@ -614,14 +636,26 @@ async function sendEmail(to, subject, text, html) {
       console.log('[email] (dry-run) would send email to', to, 'subject:', subject.slice(0, 50));
       return null;
     }
-    console.log('[email] sending to', to, '...');
+    console.log('[email] sending to', to, 'from:', from, 'subject:', subject.slice(0, 60) + '...');
     const info = await transporter.sendMail({ from, to, subject, text, html });
-    console.log('[email] ✓ SUCCESS messageId:', info && info.messageId ? info.messageId : 'unknown');
+    console.log('[email] ✓ SUCCESS messageId:', info && info.messageId ? info.messageId : 'unknown', 'response:', info && info.response ? info.response : 'ok');
     return info;
   } catch (e) {
-    console.error('[email] ✗ FAILED to send:', e && e.message ? e.message : String(e));
+    console.error('[email] ✗ FAILED to send to:', to);
+    console.error('[email] Error message:', e && e.message ? e.message : String(e));
     if (e && e.code) console.error('[email] Error code:', e.code);
     if (e && e.response) console.error('[email] SMTP response:', e.response);
+    if (e && e.responseCode) console.error('[email] Response code:', e.responseCode);
+    
+    // Provide helpful diagnostics for common issues
+    if (e.code === 'EAUTH' || e.responseCode === 535) {
+      console.error('[email] 🔧 AUTHENTICATION ISSUE: Check your SMTP_USER and SMTP_PASS');
+      console.error('[email] 🔧 For Gmail: Use an App Password from https://myaccount.google.com/apppasswords');
+    }
+    if (e.code === 'ESOCKET' || e.code === 'ECONNREFUSED') {
+      console.error('[email] 🔧 CONNECTION ISSUE: Check SMTP_HOST and SMTP_PORT');
+    }
+    
     return null; // Return null instead of throwing to prevent crash
   }
 }
@@ -818,6 +852,35 @@ app.get('/api/push/vapidPublicKey', (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC || '' });
 });
 
+// Test email endpoint (useful for debugging)
+app.post('/api/email/test', (req, res) => {
+  (async () => {
+    try {
+      const to = (req.body && req.body.to) || process.env.ADMIN_EMAILS?.split(',')[0]?.trim();
+      if (!to) {
+        return res.status(400).json({ error: 'No recipient email provided. Set ADMIN_EMAILS in .env or provide ?to=email@example.com' });
+      }
+      
+      console.log('[email:test] Sending test email to:', to);
+      const result = await sendEmail(
+        to,
+        '[TEST] Teleka Email Configuration',
+        'This is a test email to verify your Gmail/SMTP configuration is working correctly.',
+        '<p>This is a <strong>test email</strong> to verify your Teleka Taxi email notifications are working.</p><p>If you received this, your configuration is correct! ✓</p>'
+      );
+      
+      if (result) {
+        res.json({ success: true, message: 'Test email sent successfully', recipient: to, messageId: result.messageId });
+      } else {
+        res.status(500).json({ error: 'Failed to send test email. Check server logs for details.' });
+      }
+    } catch (e) {
+      console.error('[email:test] error:', e);
+      res.status(500).json({ error: 'Test email failed: ' + (e && e.message ? e.message : String(e)) });
+    }
+  })();
+});
+
 // Accept push subscription from clients
 app.post('/api/push/subscribe', (req, res) => {
   try{
@@ -903,26 +966,46 @@ app.post('/api/bookings', (req, res) => {
       try {
         const adminEmailsEnv = process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || '';
         if (!adminEmailsEnv) {
-          console.log('[email] no ADMIN_EMAIL(S) configured; skipping admin email');
+          console.log('[email] ⚠️  no ADMIN_EMAIL(S) configured in .env; skipping admin email notification');
+          console.log('[email] 📝 To enable emails, add ADMIN_EMAILS=email@example.com to your .env file');
           return;
         }
         const adminEmails = adminEmailsEnv.split(',').map(s => s.trim()).filter(Boolean);
         if (adminEmails.length === 0) {
-          console.log('[email] ADMIN_EMAIL(S) env empty after parsing; skipping');
+          console.log('[email] ⚠️  ADMIN_EMAIL(S) env empty after parsing; skipping');
           return;
         }
 
+        console.log('[email] 📧 Sending booking notification to', adminEmails.length, 'admin email(s):', adminEmails);
+        
         const subject = `New Teleka Booking: ${newBooking.name} — ${newBooking.pickup} → ${newBooking.destination}`;
         const text = `New booking received\n\nID: ${newBooking._id}\nName: ${newBooking.name}\nPhone: ${newBooking.phone || 'N/A'}\nPickup: ${newBooking.pickup}\nDestination: ${newBooking.destination}\nService: ${newBooking.serviceType || 'N/A'}\nDate: ${newBooking.date || 'N/A'}\nTime: ${newBooking.time || 'N/A'}\nEstimated Price: ${newBooking.estimatedPrice || 'N/A'}\n\nView in admin console: ${process.env.DOMAIN ? (process.env.DOMAIN.replace(/\/$/, '') + '/admin') : 'https://www.telekataxi.com/admin'}`;
         const html = `<p>New booking received</p><ul><li><strong>ID:</strong> ${newBooking._id}</li><li><strong>Name:</strong> ${newBooking.name}</li><li><strong>Phone:</strong> ${newBooking.phone || 'N/A'}</li><li><strong>Pickup:</strong> ${newBooking.pickup}</li><li><strong>Destination:</strong> ${newBooking.destination}</li><li><strong>Service:</strong> ${newBooking.serviceType || 'N/A'}</li><li><strong>Date:</strong> ${newBooking.date || 'N/A'}</li><li><strong>Time:</strong> ${newBooking.time || 'N/A'}</li><li><strong>Estimated Price:</strong> ${newBooking.estimatedPrice || 'N/A'}</li></ul><p><a href="${process.env.DOMAIN ? (process.env.DOMAIN.replace(/\/$/, '') + '/admin') : 'https://www.telekataxi.com/admin'}">Open admin console</a></p>`;
 
+        let successCount = 0;
+        let failCount = 0;
+        
         for (const to of adminEmails) {
-          try { await sendEmail(to, subject, text, html); } catch (e) { console.error('[email] failed sending to', to, e); }
+          try { 
+            const result = await sendEmail(to, subject, text, html);
+            if (result) {
+              successCount++;
+              console.log('[email] ✓ Successfully sent to:', to);
+            } else {
+              failCount++;
+              console.log('[email] ✗ Failed to send to:', to);
+            }
+          } catch (e) { 
+            failCount++;
+            console.error('[email] exception sending to', to, ':', e && e.message ? e.message : e);
+          }
         }
+        
+        console.log('[email] 📊 Booking notification summary: sent=', successCount, 'failed=', failCount, 'of', adminEmails.length);
       } catch (e) {
-        console.error('[email] admin notify flow failed', e);
+        console.error('[email] 💥 admin notify flow failed:', e && e.stack ? e.stack : e);
       }
-    })().catch(e => console.error('[email] async handler failed', e));
+    })().catch(e => console.error('[email] 💥 async handler failed:', e));
 
     res.status(201).json(newBooking);
   } catch (err) {
