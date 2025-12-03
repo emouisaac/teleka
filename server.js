@@ -5,6 +5,8 @@ const webpush = require('web-push');
 require('dotenv').config();
 const nodemailer = require('nodemailer');
 
+// In-memory last mail attempt record (useful for diagnostics)
+let lastMailAttempt = null;
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -578,6 +580,9 @@ async function _ensureTransporter() {
         host: host,
         port: parseInt(port, 10),
         secure: (String(secure) === 'true'),
+        // Enable nodemailer internal logger and debug output to surface SMTP issues in logs
+        logger: true,
+        debug: true,
         // Disable SSL verification as workaround for some network issues (can be stricter in production)
         tls: { rejectUnauthorized: false },
         // Add connection timeout to prevent hanging on network issues
@@ -597,6 +602,8 @@ async function _ensureTransporter() {
         host: 'smtp.ethereal.email',
         port: 587,
         secure: false,
+        logger: true,
+        debug: true,
         auth: { user: testAccount.user, pass: testAccount.pass }
       });
       console.log('[mail] ✓ No SMTP configured — using Ethereal test account. Preview URLs will be logged.');
@@ -630,9 +637,14 @@ async function sendEmail(to, subject, text, html) {
       }
     }
     
+    // Record attempt start
+    const attemptStart = new Date().toISOString();
+    lastMailAttempt = { time: attemptStart, to, subject, from: fromAddr, success: false, info: null, error: null };
     console.log('[mail] attempting to send:', { from: fromAddr, to, subject });
     const info = await transporter.sendMail({ from: fromAddr, to, subject, text, html });
     console.log('[mail] ✓ sent successfully', { to, subject, messageId: info.messageId });
+    lastMailAttempt.success = true;
+    lastMailAttempt.info = { messageId: info.messageId, response: info.response || null };
     if (_ensureTransporter.testAccount) {
       const url = nodemailer.getTestMessageUrl(info);
       if (url) console.log('[mail] preview URL:', url);
@@ -640,6 +652,7 @@ async function sendEmail(to, subject, text, html) {
     return info;
   } catch (e) {
     console.error('[mail] ✗ sendEmail FAILED:', e && e.message ? e.message : e, 'to:', to);
+    try { lastMailAttempt = Object.assign(lastMailAttempt || {}, { success: false, error: (e && e.message) ? e.message : String(e) }); } catch (ex) {}
     throw e;
   }
 }
@@ -1119,6 +1132,21 @@ app.get('/api/diagnostics/mail', (req, res) => {
   }
 });
 
+// Expose last mail attempt details (masked) for diagnostics
+app.get('/api/diagnostics/mail-last', (req, res) => {
+  try {
+    if (!lastMailAttempt) return res.json({ status: 'ok', message: 'no attempts recorded yet', last: null });
+    // Mask sensitive bits before returning
+    const masked = Object.assign({}, lastMailAttempt);
+    if (masked.from) masked.from = String(masked.from).replace(/([^<@\s>]+@)?(.+)/, '***@$2');
+    if (masked.to) masked.to = String(masked.to).replace(/([^<@\s>]+@)?(.+)/, '***@$2');
+    if (masked.info && masked.info.response) masked.info.response = String(masked.info.response).slice(0, 200);
+    res.json({ status: 'ok', last: masked });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: String(err && err.message ? err.message : err) });
+  }
+});
+
 // Quick test: send a test email to admin
 app.get('/api/test/send-email', async (req, res) => {
   try {
@@ -1142,6 +1170,14 @@ app.listen(PORT, '0.0.0.0', () => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
     console.warn('\x1b[33m%s\x1b[0m', 'Warning: GOOGLE_MAPS_API_KEY environment variable is not set');
   }
+  // Startup diagnostic: show email configuration status
+  const emailConfigStatus = {
+    MAIL_HOST: process.env.MAIL_HOST || '(not set)',
+    MAIL_USER: process.env.MAIL_USER ? '***' + process.env.MAIL_USER.slice(-10) : '(not set)',
+    MAIL_PASS: process.env.MAIL_PASS ? '***[' + process.env.MAIL_PASS.length + ' chars]' : '(not set)',
+    ADMIN_EMAILS: process.env.ADMIN_EMAILS || '(not set)'
+  };
+  console.log('[startup] Email configuration:', emailConfigStatus);
   console.log(`Teleka Taxi server running on http://0.0.0.0:${PORT} (accessible from all network interfaces)`);
   console.log(`  - Local: http://localhost:${PORT}`);
   console.log(`  - Network: http://<your-domain-or-ip>:${PORT}`);
