@@ -555,6 +555,13 @@ if(!VAPID_PUBLIC || !VAPID_PRIVATE){
 }
 try{ webpush.setVapidDetails('mailto:admin@teleka.local', VAPID_PUBLIC, VAPID_PRIVATE); }catch(e){ console.warn('[webpush] setVapidDetails failed', e); }
 
+// Log VAPID keys at startup (helpful for setting permanent keys in .env)
+if(!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY){
+  console.log('[webpush] ⚠️  Ephemeral VAPID keys generated. To persist across restarts, add to .env:');
+  console.log('[webpush] VAPID_PUBLIC_KEY=' + VAPID_PUBLIC);
+  console.log('[webpush] VAPID_PRIVATE_KEY=' + VAPID_PRIVATE);
+}
+
 // --- Email (nodemailer) setup ---
 // Email notification setup using nodemailer.
 // Environment options (set in .env):
@@ -1147,6 +1154,18 @@ app.get('/api/diagnostics/mail-last', (req, res) => {
   }
 });
 
+// Clear all push subscriptions (useful when VAPID keys change)
+app.delete('/api/push/subscriptions-clear', (req, res) => {
+  try {
+    writePushSubs([]);
+    console.log('[push] cleared all subscriptions');
+    res.json({ success: true, message: 'All push subscriptions cleared. Clients must re-subscribe.' });
+  } catch (err) {
+    console.error('[push] clear-subscriptions failed', err);
+    res.status(500).json({ error: 'Failed to clear subscriptions' });
+  }
+});
+
 // Quick test: send a test email to admin
 app.get('/api/test/send-email', async (req, res) => {
   try {
@@ -1178,6 +1197,8 @@ app.listen(PORT, '0.0.0.0', () => {
     ADMIN_EMAILS: process.env.ADMIN_EMAILS || '(not set)'
   };
   console.log('[startup] Email configuration:', emailConfigStatus);
+  // Log VAPID key status
+  console.log('[startup] Web Push VAPID:', process.env.VAPID_PUBLIC_KEY ? '✓ configured (persistent)' : '⚠️  ephemeral (generated fresh, will break existing subscriptions on restart)');
   console.log(`Teleka Taxi server running on http://0.0.0.0:${PORT} (accessible from all network interfaces)`);
   console.log(`  - Local: http://localhost:${PORT}`);
   console.log(`  - Network: http://<your-domain-or-ip>:${PORT}`);
