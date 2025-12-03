@@ -802,8 +802,6 @@ function sendPushToRole(role, payload){
   return sendPushTo(s => (s.role === role), payload);
 }
 
-// Notification helpers removed per request
-
 function readBookings() {
   try {
     if (!fs.existsSync(BOOKINGS_FILE)) {
@@ -822,8 +820,6 @@ function readBookings() {
 function writeBookings(bookings) {
   writeAtomicJson(BOOKINGS_FILE, bookings);
 }
-
-// Server-Sent Events (SSE) removed — real-time notifications disabled
 
 // --- Server-Sent Events (SSE) support ---
 // Track clients with metadata so we can target notifications to specific users or roles
@@ -910,10 +906,6 @@ app.post('/api/push/subscribe', (req, res) => {
     res.json({ success: true });
   }catch(e){ console.error('[push] subscribe failed', e); res.status(500).json({ error: 'subscribe failed' }); }
 });
-
-// /api/notify-test removed (notification helpers disabled)
-
-// /api/bookings/stream removed (SSE disabled)
 
 // Create a new booking
 app.post('/api/bookings', (req, res) => {
@@ -1097,6 +1089,49 @@ app.post('/api/bookings/clear-all', requireAdmin, (req, res) => {
   } catch (err) {
     console.error('[bookings:clear-all] failed to clear bookings', err);
     res.status(500).json({ error: 'Failed to clear bookings' });
+  }
+});
+
+// DIAGNOSTIC endpoint - shows SMTP/mail config (helps debug domain vs localhost issues)
+app.get('/api/diagnostics/mail', (req, res) => {
+  try {
+    const mailConfig = {
+      MAIL_HOST: process.env.MAIL_HOST || '(not set)',
+      MAIL_PORT: process.env.MAIL_PORT || '(not set)',
+      MAIL_SECURE: process.env.MAIL_SECURE || '(not set)',
+      MAIL_USER: process.env.MAIL_USER ? '***' + process.env.MAIL_USER.slice(-10) : '(not set)',
+      MAIL_PASS: process.env.MAIL_PASS ? '***' : '(not set)',
+      MAIL_FROM: process.env.MAIL_FROM || '(not set)',
+      ADMIN_EMAILS: process.env.ADMIN_EMAILS || '(not set)',
+      NODE_ENV: process.env.NODE_ENV || '(not set)',
+      PORT: process.env.PORT || '(not set)',
+      dotenvLoaded: !!process.env.GOOGLE_MAPS_API_KEY
+    };
+    console.log('[diagnostics] mail config request from', req.ip);
+    res.json({ 
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      config: mailConfig,
+      message: 'If MAIL_HOST is "(not set)", the .env file is not loaded. Check that .env exists in the project root.'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get diagnostics', detail: err.message });
+  }
+});
+
+// Quick test: send a test email to admin
+app.get('/api/test/send-email', async (req, res) => {
+  try {
+    console.log('[test:email] sending test email...');
+    const admin = readAdmin();
+    const adminEmail = (process.env.ADMIN_EMAIL || process.env.ADMIN_EMAILS || (admin && admin.email) || 'admin@teleka.local');
+    console.log('[test:email] admin email:', adminEmail);
+    
+    await sendEmail(adminEmail, 'Test Email from Teleka', 'This is a test email to verify SMTP is working.', '<p>This is a test email to verify SMTP is working.</p>');
+    res.json({ success: true, message: 'Test email sent to ' + adminEmail, sentTo: adminEmail });
+  } catch (err) {
+    console.error('[test:email] failed:', err && err.message ? err.message : err);
+    res.status(500).json({ success: false, error: 'Failed to send test email', detail: err && err.message ? err.message : String(err) });
   }
 });
 
