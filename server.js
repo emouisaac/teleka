@@ -7,30 +7,8 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// If running behind a proxy (nginx, cloud load balancer), trust proxy headers
+// If the app is behind a reverse proxy (nginx, Cloudflare, etc), trust proxy headers so req.ip and host info are reliable
 app.set('trust proxy', true);
-
-// Simple CORS middleware for API routes. Allows the configured DOMAIN or any origin
-// (useful when frontend and backend are served from different hosts). Adjust as needed.
-app.use((req, res, next) => {
-  try {
-    if (req.path && req.path.indexOf('/api/') === 0) {
-      const allowed = (process.env.DOMAIN && process.env.DOMAIN.replace(/\/$/, '')) || '*';
-      const origin = req.headers.origin || req.headers.referer || '';
-      // If DOMAIN is set and matches origin, allow it; otherwise allow all (for debugging)
-      if (allowed !== '*' && origin && origin.indexOf(allowed) === 0) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-      } else {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-      }
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      if (req.method === 'OPTIONS') return res.status(204).end();
-    }
-  } catch (e) {}
-  next();
-});
 
 // Middleware to parse JSON bodies and capture the raw body for debugging
 app.use(express.json({
@@ -46,6 +24,34 @@ app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { try { 
 app.use((req, res, next) => {
   try {
     console.log('[req] %s %s', req.method, req.url);
+  } catch (e) {}
+  next();
+});
+
+// Basic CORS middleware: allow your configured DOMAIN and localhost ports for testing
+app.use((req, res, next) => {
+  try {
+    const origin = (req.headers.origin || '').toString();
+    const hostHeader = (req.headers['x-forwarded-host'] || req.headers.host || '').toString();
+    const allowed = [];
+    if (process.env.DOMAIN) {
+      // domain in .env may include protocol (https://). Keep full origin for comparison.
+      allowed.push(process.env.DOMAIN.replace(/\/$/, ''));
+    }
+    allowed.push('http://localhost:3000');
+    allowed.push('http://127.0.0.1:3000');
+    allowed.push('https://www.telekataxi.com');
+
+    const hostAsOriginHttp = hostHeader ? `http://${hostHeader}` : '';
+    const hostAsOriginHttps = hostHeader ? `https://${hostHeader}` : '';
+
+    if (allowed.includes(origin) || allowed.includes(hostAsOriginHttp) || allowed.includes(hostAsOriginHttps)) {
+      res.setHeader('Access-Control-Allow-Origin', origin || (process.env.DOMAIN ? process.env.DOMAIN.replace(/\/$/, '') : '*'));
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      if (req.method === 'OPTIONS') return res.sendStatus(200);
+    }
   } catch (e) {}
   next();
 });
@@ -872,34 +878,41 @@ app.get('/api/bookings', (req, res) => {
   res.json(bookings);
 });
 
-// Expose VAPID public key for clients to use when subscribing
-app.get('/api/push/vapidPublicKey', (req, res) => {
-  res.json({ publicKey: VAPID_PUBLIC || '' });
-});
-
-// Diagnostics endpoint to help verify requests coming from your domain.
-// Returns request headers, remote IP, and server environment hints.
+// Diagnostics endpoint to help debug DNS/proxy/host issues
 app.get('/api/diagnostics', (req, res) => {
   try {
     const headers = req.headers || {};
-    const info = {
-      timestamp: new Date().toISOString(),
-      hostHeader: req.get('host') || null,
-      originHeader: req.get('origin') || null,
-      referer: req.get('referer') || null,
-      xForwardedFor: req.get('x-forwarded-for') || null,
-      xForwardedHost: req.get('x-forwarded-host') || null,
-      xForwardedProto: req.get('x-forwarded-proto') || null,
-      remoteAddress: req.ip || req.connection && req.connection.remoteAddress || null,
-      envDomain: process.env.DOMAIN || null,
-      envPort: process.env.PORT || null,
-      nodeEnv: process.env.NODE_ENV || null,
-      headers
-    };
-    return res.json(info);
+    const host = (req.headers['x-forwarded-host'] || req.get('host') || '');
+    const origin = req.headers.origin || '';
+    const forwardedFor = req.headers['x-forwarded-for'] || '';
+    const ip = req.ip || (forwardedFor ? forwardedFor.split(',')[0].trim() : '') || (req.connection && req.connection.remoteAddress) || '';
+    const domainConfigured = (process.env.DOMAIN || '').replace(/\/$/, '');
+    const matchesDomain = domainConfigured ? (origin === domainConfigured || (`https://${host}` === domainConfigured) || (`http://${host}` === domainConfigured)) : false;
+
+    res.json({
+      ok: true,
+      ts: new Date().toISOString(),
+      ip,
+      host,
+      origin,
+      forwardedFor,
+      headers: {
+        host: req.headers.host,
+        'x-forwarded-host': req.headers['x-forwarded-host'],
+        origin: req.headers.origin,
+        referer: req.get('referer') || req.headers.referer
+      },
+      domainConfigured,
+      matchesDomain
+    });
   } catch (e) {
-    return res.status(500).json({ error: 'diagnostics failed', detail: String(e) });
+    res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+// Expose VAPID public key for clients to use when subscribing
+app.get('/api/push/vapidPublicKey', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC || '' });
 });
 
 // Test email endpoint (useful for debugging)
@@ -983,13 +996,12 @@ app.post('/api/bookings', (req, res) => {
       updatedAt: now,
       // meta: capture request context so we can trace where bookings originate
       _meta: {
-        ip: req.ip || '',
+        ip: req.ip || (req.headers['x-forwarded-for'] ? req.headers['x-forwarded-for'].split(',')[0].trim() : '') || '',
         xForwardedFor: req.headers['x-forwarded-for'] || '',
-        xForwardedHost: req.headers['x-forwarded-host'] || '',
-        xForwardedProto: req.headers['x-forwarded-proto'] || '',
-        host: req.get('host') || '',
+        host: (req.headers['x-forwarded-host'] || req.get('host') || ''),
+        forwardedHost: req.headers['x-forwarded-host'] || '',
         origin: req.headers.origin || '',
-        referer: req.headers.referer || '',
+        referer: req.get('referer') || req.headers.referer || '',
         userAgent: req.headers['user-agent'] || ''
       }
     };
