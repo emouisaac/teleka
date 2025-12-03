@@ -1006,6 +1006,30 @@ app.post('/api/bookings', (req, res) => {
       }
     };
 
+    // If the request came through with referer/origin indicating the public domain
+    // prefer that value so booking records reflect the real site (helps email links/logging)
+    try {
+      const cfgDomain = (process.env.DOMAIN || '').replace(/\/$/, '');
+      const referer = (newBooking._meta.referer || '').toString();
+      const originHdr = (newBooking._meta.origin || '').toString();
+      const forwardedHost = (newBooking._meta.forwardedHost || '').toString();
+
+      // If any header contains telekataxi, normalize host/origin to the configured domain
+      const sawTeleka = /telekataxi\.com/i.test(referer) || /telekataxi\.com/i.test(originHdr) || /telekataxi\.com/i.test(forwardedHost);
+      if (sawTeleka) {
+        const useDomain = cfgDomain || 'https://www.telekataxi.com';
+        // set host to domain host portion (without protocol)
+        try {
+          const hostOnly = useDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+          newBooking._meta.host = hostOnly;
+        } catch (e) {
+          newBooking._meta.host = useDomain;
+        }
+        if (!newBooking._meta.origin || newBooking._meta.origin === '') newBooking._meta.origin = cfgDomain || 'https://www.telekataxi.com';
+        console.log('[bookings] normalized meta to public domain:', newBooking._meta.host, newBooking._meta.origin);
+      }
+    } catch (e) { /* ignore normalization errors */ }
+
     bookings.unshift(newBooking);
     try {
       writeBookings(bookings);
