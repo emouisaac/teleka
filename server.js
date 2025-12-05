@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 require('dotenv').config();
 const nodemailer = require('nodemailer');
+const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -124,6 +125,64 @@ userSchema.methods.comparePassword = async function(plainPassword) {
 
 const Booking = mongoose.model('Booking', bookingSchema);
 const User = mongoose.model('User', userSchema);
+
+// Push subscription storage
+const pushSubSchema = new mongoose.Schema({
+  endpoint: { type: String, required: true, unique: true },
+  keys: { type: Object, default: {} },
+  createdAt: { type: Date, default: Date.now }
+});
+const PushSubscription = mongoose.model('PushSubscription', pushSubSchema);
+
+// Configure web-push with VAPID keys provided via env
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC || null;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || process.env.VAPID_PRIVATE || null;
+if (VAPID_PUBLIC && VAPID_PRIVATE) {
+  try {
+    webpush.setVapidDetails(
+      process.env.VAPID_CONTACT || `mailto:${process.env.ADMIN_EMAIL || 'admin@localhost'}`,
+      VAPID_PUBLIC,
+      VAPID_PRIVATE
+    );
+    console.log('[PUSH] VAPID keys loaded');
+  } catch (e) {
+    console.warn('[PUSH] Failed to set VAPID details', e && e.message ? e.message : e);
+  }
+} else {
+  console.warn('[PUSH] VAPID keys not configured. Web Push disabled. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in env.');
+}
+
+async function sendPushNotificationForBooking(booking) {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return;
+  try {
+    const subs = await PushSubscription.find({}).limit(200);
+    if (!subs || subs.length === 0) return;
+
+    const payload = JSON.stringify({
+      title: 'New Booking Received',
+      body: `${booking.name} — ${booking.pickup} → ${booking.destination}`,
+      data: { url: '/admin/alert.html', booking }
+    });
+
+    const results = await Promise.all(subs.map(async s => {
+      try {
+        await webpush.sendNotification(s.toJSON ? s.toJSON() : s, payload);
+        return { endpoint: s.endpoint, ok: true };
+      } catch (err) {
+        // 410 / 404 indicate that subscription is gone — remove it
+        const status = err && err.statusCode ? err.statusCode : null;
+        if (status === 410 || status === 404) {
+          try { await PushSubscription.deleteOne({ endpoint: s.endpoint }); } catch(e){}
+        }
+        return { endpoint: s.endpoint, ok: false, error: err && err.message ? err.message : String(err) };
+      }
+    }));
+
+    console.log('[PUSH] Sent notifications:', results.filter(r => r.ok).length, 'failed:', results.filter(r => !r.ok).length);
+  } catch (err) {
+    console.error('[PUSH] Error sending notifications:', err && err.message ? err.message : err);
+  }
+}
 
 // ===== Email setup =====
 let mailTransporter = null;
@@ -623,6 +682,13 @@ app.post('/api/bookings', async (req, res) => {
       console.error('[BOOKING] Error scheduling admin email:', e && e.message ? e.message : e);
     }
 
+    // Send web-push notifications to subscribed admin clients (best-effort)
+    try {
+      sendPushNotificationForBooking(saved).catch(e => console.error('[BOOKING] Error sending push notification:', e && e.message ? e.message : e));
+    } catch (e) {
+      console.error('[BOOKING] Error scheduling push notification:', e && e.message ? e.message : e);
+    }
+
 
     res.json({
       success: true,
@@ -642,6 +708,72 @@ app.post('/api/bookings', async (req, res) => {
     }
     
     res.status(500).json({ error: clientMessage, detail: error.message });
+  }
+});
+
+// Return VAPID public key for clients to subscribe
+app.get('/api/push/vapid-public-key', (req, res) => {
+  if (!VAPID_PUBLIC) return res.status(503).json({ error: 'VAPID not configured' });
+  res.json({ publicKey: VAPID_PUBLIC });
+});
+
+// Store push subscription
+app.post('/api/push/subscribe', async (req, res) => {
+  try {
+    const sub = req.body && req.body.subscription ? req.body.subscription : req.body;
+    if (!sub || !sub.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
+    // Upsert by endpoint
+    await PushSubscription.updateOne({ endpoint: sub.endpoint }, { $set: { endpoint: sub.endpoint, keys: sub.keys || {}, createdAt: new Date() } }, { upsert: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PUSH] Subscribe error:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err && err.message ? err.message : err });
+  }
+});
+
+// Debug: list push subscriptions (protected)
+app.get('/api/push/subscriptions', async (req, res) => {
+  const secret = (req.query.secret || req.headers['x-admin-secret'] || '').toString();
+  const allowed = process.env.MAINTENANCE_SECRET || process.env.ADMIN_PASS;
+  if (!secret || !allowed || secret !== allowed) return res.status(403).json({ error: 'Unauthorized' });
+  try {
+    const subs = await PushSubscription.find().sort({ createdAt: -1 }).limit(200);
+    res.json({ count: subs.length, subs: subs.map(s => ({ endpoint: s.endpoint, createdAt: s.createdAt })) });
+  } catch (err) {
+    console.error('[PUSH] List error:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err && err.message ? err.message : err });
+  }
+});
+
+// Debug: send a test push to all subscriptions (protected)
+app.post('/api/push/test', async (req, res) => {
+  const secret = (req.query.secret || req.headers['x-admin-secret'] || '').toString();
+  const allowed = process.env.MAINTENANCE_SECRET || process.env.ADMIN_PASS;
+  if (!secret || !allowed || secret !== allowed) return res.status(403).json({ error: 'Unauthorized' });
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return res.status(503).json({ error: 'VAPID not configured' });
+  try {
+    const subs = await PushSubscription.find().limit(500);
+    if (!subs || subs.length === 0) return res.json({ success: true, message: 'No subscriptions' });
+
+    const payload = JSON.stringify({ title: 'Test Alert', body: req.body && req.body.body ? req.body.body : 'This is a test push', data: { url: '/admin/alert.html', booking: req.body && req.body.booking ? req.body.booking : { name: 'Test', pickup: 'X', destination: 'Y', phone: 'N/A', date: '', time: '' } } });
+
+    const results = await Promise.all(subs.map(async s => {
+      try {
+        await webpush.sendNotification(s.toJSON ? s.toJSON() : s, payload);
+        return { endpoint: s.endpoint, ok: true };
+      } catch (err) {
+        const status = err && err.statusCode ? err.statusCode : null;
+        if (status === 410 || status === 404) {
+          try { await PushSubscription.deleteOne({ endpoint: s.endpoint }); } catch(e){}
+        }
+        return { endpoint: s.endpoint, ok: false, error: err && err.message ? err.message : String(err) };
+      }
+    }));
+
+    res.json({ success: true, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok) });
+  } catch (err) {
+    console.error('[PUSH] Test send error:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err && err.message ? err.message : err });
   }
 });
 

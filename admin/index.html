@@ -665,10 +665,7 @@
             <div class="header">
                 <h1>Admin Dashboard</h1>
                 <div class="header-actions">
-                    <button class="btn btn-secondary" id="soundToggleBtn" title="Toggle notification sound">
-                        <i class="fas fa-volume-up"></i>
-                        <span id="soundLabel">Sound On</span>
-                    </button>
+                    <!-- Sound is always enabled for admin alerts; control hidden from UI -->
                     <button class="btn btn-secondary" id="exportBtn">
                         <i class="fas fa-download"></i>
                         Export Data
@@ -784,10 +781,11 @@
 
         <script>
                 let allBookings = [];
-        let currentDetailId = null;
-        let currentFilter = null; // null | 'pending' | 'confirmed' | 'completed'
-        let soundEnabled = localStorage.getItem('adminNotificationSound') !== 'off';
-        let lastNotifiedBookingId = null;
+                let currentDetailId = null;
+                let currentFilter = null; // null | 'pending' | 'confirmed' | 'completed'
+                // Sound is enabled by default for admin alerts. No visible toggle in UI.
+                let soundEnabled = true;
+                let lastNotifiedBookingId = null;
 
         // Notification sound (using Web Audio API to generate a beep)
         function playNotificationSound() {
@@ -838,6 +836,76 @@
                 Notification.requestPermission();
             }
         }
+
+        // Register service worker and subscribe to push notifications
+        async function registerServiceWorkerAndSubscribe() {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+            try {
+                const reg = await navigator.serviceWorker.register('/sw.js');
+                console.log('[SW] Registered', reg);
+                // fetch VAPID public key from server
+                const res = await fetch('/api/push/vapid-public-key');
+                if (!res.ok) return console.warn('[SW] Failed to get VAPID key');
+                const { publicKey } = await res.json();
+                if (!publicKey) return console.warn('[SW] No VAPID public key available');
+
+                // request Notification permission if needed
+                if (Notification.permission === 'default') {
+                    await Notification.requestPermission();
+                }
+
+                if (Notification.permission !== 'granted') return console.warn('[SW] Notifications not granted');
+
+                const sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+
+                // send subscription to server
+                await fetch('/api/push/subscribe', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: sub })
+                });
+
+                console.log('[SW] Push subscribed');
+            } catch (e) {
+                console.warn('[SW] Registration/subscribe failed', e);
+            }
+        }
+
+        // Helper: convert VAPID key
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        // When service worker requests play-sound, open a focused persistent alert window (popup)
+        navigator.serviceWorker?.addEventListener?.('message', (ev) => {
+            try {
+                const data = ev.data || {};
+                if (data.type === 'play-sound') {
+                    // Play short in-page sound if allowed
+                    try { playNotificationSound(); } catch (e) { }
+                    // Persist latest booking to localStorage for alert window to read
+                    if (data.booking) {
+                        try { localStorage.setItem('teleka_latest_booking', JSON.stringify(data.booking)); } catch (e) { }
+                        // open or focus alert popup
+                        try {
+                            const w = window.open('/admin/alert.html', 'teleka_alert', 'toolbar=0,location=0,menubar=0,width=420,height=700');
+                            if (w) w.focus();
+                        } catch (e) {
+                            console.warn('[ALERT] Popup blocked or failed to open', e);
+                        }
+                    }
+                }
+            } catch (e) { console.warn('[SW MSG] Error handling message', e); }
+        });
 
         // Show popup alert for new booking
         function showBookingAlert(booking) {
@@ -908,13 +976,8 @@
 
             document.body.appendChild(alertDiv);
 
-            // Auto-remove after 8 seconds
-            setTimeout(() => {
-                if (alertDiv.parentElement) {
-                    alertDiv.style.animation = 'slideIn 0.3s ease-out reverse';
-                    setTimeout(() => alertDiv.remove(), 300);
-                }
-            }, 8000);
+            // Persist the alert until user manually closes it (do not auto-remove)
+            // The close button in the alert calls `this.parentElement.parentElement.remove()`
         }
 
         // Load bookings from server
@@ -939,11 +1002,20 @@
                     // Alert for each new pending booking
                     newBookings.forEach(booking => {
                         if (booking._id !== lastNotifiedBookingId) {
+                            // store booking for the alert popup
+                            try { localStorage.setItem('teleka_latest_booking', JSON.stringify(booking)); } catch(e){}
                             playNotificationSound();
-                            showBookingAlert(booking);
+                            // open or focus the persistent alert dashboard popup
+                            try {
+                                const w = window.open('/admin/alert.html', 'teleka_alert', 'toolbar=0,location=0,menubar=0,width=420,height=700');
+                                if (w) w.focus();
+                            } catch (e) { console.warn('Popup open failed', e); }
+
+                            // also show browser notification (persist until user interacts)
                             showBrowserNotification(`New Booking from ${booking.name}`, {
                                 body: `${booking.pickup} → ${booking.destination}`
                             });
+
                             lastNotifiedBookingId = booking._id;
                         }
                     });
@@ -1228,32 +1300,9 @@
             // set initial active visual state (total)
             applyStatFilter(null);
 
-            // Request notification permission and wire sound toggle
+            // Request notification permission and register service worker + push subscription
             requestNotificationPermission();
-            const soundToggleBtn = document.getElementById('soundToggleBtn');
-            if (soundToggleBtn) {
-                soundToggleBtn.addEventListener('click', () => {
-                    soundEnabled = !soundEnabled;
-                    localStorage.setItem('adminNotificationSound', soundEnabled ? 'on' : 'off');
-                    const label = document.getElementById('soundLabel');
-                    const icon = soundToggleBtn.querySelector('i');
-                    if (soundEnabled) {
-                        label.textContent = 'Sound On';
-                        icon.className = 'fas fa-volume-up';
-                        playNotificationSound(); // test beep
-                    } else {
-                        label.textContent = 'Sound Off';
-                        icon.className = 'fas fa-volume-mute';
-                    }
-                });
-                // Update button display based on stored preference
-                const label = document.getElementById('soundLabel');
-                const icon = soundToggleBtn.querySelector('i');
-                if (!soundEnabled) {
-                    label.textContent = 'Sound Off';
-                    icon.className = 'fas fa-volume-mute';
-                }
-            }
+            registerServiceWorkerAndSubscribe();
 
             // wire export and clear buttons safely
             const exportBtn = document.getElementById('exportBtn');

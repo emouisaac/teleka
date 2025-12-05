@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Teleka — Alert</title>
+  <style>
+    body { margin:0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#071032; color:#fff; }
+    .wrap { padding:24px; max-width:420px; margin:18px auto; }
+    .card { background: linear-gradient(180deg,#08204a 0%, #0b1a3a 100%); border-radius:12px; padding:18px; box-shadow:0 10px 40px rgba(0,0,0,0.6); }
+    h1 { font-size:20px; margin:0 0 8px; color:#ffd166; }
+    p { margin:6px 0; color:#e6eef8; }
+    .big { font-size:18px; font-weight:700; color:#fff; }
+    .meta { margin-top:12px; background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; }
+    .controls { display:flex; gap:8px; margin-top:14px; }
+    button { flex:1; padding:10px 12px; border-radius:8px; border:none; cursor:pointer; font-weight:700; }
+    .btn-close { background:#ef4444; color:white; }
+    .btn-ack { background:#10b981; color:white; }
+    .note { font-size:12px; color:#9fb0d9; margin-top:10px; }
+    .overlay {
+      position:fixed; inset:0; display:flex; align-items:center; justify-content:center; backdrop-filter: blur(2px);
+      background: rgba(2,6,23,0.6); z-index: 9999; color:#fff; flex-direction:column; text-align:center;
+    }
+    .overlay button { margin-top:12px; padding:10px 14px; border-radius:8px; border:none; background:#ffd166; color:#071032; font-weight:700; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="card">
+      <h1>Incoming Booking — Alert</h1>
+      <div id="summary">
+        <p class="big" id="bkName">New booking</p>
+        <p id="bkRoute">...</p>
+        <div class="meta" id="bkMeta">
+          <p id="bkWhen">Date / time</p>
+          <p id="bkPhone">Phone</p>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="btn-ack" id="ackBtn">Acknowledge</button>
+        <button class="btn-close" id="closeBtn">Close</button>
+      </div>
+      <p class="note">This alert will remain and the tone will continue until you manually close or acknowledge it.</p>
+    </div>
+  </div>
+
+    <div id="unlockOverlay" class="overlay" style="display:none;">
+      <div>
+        <div style="font-size:18px; font-weight:700;">Click to enable alert sound</div>
+        <div style="margin-top:8px; opacity:0.9;">Browser blocked autoplay — click to allow the ringing tone.</div>
+        <button id="unlockBtn">Enable Sound</button>
+      </div>
+    </div>
+
+  <script>
+    let audioCtx, osc, gainNode, trem, tremGain, playing = false;
+    function startRing() {
+      try {
+        if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        osc = audioCtx.createOscillator();
+        gainNode = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gainNode.gain.value = 0.18;
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        // create slow tremolo for ring variation
+        trem = audioCtx.createOscillator();
+        tremGain = audioCtx.createGain();
+        trem.frequency.value = 2.2; trem.type = 'sine'; tremGain.gain.value = 0.06;
+        trem.connect(tremGain); tremGain.connect(gainNode.gain);
+        trem.start();
+        playing = true;
+      } catch (e) {
+        console.warn('Audio start failed', e);
+      }
+    }
+    function stopRing() {
+      try {
+        if (osc) try { osc.stop(); } catch(e){}
+        if (trem) try { trem.stop(); } catch(e){}
+        if (audioCtx) try { audioCtx.close(); } catch(e){}
+      } catch (e) {}
+      playing = false;
+    }
+
+    function showBooking(b) {
+      try {
+        document.getElementById('bkName').textContent = b.name || 'New booking';
+        document.getElementById('bkRoute').textContent = (b.pickup || '') + ' → ' + (b.destination || '');
+        document.getElementById('bkWhen').textContent = (b.date || '') + ' ' + (b.time || '');
+        document.getElementById('bkPhone').textContent = 'Phone: ' + (b.phone || 'N/A');
+      } catch(e){}
+    }
+
+    async function loadLatestFromStorageOrServer() {
+      try {
+        const raw = localStorage.getItem('teleka_latest_booking');
+        if (raw) {
+          const b = JSON.parse(raw);
+          showBooking(b);
+          return b;
+        }
+      } catch (e) {}
+      // fallback to fetch latest booking from server
+      try {
+        const res = await fetch('/api/bookings');
+        if (!res.ok) return null;
+        const arr = await res.json();
+        if (arr && arr.length) {
+          const latest = arr[0];
+          showBooking(latest);
+          return latest;
+        }
+      } catch (e) {}
+      return null;
+    }
+
+    document.getElementById('closeBtn').addEventListener('click', () => {
+      stopRing();
+      window.close();
+    });
+    document.getElementById('ackBtn').addEventListener('click', async () => {
+      // Acknowledge: stop sound and close window. Optionally we could inform server.
+      stopRing();
+      try { localStorage.removeItem('teleka_latest_booking'); } catch(e){}
+      window.close();
+    });
+
+    // start
+    (async function(){
+      const booking = await loadLatestFromStorageOrServer();
+      // Attempt to start audio immediately
+      try { startRing(); } catch(e) { console.warn('startRing failed', e); }
+
+      // If AudioContext is suspended (autoplay blocked), show overlay prompting user to enable
+      const overlay = document.getElementById('unlockOverlay');
+      const unlockBtn = document.getElementById('unlockBtn');
+      function showUnlock() {
+        if (overlay) overlay.style.display = 'flex';
+      }
+      function hideUnlock() { if (overlay) overlay.style.display = 'none'; }
+
+      if (audioCtx && audioCtx.state === 'suspended') {
+        showUnlock();
+      }
+
+      // If audio wasn't created (some browsers block), still show overlay so user can enable
+      if (!audioCtx) showUnlock();
+
+      unlockBtn?.addEventListener('click', async () => {
+        try {
+          if (!audioCtx || audioCtx.state === 'closed') audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          await audioCtx.resume();
+        } catch (e) { console.warn('resume failed', e); }
+        try { startRing(); } catch(e){}
+        hideUnlock();
+      });
+
+      // Also try to resume if user interacts with page
+      document.body.addEventListener('click', async () => {
+        try { if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume(); } catch(e){}
+        try { if (!playing) startRing(); } catch(e){}
+        hideUnlock();
+      }, { once: true });
+    })();
+  </script>
+</body>
+</html>

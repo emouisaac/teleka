@@ -1465,13 +1465,124 @@
 
             document.body.appendChild(alertDiv);
 
-            // Auto-remove after 6 seconds
-            setTimeout(() => {
-                if (alertDiv.parentElement) {
-                    alertDiv.style.animation = 'slideDown 0.4s ease-in reverse';
-                    setTimeout(() => alertDiv.remove(), 400);
+            // Persist the alert until user manually closes it.
+            // Add a Close button so the client can dismiss the persistent confirmation.
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'Close';
+            closeBtn.style.cssText = 'margin-top:12px;padding:8px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;font-weight:700;';
+            closeBtn.addEventListener('click', () => {
+                try {
+                    alertDiv.style.animation = 'slideDown 0.3s ease-in reverse';
+                    setTimeout(() => alertDiv.remove(), 300);
+                } catch (e) { try { alertDiv.remove(); } catch(e){} }
+            });
+            // allow clicking the alert itself to focus ride-status section if present
+            alertDiv.addEventListener('click', (e) => {
+                if (e.target === closeBtn) return; // ignore clicks on the close button
+                try { openRideStatus(); } catch (e) {}
+            });
+
+            // Attach close button
+            alertDiv.appendChild(closeBtn);
+
+            // --- Continuous beautiful ring tone: bell-like with harmonics ---
+            let audioCtx, oscs = [], gainNodes = [], modulator, modGain, playing = false;
+            function startRing() {
+                try {
+                    console.log('[CLIENT-RING] startRing called, audioCtx:', audioCtx ? audioCtx.state : 'none');
+                    if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('[CLIENT-RING] audioCtx state:', audioCtx.state);
+                    
+                    // Create master gain
+                    const masterGain = audioCtx.createGain();
+                    masterGain.gain.value = 0.25;
+                    masterGain.connect(audioCtx.destination);
+                    
+                    // Bell-like harmonics: fundamental + overtones with slight detuning
+                    const frequencies = [
+                        { freq: 523, gain: 0.4, detune: 0 },      // C5 fundamental
+                        { freq: 783.99, gain: 0.3, detune: 2 },   // G5 (perfect 5th, +2 cents)
+                        { freq: 1047, gain: 0.2, detune: -1 },    // C6 (octave, -1 cent)
+                        { freq: 1319, gain: 0.15, detune: 3 }     // E6 (major third, +3 cents)
+                    ];
+                    
+                    frequencies.forEach(h => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.value = h.freq;
+                        osc.detune.value = h.detune;
+                        gain.gain.value = h.gain;
+                        osc.connect(gain);
+                        gain.connect(masterGain);
+                        osc.start();
+                        oscs.push(osc);
+                        gainNodes.push(gain);
+                    });
+                    
+                    console.log('[CLIENT-RING] Bell harmonics started (4 oscillators)');
+                    
+                    // Subtle amplitude modulation (breathing effect)
+                    modulator = audioCtx.createOscillator();
+                    modGain = audioCtx.createGain();
+                    modulator.type = 'sine';
+                    modulator.frequency.value = 1.8; // slow breath
+                    modGain.gain.value = 0.08;
+                    modulator.connect(modGain);
+                    modGain.connect(masterGain.gain);
+                    modulator.start();
+                    
+                    playing = true;
+                    console.log('[CLIENT-RING] Beautiful ring tone playing, masterGain=0.25');
+                } catch (e) {
+                    console.error('[CLIENT-RING] startRing error:', e);
                 }
-            }, 6000);
+            }
+            function stopRing() {
+                console.log('[CLIENT-RING] stopRing called');
+                try { oscs.forEach(o => o.stop()); } catch(e){}
+                try { if (modulator) modulator.stop(); } catch(e){}
+                try { if (audioCtx) audioCtx.close(); } catch(e){}
+                oscs = [];
+                gainNodes = [];
+                playing = false;
+                console.log('[CLIENT-RING] Ring stopped');
+            }
+
+            // overlay to prompt user to enable sound if autoplay blocked
+            const clientOverlay = document.createElement('div');
+            clientOverlay.style.cssText = 'position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);border-radius:12px;color:#fff;flex-direction:column;gap:8px;';
+            clientOverlay.innerHTML = `<div style="text-align:center;"><div style="font-weight:800;margin-bottom:8px;">Enable alert sound</div><button id="client-enable-sound" style="padding:10px 14px;border-radius:8px;border:none;background:#ffd166;color:#071032;font-weight:800;cursor:pointer;font-size:1rem;">Click Here to Enable Sound</button></div>`;
+            alertDiv.appendChild(clientOverlay);
+
+            // try to start ringing; if blocked, show overlay
+            console.log('[CLIENT-RING] Attempting to start ring on alert appear');
+            try { startRing(); } catch(e) { console.error('[CLIENT-RING] startRing error on appear:', e); }
+            setTimeout(() => {
+                console.log('[CLIENT-RING] Check after 200ms: playing=', playing);
+                if (!playing) {
+                    console.log('[CLIENT-RING] Playing false, showing overlay');
+                    clientOverlay.style.display = 'flex';
+                }
+            }, 200);
+
+            clientOverlay.querySelector('#client-enable-sound').addEventListener('click', async () => {
+                console.log('[CLIENT-RING] Enable sound button clicked');
+                try {
+                    if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('[CLIENT-RING] AudioContext state before resume:', audioCtx.state);
+                    if (audioCtx.state === 'suspended') await audioCtx.resume();
+                    console.log('[CLIENT-RING] AudioContext state after resume:', audioCtx.state);
+                } catch(e) { console.error('[CLIENT-RING] Enable sound error:', e); }
+                try { startRing(); } catch(e){ console.error('[CLIENT-RING] startRing after enable failed:', e); }
+                clientOverlay.style.display = 'none';
+            });
+
+            // ensure closing stops the ring
+            closeBtn.addEventListener('click', () => {
+                console.log('[CLIENT-RING] Close button clicked');
+                try { stopRing(); } catch(e){}
+            });
         }
 
         // Request notification permission
