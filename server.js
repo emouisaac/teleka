@@ -554,8 +554,9 @@ app.get('/api/calculate-price', (req, res) => {
   const dlng = destLng - originLng;
   const distanceKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
 
-  const baseFare = 5000;
-  const perKmRate = 1000;
+  // Minimum/initial fare (start from UGX 12,000)
+  const baseFare = 12000;
+  const perKmRate = 2500;
   const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 0.9);
   const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.1);
 
