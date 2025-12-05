@@ -1390,9 +1390,9 @@
                     osc.start(now + i * 0.12);
                     osc.stop(now + i * 0.12 + 0.1);
                 }
-            } catch (e) {
-                console.error('Error playing confirmation sound:', e);
-            }
+                } catch (e) {
+                    console.warn('Error playing confirmation sound');
+                }
         }
 
         // Show browser notification for confirmed booking
@@ -1406,9 +1406,9 @@
                         requireInteraction: true,
                         body: `Your ride from ${booking.pickup} to ${booking.destination} has been confirmed. A driver will contact you at ${booking.phone}.`
                     });
-                } catch (e) {
-                    console.error('Error showing confirmation notification:', e);
-                }
+                    } catch (e) {
+                    console.warn('Error showing confirmation notification');
+                    }
             }
         }
 
@@ -1485,8 +1485,10 @@
             // Attach close button
             alertDiv.appendChild(closeBtn);
 
-            // --- Continuous beautiful ring tone: bell-like with harmonics ---
-            let audioCtx, oscs = [], gainNodes = [], modulator, modGain, playing = false;
+            // --- Alarm-like ring tone: pulsing two-tone alert sound ---
+            let audioCtx, alarmOscs = [], alarmGains = [], alarmModulator, alarmModGain, playing = false;
+            let alarmPhase = 0; // track which tone in the alarm pattern
+            
             function startRing() {
                 try {
                     console.log('[CLIENT-RING] startRing called, audioCtx:', audioCtx ? audioCtx.state : 'none');
@@ -1495,58 +1497,61 @@
                     
                     // Create master gain
                     const masterGain = audioCtx.createGain();
-                    masterGain.gain.value = 0.25;
+                    masterGain.gain.value = 0.4; // louder alarm
                     masterGain.connect(audioCtx.destination);
                     
-                    // Bell-like harmonics: fundamental + overtones with slight detuning
-                    const frequencies = [
-                        { freq: 523, gain: 0.4, detune: 0 },      // C5 fundamental
-                        { freq: 783.99, gain: 0.3, detune: 2 },   // G5 (perfect 5th, +2 cents)
-                        { freq: 1047, gain: 0.2, detune: -1 },    // C6 (octave, -1 cent)
-                        { freq: 1319, gain: 0.15, detune: 3 }     // E6 (major third, +3 cents)
-                    ];
+                    // Classic alarm: two high-frequency tones that alternate
+                    // Tone 1: 800 Hz (main alarm tone)
+                    const osc1 = audioCtx.createOscillator();
+                    const gain1 = audioCtx.createGain();
+                    osc1.type = 'square'; // square wave for harsh alarm sound
+                    osc1.frequency.value = 800;
+                    gain1.gain.value = 0.5;
+                    osc1.connect(gain1);
+                    gain1.connect(masterGain);
+                    osc1.start();
+                    alarmOscs.push(osc1);
+                    alarmGains.push(gain1);
                     
-                    frequencies.forEach(h => {
-                        const osc = audioCtx.createOscillator();
-                        const gain = audioCtx.createGain();
-                        osc.type = 'sine';
-                        osc.frequency.value = h.freq;
-                        osc.detune.value = h.detune;
-                        gain.gain.value = h.gain;
-                        osc.connect(gain);
-                        gain.connect(masterGain);
-                        osc.start();
-                        oscs.push(osc);
-                        gainNodes.push(gain);
-                    });
+                    // Tone 2: 1000 Hz (harmonizer)
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.type = 'square';
+                    osc2.frequency.value = 1000;
+                    gain2.gain.value = 0.35;
+                    osc2.connect(gain2);
+                    gain2.connect(masterGain);
+                    osc2.start();
+                    alarmOscs.push(osc2);
+                    alarmGains.push(gain2);
                     
-                    console.log('[CLIENT-RING] Bell harmonics started (4 oscillators)');
+                    console.log('[CLIENT-RING] Alarm tone started (2 square waves: 800Hz + 1000Hz)');
                     
-                    // Subtle amplitude modulation (breathing effect)
-                    modulator = audioCtx.createOscillator();
-                    modGain = audioCtx.createGain();
-                    modulator.type = 'sine';
-                    modulator.frequency.value = 1.8; // slow breath
-                    modGain.gain.value = 0.08;
-                    modulator.connect(modGain);
-                    modGain.connect(masterGain.gain);
-                    modulator.start();
+                    // Pulsing modulation: rapid pulse like a classic alarm
+                    alarmModulator = audioCtx.createOscillator();
+                    alarmModGain = audioCtx.createGain();
+                    alarmModulator.type = 'square';
+                    alarmModulator.frequency.value = 4.5; // fast pulse (on/off cycle)
+                    alarmModGain.gain.value = 0.35; // strong pulse effect
+                    alarmModulator.connect(alarmModGain);
+                    alarmModGain.connect(masterGain.gain);
+                    alarmModulator.start();
                     
                     playing = true;
-                    console.log('[CLIENT-RING] Beautiful ring tone playing, masterGain=0.25');
+                    console.log('[CLIENT-RING] Alarm modulation active, playing=true');
                 } catch (e) {
-                    console.error('[CLIENT-RING] startRing error:', e);
+                    console.warn('[CLIENT-RING] startRing error (details hidden)');
                 }
             }
             function stopRing() {
                 console.log('[CLIENT-RING] stopRing called');
-                try { oscs.forEach(o => o.stop()); } catch(e){}
-                try { if (modulator) modulator.stop(); } catch(e){}
+                try { alarmOscs.forEach(o => o.stop()); } catch(e){}
+                try { if (alarmModulator) alarmModulator.stop(); } catch(e){}
                 try { if (audioCtx) audioCtx.close(); } catch(e){}
-                oscs = [];
-                gainNodes = [];
+                alarmOscs = [];
+                alarmGains = [];
                 playing = false;
-                console.log('[CLIENT-RING] Ring stopped');
+                console.log('[CLIENT-RING] Alarm stopped');
             }
 
             // overlay to prompt user to enable sound if autoplay blocked
@@ -1555,9 +1560,20 @@
             clientOverlay.innerHTML = `<div style="text-align:center;"><div style="font-weight:800;margin-bottom:8px;">Enable alert sound</div><button id="client-enable-sound" style="padding:10px 14px;border-radius:8px;border:none;background:#ffd166;color:#071032;font-weight:800;cursor:pointer;font-size:1rem;">Click Here to Enable Sound</button></div>`;
             alertDiv.appendChild(clientOverlay);
 
+            // Note: persistent client enable-sounds toggle removed per user preference.
+
             // try to start ringing; if blocked, show overlay
             console.log('[CLIENT-RING] Attempting to start ring on alert appear');
-            try { startRing(); } catch(e) { console.error('[CLIENT-RING] startRing error on appear:', e); }
+            try {
+                // if user previously unlocked via toggle, resume a stored AudioContext first
+                if (localStorage.getItem('teleka_client_sounds') === 'true') {
+                    try {
+                        if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+                    } catch(e) { /* ignore */ }
+                }
+                startRing();
+            } catch(e) { console.warn('[CLIENT-RING] startRing failed to start on appear (autoplay may be blocked)'); }
             setTimeout(() => {
                 console.log('[CLIENT-RING] Check after 200ms: playing=', playing);
                 if (!playing) {
@@ -1566,17 +1582,33 @@
                 }
             }, 200);
 
-            clientOverlay.querySelector('#client-enable-sound').addEventListener('click', async () => {
+            clientOverlay.querySelector('#client-enable-sound').addEventListener('click', async (ev) => {
+                ev.stopPropagation();
                 console.log('[CLIENT-RING] Enable sound button clicked');
                 try {
                     if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                     console.log('[CLIENT-RING] AudioContext state before resume:', audioCtx.state);
-                    if (audioCtx.state === 'suspended') await audioCtx.resume();
+                    if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
                     console.log('[CLIENT-RING] AudioContext state after resume:', audioCtx.state);
-                } catch(e) { console.error('[CLIENT-RING] Enable sound error:', e); }
-                try { startRing(); } catch(e){ console.error('[CLIENT-RING] startRing after enable failed:', e); }
+                } catch(e) { console.warn('[CLIENT-RING] Enable sound error (ignored)'); }
+                try { startRing(); } catch(e){ console.warn('[CLIENT-RING] startRing after enable failed (ignored)'); }
+                try { localStorage.setItem('teleka_client_sounds','true'); } catch(e){}
                 clientOverlay.style.display = 'none';
             });
+
+            // If the user interacts anywhere (but not on the close button), try to resume audio and start the ring.
+            document.body.addEventListener('click', async function clientBodyResumeListener(ev) {
+                try {
+                    if (ev && ev.target === closeBtn) return; // ignore close clicks
+                    if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+                } catch (e) {
+                    console.warn('[CLIENT-RING] body resume failed', e);
+                }
+                try { if (!playing) startRing(); } catch (e) { console.warn('[CLIENT-RING] startRing after body click failed', e); }
+                try { localStorage.setItem('teleka_client_sounds','true'); } catch(e){}
+                try { clientOverlay.style.display = 'none'; } catch(e){}
+            }, { once: true });
 
             // ensure closing stops the ring
             closeBtn.addEventListener('click', () => {
@@ -1591,6 +1623,20 @@
                 Notification.requestPermission();
             }
         }
+
+        // When service worker requests play-sound, show client confirmation alert
+        navigator.serviceWorker?.addEventListener?.('message', (ev) => {
+            try {
+                const data = ev.data || {};
+                if (data.type === 'play-sound') {
+                    if (data.booking) {
+                        try { showConfirmationAlert(data.booking); } catch (e) { console.warn('[SW] Error showing client confirmation alert', e); }
+                    } else {
+                        try { showConfirmationAlert({ name: 'Passenger', pickup: '', destination: '', phone: 'N/A' }); } catch(e){}
+                    }
+                }
+            } catch (e) { console.warn('[SW MSG] Client handler error', e); }
+        });
 
         // ============ NEW AUTOCOMPLETE SYSTEM ============
         // Handles all typing inputs for pickup & destination with live suggestions
@@ -1624,7 +1670,7 @@
                     suggestionCache[cleanQuery] = predictions;
                     return predictions;
                 } catch (err) {
-                    console.error('Suggestion fetch failed:', err);
+                    console.warn('Suggestion fetch failed');
                     return [];
                 }
             }
@@ -1636,9 +1682,9 @@
                     const data = await response.json();
                     return data.result || null;
                 } catch (err) {
-                    console.error('Place details fetch failed:', err);
-                    return null;
-                }
+                            console.warn('Place details fetch failed');
+                            return null;
+                        }
             }
 
             // Create dropdown container for suggestions
@@ -1811,7 +1857,7 @@
                             `;
                         }
                     } catch (error) {
-                        console.error('Distance calculation failed:', error);
+                        console.warn('Distance calculation failed');
                         if (priceDisplay) priceDisplay.textContent = 'Error calculating price. Try different locations.';
                     }
                 }, 500)
@@ -2054,7 +2100,7 @@
                 destInput.dataset.lng = '';
                 document.getElementById('priceDisplay').textContent = 'Select pickup and destination locations to see the price';
             } catch (error) {
-                console.error('Booking error:', error);
+                console.warn('Booking error');
                 alert('Sorry, there was an error submitting your booking: ' + (error.message || String(error)));
             } finally {
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
@@ -2468,7 +2514,7 @@
                                     openRideStatus();
                                 }
                             })();
-                        } catch (e) { console.error('SSE parse error', e); }
+                        } catch (e) { console.warn('SSE parse error'); }
                     });
 
                     es.addEventListener('booking_updated', (ev) => {
@@ -2479,7 +2525,7 @@
                             if (rideClicked || document.getElementById('ride-status')?.style.display !== 'none') {
                                 openRideStatus();
                             }
-                        } catch (e) { console.error('SSE parse error', e); }
+                        } catch (e) { console.warn('SSE parse error'); }
                     });
 
                     es.addEventListener('booking_created', (ev) => {
@@ -2489,7 +2535,7 @@
                     es.onerror = function(err) { console.warn('SSE connection error', err); };
                     window.__bookingEventSource = es;
                 }
-            } catch (e) { console.error('SSE init error', e); }
+            } catch (e) { console.warn('SSE init error'); }
             // which fetches from /api/calculate-price endpoint on server
         });
     </script>

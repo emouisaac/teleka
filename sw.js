@@ -16,7 +16,24 @@ self.addEventListener('push', event => {
     actions: data.actions || [ { action: 'open', title: 'Open Dashboard' }, { action: 'ack', title: 'Acknowledge' } ]
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  // Show notification and also notify any open clients so they can play sound immediately
+  event.waitUntil((async () => {
+    try {
+      await self.registration.showNotification(title, options);
+    } catch (e) { /* ignore showNotification errors */ }
+
+    try {
+      const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of allClients) {
+        // Prefer visible/focused clients
+        try {
+          client.postMessage({ type: 'play-sound', booking: options.data && options.data.booking ? options.data.booking : null });
+        } catch (e) { /* ignore postMessage failures */ }
+      }
+    } catch (e) {
+      // ignore client messaging errors
+    }
+  })());
 });
 
 self.addEventListener('notificationclick', event => {

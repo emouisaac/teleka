@@ -785,50 +785,9 @@
                 let currentFilter = null; // null | 'pending' | 'confirmed' | 'completed'
                 // Sound is enabled by default for admin alerts. No visible toggle in UI.
                 let soundEnabled = true;
+                // persistent user gesture flag: if admin has previously enabled sound, store here
+                let adminSoundsUnlocked = localStorage.getItem('teleka_admin_sounds') === 'true';
                 let lastNotifiedBookingId = null;
-
-        // Notification sound (using Web Audio API to generate a beep)
-        function playNotificationSound() {
-            if (!soundEnabled) return;
-            try {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const now = audioContext.currentTime;
-                
-                // Create a short beep sequence
-                for (let i = 0; i < 3; i++) {
-                    const osc = audioContext.createOscillator();
-                    const gain = audioContext.createGain();
-                    osc.connect(gain);
-                    gain.connect(audioContext.destination);
-                    
-                    osc.frequency.value = 800 + i * 200;
-                    gain.gain.setValueAtTime(0.3, now + i * 0.15);
-                    gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.1);
-                    
-                    osc.start(now + i * 0.15);
-                    osc.stop(now + i * 0.15 + 0.1);
-                }
-            } catch (e) {
-                console.error('Error playing notification sound:', e);
-            }
-        }
-
-        // Show browser notification
-        function showBrowserNotification(title, options) {
-            if ('Notification' in window && Notification.permission === 'granted') {
-                try {
-                    new Notification(title, {
-                        icon: '../ims/1110.png',
-                        badge: '../ims/1110.png',
-                        tag: 'booking-alert',
-                        requireInteraction: true,
-                        ...options
-                    });
-                } catch (e) {
-                    console.error('Error showing browser notification:', e);
-                }
-            }
-        }
 
         // Request notification permission on load
         function requestNotificationPermission() {
@@ -873,6 +832,8 @@
             }
         }
 
+        // Note: persistent admin sound toggle removed per user preference.
+
         // Helper: convert VAPID key
         function urlBase64ToUint8Array(base64String) {
             const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -889,19 +850,14 @@
         navigator.serviceWorker?.addEventListener?.('message', (ev) => {
             try {
                 const data = ev.data || {};
+                console.log('[SW MSG] received message in admin page:', data);
                 if (data.type === 'play-sound') {
-                    // Play short in-page sound if allowed
-                    try { playNotificationSound(); } catch (e) { }
-                    // Persist latest booking to localStorage for alert window to read
+                    console.log('[SW MSG] play-sound received, booking=', data.booking && data.booking._id ? data.booking._id : data.booking);
+                    // Show in-page booking alert with unified notification format
                     if (data.booking) {
-                        try { localStorage.setItem('teleka_latest_booking', JSON.stringify(data.booking)); } catch (e) { }
-                        // open or focus alert popup
-                        try {
-                            const w = window.open('/admin/alert.html', 'teleka_alert', 'toolbar=0,location=0,menubar=0,width=420,height=700');
-                            if (w) w.focus();
-                        } catch (e) {
-                            console.warn('[ALERT] Popup blocked or failed to open', e);
-                        }
+                        try { showBookingAlert(data.booking); } catch (e) { console.warn('[SW] Error showing booking alert', e); }
+                    } else {
+                        try { showBookingAlert({ name: 'Unknown', pickup: '', destination: '', phone: 'N/A' }); } catch (e) { console.warn('[SW] Error showing fallback booking alert', e); }
                     }
                 }
             } catch (e) { console.warn('[SW MSG] Error handling message', e); }
@@ -909,75 +865,200 @@
 
         // Show popup alert for new booking
         function showBookingAlert(booking) {
+            console.log('[ADMIN] showBookingAlert called for booking:', booking && booking._id ? booking._id : booking);
+            try { console.log('[ADMIN] teleka_admin_sounds flag:', localStorage.getItem('teleka_admin_sounds')); } catch(e) { console.log('[ADMIN] teleka_admin_sounds read failed'); }
+            // Prevent duplicate admin alerts
+            if (document.getElementById('admin-booking-alert')) return;
             const alertDiv = document.createElement('div');
+            alertDiv.id = 'admin-booking-alert';
             alertDiv.style.cssText = `
                 position: fixed;
                 top: 20px;
-                right: 20px;
-                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
                 color: white;
-                padding: 20px 25px;
-                border-radius: 10px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                padding: 25px 30px;
+                border-radius: 12px;
+                box-shadow: 0 15px 50px rgba(0,0,0,0.4);
                 z-index: 10000;
-                max-width: 400px;
-                animation: slideIn 0.3s ease-out;
+                max-width: 500px;
+                animation: slideDown 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                text-align: center;
             `;
 
             const style = document.createElement('style');
             style.textContent = `
-                @keyframes slideIn {
+                @keyframes slideDown {
                     from { 
-                        transform: translateX(500px);
+                        transform: translateX(-50%) translateY(-100px);
                         opacity: 0;
                     }
                     to { 
-                        transform: translateX(0);
+                        transform: translateX(-50%) translateY(0);
                         opacity: 1;
                     }
                 }
-                @keyframes pulse {
+                @keyframes bounce {
                     0%, 100% { transform: scale(1); }
-                    50% { transform: scale(1.1); }
+                    50% { transform: scale(1.15); }
                 }
             `;
             document.head.appendChild(style);
 
             alertDiv.innerHTML = `
-                <div style="display: flex; align-items: flex-start; gap: 15px;">
-                    <div style="font-size: 28px; animation: pulse 1s infinite; flex-shrink: 0;">🔔</div>
-                    <div style="flex: 1;">
-                        <h3 style="margin: 0 0 8px 0; font-size: 1.1rem; font-weight: 700;">New Booking!</h3>
-                        <p style="margin: 0 0 5px 0; font-weight: 600;">${booking.name}</p>
-                        <p style="margin: 0 0 5px 0; font-size: 0.9rem; opacity: 0.95;">
-                            <i class="fas fa-map-marker-alt" style="margin-right: 5px;"></i>
-                            ${booking.pickup} → ${booking.destination}
-                        </p>
-                        <p style="margin: 0; font-size: 0.85rem; opacity: 0.85;">
-                            <i class="fas fa-clock" style="margin-right: 5px;"></i>
-                            ${booking.date} ${booking.time}
-                        </p>
-                    </div>
-                    <button onclick="this.parentElement.parentElement.remove()" style="
-                        background: rgba(255,255,255,0.3);
-                        border: none;
-                        color: white;
-                        width: 24px;
-                        height: 24px;
-                        border-radius: 50%;
-                        cursor: pointer;
-                        font-size: 14px;
-                        padding: 0;
-                        flex-shrink: 0;
-                    ">✕</button>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                    <div style="font-size: 48px; animation: bounce 0.6s ease-in-out;">📞</div>
+                    <h2 style="margin: 0; font-size: 1.3rem; font-weight: 700;">New Booking Alert!</h2>
+                    <p style="margin: 0; font-size: 1rem; opacity: 0.95;">${booking.name} from ${booking.pickup}</p>
+                    <p style="margin: 5px 0 0 0; font-size: 0.9rem; opacity: 0.85;">
+                        <i class="fas fa-phone" style="margin-right: 5px;"></i>
+                        ${booking.phone}
+                    </p>
                 </div>
             `;
 
             document.body.appendChild(alertDiv);
 
-            // Persist the alert until user manually closes it (do not auto-remove)
-            // The close button in the alert calls `this.parentElement.parentElement.remove()`
+            // Persist the alert until user manually closes it.
+            // Add a Close button so the admin can dismiss the persistent booking alert.
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'Close';
+            closeBtn.style.cssText = 'margin-top:12px;padding:8px 12px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;font-weight:700;';
+            closeBtn.addEventListener('click', () => {
+                try {
+                    alertDiv.style.animation = 'slideDown 0.3s ease-in reverse';
+                    setTimeout(() => alertDiv.remove(), 300);
+                } catch (e) { try { alertDiv.remove(); } catch(e){} }
+            });
+            // allow clicking the alert itself to focus bookings section if present
+            alertDiv.addEventListener('click', (e) => {
+                if (e.target === closeBtn) return; // ignore clicks on the close button
+                try { document.getElementById('bookingsList')?.scrollIntoView({ behavior: 'smooth' }); } catch (e) {}
+            });
+
+            // Attach close button
+            alertDiv.appendChild(closeBtn);
+
+            // --- Alarm-like ring tone: cloned from client (shared behavior) ---
+            let audioCtx, alarmOscs = [], alarmGains = [], alarmModulator, alarmModGain, playing = false;
+
+            function startRing() {
+                try {
+                    console.log('[ADMIN-RING] startRing called, audioCtx:', audioCtx ? audioCtx.state : 'none');
+                    if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('[ADMIN-RING] audioCtx state:', audioCtx.state);
+                    
+                    const masterGain = audioCtx.createGain();
+                    masterGain.gain.value = 0.4;
+                    masterGain.connect(audioCtx.destination);
+
+                    const osc1 = audioCtx.createOscillator();
+                    const gain1 = audioCtx.createGain();
+                    osc1.type = 'square';
+                    osc1.frequency.value = 800;
+                    gain1.gain.value = 0.5;
+                    osc1.connect(gain1);
+                    gain1.connect(masterGain);
+                    osc1.start();
+                    alarmOscs.push(osc1);
+                    alarmGains.push(gain1);
+
+                    const osc2 = audioCtx.createOscillator();
+                    const gain2 = audioCtx.createGain();
+                    osc2.type = 'square';
+                    osc2.frequency.value = 1000;
+                    gain2.gain.value = 0.35;
+                    osc2.connect(gain2);
+                    gain2.connect(masterGain);
+                    osc2.start();
+                    alarmOscs.push(osc2);
+                    alarmGains.push(gain2);
+
+                    alarmModulator = audioCtx.createOscillator();
+                    alarmModGain = audioCtx.createGain();
+                    alarmModulator.type = 'square';
+                    alarmModulator.frequency.value = 4.5;
+                    alarmModGain.gain.value = 0.35;
+                    alarmModulator.connect(alarmModGain);
+                    alarmModGain.connect(masterGain.gain);
+                    alarmModulator.start();
+
+                    playing = true;
+                    console.log('[ADMIN-RING] Alarm modulation active, playing=true');
+                } catch (e) {
+                    console.warn('[ADMIN-RING] startRing error (details hidden)');
+                }
+            }
+
+            function stopRing() {
+                console.log('[ADMIN-RING] stopRing called');
+                try { alarmOscs.forEach(o => o.stop()); } catch(e){}
+                try { if (alarmModulator) alarmModulator.stop(); } catch(e){}
+                try { if (audioCtx) audioCtx.close(); } catch(e){}
+                alarmOscs = [];
+                alarmGains = [];
+                playing = false;
+                console.log('[ADMIN-RING] Alarm stopped');
+            }
+
+            // overlay to prompt user to enable sound if autoplay blocked
+            const adminOverlay = document.createElement('div');
+            adminOverlay.style.cssText = 'position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);border-radius:12px;color:#fff;flex-direction:column;gap:8px;';
+            adminOverlay.innerHTML = `<div style="text-align:center;"><div style="font-weight:800;margin-bottom:8px;">Enable alert sound</div><button id="admin-enable-sound" style="padding:10px 14px;border-radius:8px;border:none;background:#ffd166;color:#071032;font-weight:800;cursor:pointer;font-size:1rem;">Click Here to Enable Sound</button></div>`;
+            alertDiv.appendChild(adminOverlay);
+
+            console.log('[ADMIN-RING] Attempting to start ring on alert appear');
+            try {
+                if (typeof AudioContext !== 'undefined' || typeof webkitAudioContext !== 'undefined') {
+                    try {
+                        if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+                    } catch(e) { /* ignore */ }
+                }
+                startRing();
+            } catch(e) { console.warn('[ADMIN-RING] startRing failed to start on appear (autoplay may be blocked)'); }
+
+            setTimeout(() => {
+                console.log('[ADMIN-RING] Check after 200ms: playing=', playing);
+                if (!playing) {
+                    console.log('[ADMIN-RING] Playing false, showing overlay');
+                    adminOverlay.style.display = 'flex';
+                }
+            }, 200);
+
+            adminOverlay.querySelector('#admin-enable-sound').addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                console.log('[ADMIN-RING] Enable sound button clicked');
+                try {
+                    if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('[ADMIN-RING] AudioContext state before resume:', audioCtx.state);
+                    if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+                    console.log('[ADMIN-RING] AudioContext state after resume:', audioCtx.state);
+                } catch(e) { console.warn('[ADMIN-RING] Enable sound error (ignored)'); }
+                try { startRing(); } catch(e){ console.warn('[ADMIN-RING] startRing after enable failed (ignored)'); }
+                try { localStorage.setItem('teleka_admin_sounds','true'); } catch(e){}
+                adminOverlay.style.display = 'none';
+            });
+
+            document.body.addEventListener('click', async function bodyResumeListener(ev) {
+                try {
+                    if (ev && ev.target === closeBtn) return; // ignore close clicks
+                    if (!audioCtx || (audioCtx && audioCtx.state === 'closed')) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    if (audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+                } catch (e) {
+                    console.warn('[ADMIN-RING] body resume failed', e);
+                }
+                try { if (!playing) startRing(); } catch (e) { console.warn('[ADMIN-RING] startRing after body click failed', e); }
+                try { localStorage.setItem('teleka_admin_sounds','true'); } catch(e){}
+                try { adminOverlay.style.display = 'none'; } catch(e){}
+            }, { once: true });
+
+            closeBtn.addEventListener('click', () => {
+                console.log('[ADMIN-RING] Close button clicked');
+                try { stopRing(); } catch(e){}
+            });
         }
 
         // Load bookings from server
@@ -1002,19 +1083,8 @@
                     // Alert for each new pending booking
                     newBookings.forEach(booking => {
                         if (booking._id !== lastNotifiedBookingId) {
-                            // store booking for the alert popup
-                            try { localStorage.setItem('teleka_latest_booking', JSON.stringify(booking)); } catch(e){}
-                            playNotificationSound();
-                            // open or focus the persistent alert dashboard popup
-                            try {
-                                const w = window.open('/admin/alert.html', 'teleka_alert', 'toolbar=0,location=0,menubar=0,width=420,height=700');
-                                if (w) w.focus();
-                            } catch (e) { console.warn('Popup open failed', e); }
-
-                            // also show browser notification (persist until user interacts)
-                            showBrowserNotification(`New Booking from ${booking.name}`, {
-                                body: `${booking.pickup} → ${booking.destination}`
-                            });
+                            // Show unified in-page booking alert with alarm sound
+                            try { showBookingAlert(booking); } catch (e) { console.warn('[BOOKINGS] Error showing booking alert', e); }
 
                             lastNotifiedBookingId = booking._id;
                         }
