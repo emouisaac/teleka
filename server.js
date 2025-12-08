@@ -641,7 +641,7 @@ app.get('/api/calculate-price', (req, res) => {
 
   // Minimum/initial fare (start from UGX 12,000)
   const baseFare = 12000;
-  const perKmRate = 2400;
+  const perKmRate = 2250;
   const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 1.15);
   const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.5);
 
