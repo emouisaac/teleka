@@ -1708,6 +1708,30 @@
                 }
             }
 
+            // Fetch popular destinations from user history
+            async function getPopularDestinations() {
+                try {
+                    const response = await fetch(`/api/popular-destinations?limit=5`);
+                    const data = await response.json();
+                    if (data.success && data.destinations) {
+                        console.log(`Popular destinations: ${data.destinations.length} found`);
+                        return data.destinations.map(d => ({
+                            description: d.destination,
+                            place_id: `popular_${d.destination}`,
+                            main_text: d.destination,
+                            isPopular: true,
+                            lat: d.lat,
+                            lng: d.lng,
+                            count: d.count
+                        }));
+                    }
+                    return [];
+                } catch (err) {
+                    console.warn('Popular destinations fetch failed');
+                    return [];
+                }
+            }
+
             // Get full place details (lat, lng, address)
             async function getPlaceDetails(placeId) {
                 try {
@@ -1756,8 +1780,13 @@
                     cursor: pointer;
                     transition: background 0.15s;
                     color: ${document.body.classList.contains('dark-mode') ? '#e5e7eb' : '#1f2937'};
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
                 `;
-                item.innerHTML = `<strong>${suggestion.description}</strong>`;
+                
+                const popularLabel = suggestion.isPopular ? `<span style="font-size:0.75rem; background:#10b981; color:white; padding:2px 6px; border-radius:3px; margin-left:8px;">Popular</span>` : '';
+                item.innerHTML = `<strong>${suggestion.description}</strong>${popularLabel}`;
 
                 item.addEventListener('mouseover', () => {
                     item.style.background = document.body.classList.contains('dark-mode') ? '#374151' : '#f3f4f6';
@@ -1772,16 +1801,24 @@
                     inputElement.dataset.placeId = suggestion.place_id;
                     dropdown.innerHTML = '';
 
-                    // Fetch full details to get lat/lng
-                    const details = await getPlaceDetails(suggestion.place_id);
-                    if (details && details.geometry && details.geometry.location) {
-                        const { lat, lng } = details.geometry.location;
-                        inputElement.dataset.lat = lat;
-                        inputElement.dataset.lng = lng;
-                        console.log(`Selected ${suggestion.description}: lat=${lat}, lng=${lng}`);
-
-                        // Trigger distance calculation if both inputs are filled
+                    // If it's a popular destination from history, use the stored lat/lng
+                    if (suggestion.isPopular && suggestion.lat && suggestion.lng) {
+                        inputElement.dataset.lat = suggestion.lat;
+                        inputElement.dataset.lng = suggestion.lng;
+                        console.log(`Selected popular destination ${suggestion.description}: lat=${suggestion.lat}, lng=${suggestion.lng}`);
                         inputContainer.calculateDistance();
+                    } else {
+                        // Fetch full details to get lat/lng
+                        const details = await getPlaceDetails(suggestion.place_id);
+                        if (details && details.geometry && details.geometry.location) {
+                            const { lat, lng } = details.geometry.location;
+                            inputElement.dataset.lat = lat;
+                            inputElement.dataset.lng = lng;
+                            console.log(`Selected ${suggestion.description}: lat=${lat}, lng=${lng}`);
+
+                            // Trigger distance calculation if both inputs are filled
+                            inputContainer.calculateDistance();
+                        }
                     }
                 });
 
@@ -1817,10 +1854,31 @@
                     });
                 }, 400);
 
+                // Special handling for destination field on focus
+                const handleFocus = async (e) => {
+                    const query = e.target.value.trim();
+                    const dropdown = createDropdown(input);
+
+                    if (query.length === 0 && inputId === 'destination') {
+                        // Show popular destinations when destination field is empty and focused
+                        console.log('[DESTINATION] Fetching popular destinations...');
+                        const popular = await getPopularDestinations();
+                        
+                        if (popular.length > 0) {
+                            dropdown.innerHTML = '<div style="padding:8px 12px; font-weight:600; color:#6b7280; font-size:0.85rem;">Popular Destinations</div>';
+                            popular.forEach(s => {
+                                renderSuggestion(s, dropdown, input, inputContainer);
+                            });
+                        } else {
+                            dropdown.innerHTML = '<div style="padding:10px; color:#999;">Start by typing a destination</div>';
+                        }
+                    } else if (query.length > 0) {
+                        handleInput(e);
+                    }
+                };
+
                 input.addEventListener('input', handleInput);
-                input.addEventListener('focus', () => {
-                    if (input.value.trim()) handleInput({ target: input });
-                });
+                input.addEventListener('focus', handleFocus);
 
                 input.addEventListener('blur', () => {
                     setTimeout(() => {
@@ -1875,9 +1933,10 @@
                             minimumFractionDigits: 0
                         }).format(data.priceRange.upper);
 
-                        const distanceKm = (data.distance.value / 1000).toFixed(1);
-                        const durationMin = Math.round(data.duration.value / 60);
-                        const peakHourNote = data.isPeakHour ? ' <span style="color: #f59e0b;">(Peak Hour)</span>' : '';
+                        // Use formatted text from API if available, otherwise calculate
+                        const distanceText = data.distance.text || `${(data.distance.value / 1000).toFixed(1)} km`;
+                        const durationText = data.duration.text || `${Math.round(data.duration.value / 60)} min`;
+                        const routeTypeNote = data.routeType === 'actual' ? ' (Actual Route)' : data.routeType === 'fallback' ? ' (Estimated)' : '';
 
                         if (priceDisplay) {
                             priceDisplay.innerHTML = `
@@ -1885,12 +1944,13 @@
                                     ${lowerPrice} - ${upperPrice}
                                 </div>
                                 <div style="font-size: 0.85rem; color: var(--text-light);">
-                                    Distance: ${distanceKm} km | Duration: ${durationMin} min | Traffic: ${data.traffic_level}${peakHourNote}
+                                    Distance: ${distanceText} | Duration: ${durationText} | Traffic: ${data.traffic_level}${routeTypeNote}
                                 </div>
                             `;
                         }
+                        console.log('[PRICING] Price calculated:', { lower: data.priceRange.lower, upper: data.priceRange.upper, route: data.routeType });
                     } catch (error) {
-                        console.warn('Distance calculation failed');
+                        console.warn('Distance calculation failed:', error.message);
                         if (priceDisplay) priceDisplay.textContent = 'Error calculating price. Try different locations.';
                     }
                 }, 500)

@@ -601,6 +601,56 @@ app.get('/api/places/details', async (req, res) => {
   }
 });
 
+// API endpoint: get popular destinations based on booking history
+app.get('/api/popular-destinations', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    console.log(`[POPULAR] Fetching top ${limit} popular destinations`);
+
+    // Aggregate destination data from completed and confirmed bookings
+    const popularDestinations = await Booking.aggregate([
+      {
+        $match: {
+          destination: { $exists: true, $ne: '' },
+          status: { $in: ['completed', 'confirmed'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$destination',
+          count: { $sum: 1 },
+          destLat: { $first: '$destLat' },
+          destLng: { $first: '$destLng' }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      },
+      {
+        $limit: limit
+      },
+      {
+        $project: {
+          destination: '$_id',
+          count: 1,
+          lat: '$destLat',
+          lng: '$destLng',
+          _id: 0
+        }
+      }
+    ]);
+
+    console.log(`[POPULAR] Found ${popularDestinations.length} popular destinations`);
+    res.json({ 
+      success: true, 
+      destinations: popularDestinations 
+    });
+  } catch (error) {
+    console.error('[POPULAR] ERROR:', error.message);
+    res.status(500).json({ error: error.message, destinations: [] });
+  }
+});
+
 // Reverse geocode: lat,lng -> formatted address (uses Google Maps Geocoding API)
 app.get('/api/reverse-geocode', async (req, res) => {
   const lat = req.query.lat;
@@ -628,33 +678,105 @@ app.get('/api/reverse-geocode', async (req, res) => {
 });
 
 // Calculate price (mock)
-app.get('/api/calculate-price', (req, res) => {
+app.get('/api/calculate-price', async (req, res) => {
   const origin = req.query.origin || '0,0';
   const destination = req.query.destination || '0,0';
 
   const [originLat, originLng] = origin.split(',').map(Number);
   const [destLat, destLng] = destination.split(',').map(Number);
 
-  const dlat = destLat - originLat;
-  const dlng = destLng - originLng;
-  const distanceKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
+  // Validate coordinates
+  if (!originLat || !originLng || !destLat || !destLng) {
+    return res.status(400).json({ error: 'Invalid coordinates', priceRange: { lower: 0, upper: 0 } });
+  }
 
-  // Minimum/initial fare (start from UGX 12,000)
-  const baseFare = 12000;
-  const perKmRate = 2250;
-  const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 1.15);
-  const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.5);
+  try {
+    if (!GOOGLE_MAPS_API_KEY) {
+      console.warn('[PRICING] Google Maps API key not found, using fallback calculation');
+      // Fallback to haversine distance if API key is missing
+      const dlat = destLat - originLat;
+      const dlng = destLng - originLng;
+      const distanceKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
+      const baseFare = 12000;
+      const perKmRate = 2250;
+      const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 1.15);
+      const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.7);
+      return res.json({
+        distance: { value: distanceKm * 1000, text: `${distanceKm.toFixed(1)} km` },
+        duration: { value: Math.max(600, distanceKm * 60), text: `${Math.ceil(distanceKm)} mins` },
+        priceRange: { lower: lowPrice, upper: highPrice },
+        isPeakHour: false,
+        traffic_level: 'Unknown',
+        routeType: 'fallback'
+      });
+    }
 
-  res.json({
-    distance: { value: distanceKm * 1000 },
-    duration: { value: Math.max(600, distanceKm * 60) },
-    priceRange: {
-      lower: lowPrice,
-      upper: highPrice
-    },
-    isPeakHour: false,
-    traffic_level: 'Low'
-  });
+    // Use Google Maps Directions API for actual route distance
+    const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&key=${GOOGLE_MAPS_API_KEY}&mode=driving`;
+    
+    console.log(`[PRICING] Fetching route from (${originLat},${originLng}) to (${destLat},${destLng})`);
+    
+    const response = await fetch(directionsUrl);
+    const directionsData = await response.json();
+
+    if (directionsData.status !== 'OK' || !directionsData.routes || directionsData.routes.length === 0) {
+      console.warn(`[PRICING] Directions API returned status: ${directionsData.status}`);
+      // Fallback to haversine distance
+      const dlat = destLat - originLat;
+      const dlng = destLng - originLng;
+      const distanceKm = Math.sqrt(dlat * dlat + dlng * dlng) * 111;
+      const baseFare = 12000;
+      const perKmRate = 2250;
+      const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 1.15);
+      const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.7);
+      return res.json({
+        distance: { value: distanceKm * 1000, text: `${distanceKm.toFixed(1)} km` },
+        duration: { value: Math.max(600, distanceKm * 60), text: `${Math.ceil(distanceKm)} mins` },
+        priceRange: { lower: lowPrice, upper: highPrice },
+        isPeakHour: false,
+        traffic_level: 'Unknown',
+        routeType: 'fallback'
+      });
+    }
+
+    // Get the first (best) route
+    const route = directionsData.routes[0];
+    const leg = route.legs[0];
+    
+    // Extract actual distance and duration from the route
+    const distanceMeters = leg.distance.value;
+    const distanceKm = distanceMeters / 1000;
+    const durationSeconds = leg.duration.value;
+    
+    console.log(`[PRICING] Route distance: ${distanceKm.toFixed(2)} km, duration: ${Math.round(durationSeconds/60)} mins`);
+
+    // Calculate pricing based on actual route distance
+    const baseFare = 12000;
+    const perKmRate = 2250;
+    const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 1.15);
+    const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.7);
+
+    res.json({
+      distance: { value: distanceMeters, text: leg.distance.text },
+      duration: { value: durationSeconds, text: leg.duration.text },
+      priceRange: {
+        lower: lowPrice,
+        upper: highPrice
+      },
+      isPeakHour: false,
+      traffic_level: 'Normal',
+      routeType: 'actual'
+    });
+
+  } catch (error) {
+    console.error('[PRICING] Error calculating route:', error.message);
+    // Return error but with fallback pricing
+    res.status(500).json({
+      error: error.message,
+      priceRange: { lower: 12000, upper: 15000 },
+      routeType: 'error'
+    });
+  }
 });
 
 // Create booking
