@@ -1166,8 +1166,8 @@
                 <form id="bookingForm">
                     <!-- WhatsApp input removed -->
                     <div class="form-group">
-                        <label for="pickup">Pickup Location</label>
-                        <input type="text" id="pickup" class="form-control" placeholder="Enter pickup address" required>
+                        <label for="pickup">Pickup Location <span style="font-size:0.9rem;color:#666;">(auto-filled with your current location)</span></label>
+                        <input type="text" id="pickup" class="form-control" placeholder="Using your current location..." required>
                     </div>
                     <div class="form-group">
                         <label for="destination">Destination</label>
@@ -1638,6 +1638,39 @@
             } catch (e) { console.warn('[SW MSG] Client handler error', e); }
         });
 
+        // Persistent unobtrusive banner to request a one-time gesture to enable sounds
+        (function setupSoundEnableBanner(){
+            try {
+                if (localStorage.getItem('teleka_client_sounds') === 'true') return; // already enabled
+            } catch(e){}
+
+            const banner = document.createElement('div');
+            banner.id = 'teleka-sound-banner';
+            banner.style.cssText = 'position:fixed;left:12px;bottom:12px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 12px;border-radius:8px;z-index:99999;display:flex;gap:8px;align-items:center;font-weight:700;font-size:14px;';
+            banner.innerHTML = '<span style="margin-right:8px;">Enable alert sounds</span>';
+            const btn = document.createElement('button');
+            btn.textContent = 'Enable';
+            btn.style.cssText = 'background:#ffd166;color:#071032;border:none;padding:8px 10px;border-radius:6px;cursor:pointer;font-weight:800;';
+            btn.addEventListener('click', () => {
+                try {
+                    let audioCtx = window._teleka_global_audio_ctx;
+                    if (!audioCtx || audioCtx.state === 'closed') audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    audioCtx.resume().catch(()=>{});
+                    window._teleka_global_audio_ctx = audioCtx;
+                } catch(e) { console.warn('[SOUND-BANNER] enable error', e); }
+                try { localStorage.setItem('teleka_client_sounds','true'); } catch(e){}
+                try { banner.remove(); } catch(e){}
+            });
+            banner.appendChild(btn);
+            document.body.appendChild(banner);
+
+            // Remove banner automatically after user interacts anywhere on page
+            document.body.addEventListener('click', function removeBannerOnInteract(ev){
+                try { localStorage.setItem('teleka_client_sounds','true'); } catch(e){}
+                try { banner.remove(); } catch(e){}
+            }, { once: true });
+        })();
+
         // ============ NEW AUTOCOMPLETE SYSTEM ============
         // Handles all typing inputs for pickup & destination with live suggestions
         (function() {
@@ -2056,10 +2089,34 @@
                 const destLat = destInput.dataset.lat;
                 const destLng = destInput.dataset.lng;
 
-                if (!pickupLat || !pickupLng || !destLat || !destLng) {
-                    alert('Please select valid pickup and destination locations from the suggestions.');
+                if (!destLat || !destLng) {
+                    alert('Please select a valid destination location.');
                     if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
                     return;
+                }
+
+                // If pickup location is not set, use current location
+                let finalPickupLat = pickupLat;
+                let finalPickupLng = pickupLng;
+                if (!finalPickupLat || !finalPickupLng) {
+                    console.log('[BOOKING] Pickup not set, attempting to get current location...');
+                    try {
+                        const coords = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => resolve(pos.coords),
+                                (err) => reject(err),
+                                { enableHighAccuracy: true, timeout: 10000 }
+                            );
+                        });
+                        finalPickupLat = coords.latitude;
+                        finalPickupLng = coords.longitude;
+                        console.log('[BOOKING] Current location:', finalPickupLat, finalPickupLng);
+                    } catch (err) {
+                        console.warn('[BOOKING] Could not get current location:', err);
+                        alert('Could not determine your current location. Please enter a pickup location.');
+                        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
+                        return;
+                    }
                 }
 
                 // Send booking to server
@@ -2072,8 +2129,8 @@
                         clientPhone: authUser?.phone || '',
                         pickup: formData.pickup,
                         destination: formData.destination,
-                        pickupLat,
-                        pickupLng,
+                        pickupLat: finalPickupLat,
+                        pickupLng: finalPickupLng,
                         destLat,
                         destLng,
                         serviceType: formData.serviceType,
@@ -2229,6 +2286,56 @@
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize new booking form with autocomplete and distance calculation
             BookingForm.init();
+            
+            // Auto-fill pickup location with user's current location
+            (async function autoFillPickupLocation() {
+                const pickupInput = document.getElementById('pickup');
+                if (!pickupInput || pickupInput.value) return; // Skip if already filled
+                
+                try {
+                    const coords = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => resolve(pos.coords),
+                            (err) => reject(err),
+                            { enableHighAccuracy: true, timeout: 10000 }
+                        );
+                    });
+                    
+                    console.log('[AUTOFILL] Current location:', coords.latitude, coords.longitude);
+                    
+                    // Try to reverse-geocode the location using Google Maps API
+                    try {
+                        const response = await fetch(
+                            `/api/places/details?place_id=` + 
+                            encodeURIComponent(`${coords.latitude},${coords.longitude}`)
+                        );
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (data.result && data.result.formatted_address) {
+                                pickupInput.value = data.result.formatted_address;
+                                pickupInput.dataset.lat = coords.latitude;
+                                pickupInput.dataset.lng = coords.longitude;
+                                console.log('[AUTOFILL] Pickup filled:', data.result.formatted_address);
+                            } else {
+                                // Fallback: use coordinates as text
+                                pickupInput.value = `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
+                                pickupInput.dataset.lat = coords.latitude;
+                                pickupInput.dataset.lng = coords.longitude;
+                            }
+                        } else {
+                            throw new Error('Reverse geocode failed');
+                        }
+                    } catch (geocodeErr) {
+                        console.log('[AUTOFILL] Reverse geocode not available, storing coords only');
+                        pickupInput.value = 'Current Location';
+                        pickupInput.dataset.lat = coords.latitude;
+                        pickupInput.dataset.lng = coords.longitude;
+                    }
+                } catch (err) {
+                    console.warn('[AUTOFILL] Could not get current location:', err);
+                    pickupInput.placeholder = 'Enable location permissions or enter address';
+                }
+            })();
             
             // Listen for input changes to trigger distance calculation
             document.getElementById('pickup')?.addEventListener('change', () => BookingForm.calculateDistance());

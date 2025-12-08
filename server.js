@@ -601,6 +601,32 @@ app.get('/api/places/details', async (req, res) => {
   }
 });
 
+// Reverse geocode: lat,lng -> formatted address (uses Google Maps Geocoding API)
+app.get('/api/reverse-geocode', async (req, res) => {
+  const lat = req.query.lat;
+  const lng = req.query.lng;
+
+  if (!lat || !lng) return res.status(400).json({ error: 'Provide lat and lng query params' });
+  if (!GOOGLE_MAPS_API_KEY) return res.status(503).json({ error: 'Google Maps API key not configured' });
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(lat)},${encodeURIComponent(lng)}&key=${GOOGLE_MAPS_API_KEY}`;
+    console.log('[REVERSE] Calling Google Geocode API for', lat, lng);
+    const r = await fetch(url);
+    const data = await r.json();
+    if (!data || data.status !== 'OK') {
+      console.warn('[REVERSE] Google API returned', data && data.status);
+      return res.status(200).json({ status: data && data.status ? data.status : 'ERROR', results: data && data.results ? data.results : [] });
+    }
+
+    const formatted = data.results && data.results[0] && data.results[0].formatted_address ? data.results[0].formatted_address : null;
+    res.json({ formatted_address: formatted, results: data.results });
+  } catch (err) {
+    console.error('[REVERSE] Error reverse-geocoding:', err && err.message ? err.message : err);
+    res.status(500).json({ error: err && err.message ? err.message : String(err) });
+  }
+});
+
 // Calculate price (mock)
 app.get('/api/calculate-price', (req, res) => {
   const origin = req.query.origin || '0,0';
@@ -615,9 +641,9 @@ app.get('/api/calculate-price', (req, res) => {
 
   // Minimum/initial fare (start from UGX 12,000)
   const baseFare = 12000;
-  const perKmRate = 2500;
-  const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 0.9);
-  const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.1);
+  const perKmRate = 2400;
+  const lowPrice = Math.round(baseFare + distanceKm * perKmRate * 1.15);
+  const highPrice = Math.round(baseFare + distanceKm * perKmRate * 1.5);
 
   res.json({
     distance: { value: distanceKm * 1000 },
