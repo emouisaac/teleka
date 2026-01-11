@@ -1424,7 +1424,7 @@
                 color: white;
                 padding: 25px 30px;
                 border-radius: 12px;
-                box-shadow: 0 15px 50px rgba(0,0,0,0.4);
+                box-shadow: 0 15px 50px rgba(0, 0, 0, 0.4);
                 z-index: 10000;
                 max-width: 500px;
                 animation: slideDown 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1951,7 +1951,7 @@
                         console.log('[PRICING] Price calculated:', { lower: data.priceRange.lower, upper: data.priceRange.upper, route: data.routeType });
                     } catch (error) {
                         console.warn('Distance calculation failed:', error.message);
-                        if (priceDisplay) priceDisplay.textContent = 'Error calculating price. Try different locations.';
+                        if (priceDisplay) priceDisplay.textContent = 'Error calculating price';
                     }
                 }, 500)
             };
@@ -2206,8 +2206,13 @@
                 }
 
                 const created = await resp.json();
-                alert('Thank you, ' + formData.name + '! Your booking #' + created.bookingId + ' was submitted. A driver will contact you shortly.');
-                bookingForm.reset();
+                // Automatically open WhatsApp (wa.me) to the support number with a prefilled booking message
+                const bookingMsg = `Hi, I just made a booking (#${created.bookingId}) from ${formData.pickup} to ${formData.destination}. Name: ${formData.name}. Phone: ${authUser?.phone || ''}`;
+                // Target support number in international format with no + or spaces
+                const waUrl = 'https://wa.me/256788408032?text=' + encodeURIComponent(bookingMsg);
+                // Open in a new tab (or WhatsApp app on mobile). Note: browsers may require this to happen as a user gesture to avoid popup blocking.
+                window.open(waUrl, '_blank', 'noopener');
+                 bookingForm.reset();
                 if (window.updateNavRideBadge) window.updateNavRideBadge();
                 
                 // Clear location data
