@@ -2207,11 +2207,24 @@
 
                 const created = await resp.json();
                 // Automatically open WhatsApp (wa.me) to the support number with a prefilled booking message
-                const bookingMsg = `Hi, I just made a booking (#${created.bookingId}) from ${formData.pickup} to ${formData.destination}. Name: ${formData.name}. Phone: ${authUser?.phone || ''}`;
-                // Target support number in international format with no + or spaces
-                const waUrl = 'https://wa.me/256788408032?text=' + encodeURIComponent(bookingMsg);
-                // Open in a new tab (or WhatsApp app on mobile). Note: browsers may require this to happen as a user gesture to avoid popup blocking.
-                window.open(waUrl, '_blank', 'noopener');
+                const bookingMsg = [
+                    'Hello Teleka Team,',
+                    '',
+                    `I have placed a new booking (ID: ${created.bookingId}). Please confirm the details below:`,
+                    `• Name: ${formData.name || 'N/A'}`,
+                    `• Phone: ${authUser?.phone || 'N/A'}`,
+                    `• Pickup: ${formData.pickup || 'N/A'}`,
+                    `• Destination: ${formData.destination || 'N/A'}`,
+                    `• Date/Time: ${(formData.date || '') + (formData.time ? ' ' + formData.time : '')}`.trim(),
+                    `• Service: ${formData.serviceType || 'N/A'}`,
+                    `• Estimated fare: ${estimatedPrice || 'N/A'}`,
+                    '',
+                    'Please confirm availability and estimated arrival time. Thank you.'
+                ].join('\n');
+                 // Target support number in international format with no + or spaces
+                 const waUrl = 'https://wa.me/256788408032?text=' + encodeURIComponent(bookingMsg);
+                 // Open in a new tab (or WhatsApp app on mobile). Note: browsers may require this to happen as a user gesture to avoid popup blocking.
+                 window.open(waUrl, '_blank', 'noopener');
                  bookingForm.reset();
                 if (window.updateNavRideBadge) window.updateNavRideBadge();
                 
