@@ -221,7 +221,8 @@ function setupMailTransporter() {
 
 async function sendAdminEmail(booking) {
   const transporter = setupMailTransporter();
-  const adminEmail = (process.env.ADMIN_EMAIL || 'emouisaac1@gmail.com').toString();
+  // Default admin email; force to emouisaac1@gmail.com when running in production
+  const adminEmail = (process.env.NODE_ENV === 'production' ? 'emouisaac1@gmail.com' : (process.env.ADMIN_EMAIL || 'emouisaac1@gmail.com')).toString();
   const fromLabel = process.env.FROM_EMAIL || 'Teleka Taxi';
   const domain = process.env.DOMAIN || `http://localhost:${PORT}`;
 
@@ -825,7 +826,11 @@ app.post('/api/bookings', async (req, res) => {
     // Notify admin by email (best-effort) without blocking the HTTP response.
     // Send asynchronously and log any errors — prevents client hanging on failed SMTP.
     try {
-      sendAdminEmail(saved).catch(e => console.error('[BOOKING] Error sending admin email:', e && e.message ? e.message : e));
+      if (process.env.NODE_ENV === 'production') {
+        sendAdminEmail(saved).catch(e => console.error('[BOOKING] Error sending admin email:', e && e.message ? e.message : e));
+      } else {
+        console.log('[BOOKING] Skipping admin email send because NODE_ENV != production');
+      }
     } catch (e) {
       console.error('[BOOKING] Error scheduling admin email:', e && e.message ? e.message : e);
     }
