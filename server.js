@@ -188,33 +188,64 @@ async function sendPushNotificationForBooking(booking) {
 let mailTransporter = null;
 function setupMailTransporter() {
   if (mailTransporter) return mailTransporter;
+
+  // Allow a single connection string (e.g. smtp://user:pass@smtp.example.com:587) via SMTP_URL
+  const smtpUrl = process.env.SMTP_URL || process.env.SMTP_CONNECTION_STRING || null;
   const host = process.env.SMTP_HOST;
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   const secure = (process.env.SMTP_SECURE || 'false').toLowerCase() === 'true';
 
-  if (!host) {
-    console.warn('[EMAIL] SMTP_HOST not configured. Emails will not be sent.');
+  // Basic validation
+  if (!smtpUrl && !host) {
+    console.warn('[EMAIL] SMTP not configured (no SMTP_URL or SMTP_HOST). Emails will not be sent.');
     return null;
   }
 
   try {
-    mailTransporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: secure, // true for 465, false for other ports
-      auth: user && pass ? { user, pass } : undefined
-    });
+    const commonOpts = {
+      // helpful timeouts to avoid hanging in production
+      connectionTimeout: parseInt(process.env.SMTP_CONN_TIMEOUT || '10000', 10),
+      greetingTimeout: parseInt(process.env.SMTP_GREET_TIMEOUT || '5000', 10),
+      authTimeout: parseInt(process.env.SMTP_AUTH_TIMEOUT || '5000', 10),
+      // allow using connection pooling when high throughput is expected
+      pool: (process.env.SMTP_POOL || 'false') === 'true'
+    };
 
-    // verify connection (non-blocking but helpful log)
+    if (smtpUrl) {
+      mailTransporter = nodemailer.createTransport(smtpUrl, commonOpts);
+      console.log('[EMAIL] Using SMTP_URL connection string');
+    } else {
+      // Build options from individual env vars
+      const opts = Object.assign({}, commonOpts, {
+        host,
+        port,
+        secure,
+        requireTLS: (process.env.SMTP_REQUIRE_TLS || ((port === 587 && !secure) ? 'true' : 'false')) === 'true'
+      });
+
+      if (user && pass) opts.auth = { user, pass };
+
+      // Optionally allow self-signed / internal certs when explicitly configured (unsafe by default)
+      if ((process.env.SMTP_REJECT_UNAUTHORIZED || 'true').toLowerCase() === 'false') {
+        opts.tls = Object.assign({}, opts.tls || {}, { rejectUnauthorized: false });
+      }
+
+      mailTransporter = nodemailer.createTransport(opts);
+      console.log('[EMAIL] Created transporter for %s:%d (secure=%s)', host, port, String(secure));
+    }
+
+    // Non-blocking verification with helpful logs
     mailTransporter.verify((err, success) => {
       if (err) console.warn('[EMAIL] Transport verification failed:', err.message || err);
       else console.log('[EMAIL] SMTP transporter is ready');
     });
+
     return mailTransporter;
   } catch (err) {
     console.error('[EMAIL] Failed to create transporter:', err && err.message ? err.message : err);
+    mailTransporter = null;
     return null;
   }
 }
@@ -224,7 +255,7 @@ async function sendAdminEmail(booking) {
   // Default admin email; force to emouisaac1@gmail.com when running in production
   const adminEmail = (process.env.NODE_ENV === 'production' ? 'emouisaac1@gmail.com' : (process.env.ADMIN_EMAIL || 'emouisaac1@gmail.com')).toString();
   const fromLabel = process.env.FROM_EMAIL || 'Teleka Taxi';
-  const domain = process.env.DOMAIN || `http://localhost:${PORT}`;
+  const domain = process.env.DOMAIN || `http://telekataxi.com:${PORT}`;
 
   if (!transporter) {
     console.log('[EMAIL] Skipping send - transporter not configured. Booking details:', booking);
