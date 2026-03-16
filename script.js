@@ -75,10 +75,45 @@ function setCurrentDate() {
     dateEl.textContent = now.toLocaleDateString(undefined, options);
 }
 
-// initialize hero slider and date on DOMContentLoaded
+function initGoogleSignIn() {
+    if (!window.google || !google.accounts || !google.accounts.id) {
+        console.warn('Google Identity Services not available.');
+        return;
+    }
+
+    const clientId = window.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+        console.warn('Google Client ID not set. Skipping Google login initialization.');
+        return;
+    }
+
+    google.accounts.id.initialize({
+        client_id: clientId,
+        callback: response => {
+            try {
+                // response.credential is a JWT; decode minimal info for display
+                const payload = JSON.parse(atob(response.credential.split('.')[1]));
+                setAuthState({
+                    name: payload.name || payload.email || 'Google User',
+                    email: payload.email,
+                });
+                alert(`Logged in as ${payload.name || payload.email}`);
+            } catch (err) {
+                console.warn('Failed to parse Google credential:', err);
+            }
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+    });
+
+    googleSignInInitialized = true;
+}
+
+// initialize hero slider, date, and Google login on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', function() {
     initHeroSlider();
     setCurrentDate();
+    initGoogleSignIn();
     
     // Ensure other sections are visible when dashboard is active on page load
     const activeSection = document.querySelector('.content .section.active');
@@ -134,11 +169,54 @@ function switchSection(sectionId) {
     navbarToggle.classList.remove('active');
 }
 
-// Logout function
-function logout() {
-    alert('Logged out successfully!');
-    // You can add redirect or clear session here
-    switchSection('dashboard');
+// Auth state management
+let googleUser = null;
+
+function setAuthState(user) {
+    googleUser = user;
+    const authLink = document.getElementById('auth-action');
+    if (!authLink) return;
+
+    if (user) {
+        authLink.textContent = 'Logout';
+        authLink.classList.add('logout', 'active');
+        authLink.classList.remove('login');
+    } else {
+        authLink.textContent = 'Login';
+        authLink.classList.add('login');
+        authLink.classList.remove('logout', 'active');
+    }
+}
+
+function handleAuthClick(e) {
+    e.preventDefault();
+
+    if (googleUser) {
+        // log out
+        if (window.google && google.accounts && google.accounts.id) {
+            google.accounts.id.disableAutoSelect();
+        }
+        setAuthState(null);
+        alert('Logged out successfully!');
+        switchSection('dashboard');
+        return;
+    }
+
+    // Try to initialize Google Sign-In if not already
+    if (!googleSignInInitialized) {
+        initGoogleSignIn();
+    }
+
+    if (!googleSignInInitialized) {
+        alert('Google login is not configured. Please make sure GOOGLE_CLIENT_ID is set.');
+        return;
+    }
+
+    if (window.google && google.accounts && google.accounts.id) {
+        google.accounts.id.prompt();
+    } else {
+        alert('Google login is not available right now. Please try again later.');
+    }
 }
 
 // sidebar navigation in dashboard
@@ -302,6 +380,7 @@ function updateRouteAndFare(origin, destination) {
 }
 
 let rideRequestInitialized = false;
+let googleSignInInitialized = false;
 
 function initRideRequest() {
     if (rideRequestInitialized) return;

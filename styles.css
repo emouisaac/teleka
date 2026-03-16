@@ -183,6 +183,11 @@ body {
     font-weight: 600;
 }
 
+.navbar-menu .login {
+    color: #4dd0e1;
+    font-weight: 600;
+}
+
 .navbar-toggle {
     background: transparent;
     border: none;

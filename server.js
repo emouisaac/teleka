@@ -25,9 +25,12 @@ function loadEnv() {
 }
 
 const env = loadEnv();
-const port = Number(process.env.PORT || env.PORT || 3000);
+// Always bind to port 3000 per project requirement.
+// If this port is occupied, the process will exit and require the user to free it.
+const port = 3000;
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || ''; 
 
 // Email configuration (used for ride request notifications)
 const EMAIL_HOST =
@@ -213,6 +216,12 @@ function sendFile(res, filePath) {
         apiKey = '{{GOOGLE_MAPS_API_KEY}}';
       }
       output = data.toString().replace(/\{\{GOOGLE_MAPS_API_KEY\}\}/g, apiKey);
+
+      let clientId = GOOGLE_CLIENT_ID;
+      if (!clientId) {
+        clientId = '{{GOOGLE_CLIENT_ID}}';
+      }
+      output = output.replace(/\{\{GOOGLE_CLIENT_ID\}\}/g, clientId);
     }
 
     res.writeHead(200, { 'Content-Type': contentType });
@@ -325,38 +334,23 @@ function createServer() {
   });
 }
 
-function startServer(startPort, maxAttempts = 10) {
-  let attempt = 0;
-  let runningPort = startPort;
+function startServer(port) {
+  const server = createServer();
 
-  function tryListen() {
-    const server = createServer();
+  server.listen(port, 'localhost', () => {
+    console.log(`Static server running at http://localhost:${port}`);
+    console.log('Press Ctrl+C to stop.');
+  });
 
-    server.listen(runningPort, () => {
-      console.log(`Static server running at http://localhost:${runningPort}`);
-      console.log('Press Ctrl+C to stop.');
-    });
-
-    server.on('error', err => {
-      if (err.code === 'EADDRINUSE') {
-        if (attempt >= maxAttempts) {
-          console.error(`\nERROR: Port ${runningPort} is already in use and max retry attempts reached.`);
-          process.exit(1);
-        }
-
-        console.warn(`Port ${runningPort} is in use. Trying port ${runningPort + 1}...`);
-        attempt += 1;
-        runningPort += 1;
-        setTimeout(tryListen, 200);
-        return;
-      }
-
-      console.error('Server error:', err);
+  server.on('error', err => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\nERROR: Port ${port} is already in use. Please stop the process using this port and restart.`);
       process.exit(1);
-    });
-  }
+    }
 
-  tryListen();
+    console.error('Server error:', err);
+    process.exit(1);
+  });
 }
 
 startServer(port);

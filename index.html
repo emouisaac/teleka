@@ -6,6 +6,7 @@
     <title>Teleka Taxi</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
    <nav class="navbar">
@@ -26,7 +27,7 @@
                 <li><a href="#profile" class="navbar-link" onclick="switchSection('profile')">Profile</a></li>
                 <li><a href="#support" class="navbar-link" onclick="switchSection('support')">Support</a></li>
                 <li><a href="#settings" class="navbar-link" onclick="switchSection('settings')">Settings</a></li>
-                <li><a href="#dashboard" class="logout" onclick="logout()">Logout</a></li>
+                <li><a href="#" id="auth-action" class="navbar-link" onclick="handleAuthClick(event)">Login</a></li>
             </ul>
         </div>
    </nav>
@@ -355,6 +356,10 @@
         </div>
     </footer>
 
+<script>
+    // Provide Google client ID to the page via JS global (injected by server)
+    window.GOOGLE_CLIENT_ID = '{{GOOGLE_CLIENT_ID}}';
+</script>
 <script src="script.js"></script>
 <script src="https://maps.googleapis.com/maps/api/js?key={{GOOGLE_MAPS_API_KEY}}&libraries=places&callback=initRideRequest" async defer></script>
 </html>
