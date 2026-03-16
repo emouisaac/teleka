@@ -66,9 +66,19 @@ function initHeroSlider() {
     }, 3000);
 }
 
-// initialize hero slider on DOMContentLoaded
+function setCurrentDate() {
+    const dateEl = document.getElementById('current-date');
+    if (!dateEl) return;
+
+    const now = new Date();
+    const options = { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' };
+    dateEl.textContent = now.toLocaleDateString(undefined, options);
+}
+
+// initialize hero slider and date on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', function() {
     initHeroSlider();
+    setCurrentDate();
     
     // Ensure other sections are visible when dashboard is active on page load
     const activeSection = document.querySelector('.content .section.active');

@@ -124,6 +124,14 @@ body {
     border-radius: 40%;
 }
 
+.navbar-date {
+    display: none;
+    color: var(--navbar-text);
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-left: 1rem;
+}
+
 .navbar-logo:hover {
     transform: scale(1.05);
 }
@@ -231,6 +239,9 @@ body {
     .navbar-toggle {
         display: block;
         z-index: 999;
+    }
+    .navbar-date {
+        display: block;
     }
     .navbar-toggle.active .bar:nth-child(2) {
         opacity: 0;
