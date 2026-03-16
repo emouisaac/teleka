@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teleka Taxi</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+   <nav class="navbar">
+        <div class="navbar-container">
+            <a href="index.html" class="navbar-logo"><img src="ims/ticon.png" alt="Teleka Logo"></a>
+            <button class="navbar-toggle" id="mobile-menu">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+            </button>
+        
+            <ul class="navbar-menu">
+                <li><a href="#dashboard" class="navbar-link" onclick="switchSection('dashboard')">Dashboard</a></li>
+                <li><a href="#request" class="navbar-link" onclick="switchSection('request')">Request Ride</a></li>
+                <li><a href="#history" class="navbar-link" onclick="switchSection('history')">Ride History</a></li>
+                <li><a href="#payments" class="navbar-link" onclick="switchSection('payments')">Payment Methods</a></li>
+                <li><a href="#profile" class="navbar-link" onclick="switchSection('profile')">Profile</a></li>
+                <li><a href="#support" class="navbar-link" onclick="switchSection('support')">Support</a></li>
+                <li><a href="#settings" class="navbar-link" onclick="switchSection('settings')">Settings</a></li>
+                <li><a href="#dashboard" class="logout" onclick="logout()">Logout</a></li>
+            </ul>
+        </div>
+   </nav>
+    
+    <main class="dashboard-container">
+        
+        <section class="content">
+            <div id="dashboard" class="section active">
+                <h1>Reliable Taxi Service for all your needs</h1>
+                <p>Experience comfortable and timely rides with our professional taxi service. We ensure you reach your destination safely, whether it's the airport or anywhere in the city.</p>
+                <div class="summary-cards">
+                    <div class="card0">
+                        <div class="card2">
+                            <h3>Teleka Taxi</h3>
+                            <div class="hero-content">
+                                <h1>Reliable Taxi Service</h1>
+                                <h1>Airport & City Rides</h1>
+                                <h1>Entebbe Airport Transfers</h1>
+                                <h1>Business Trips</h1>
+                                <h1>Tours and Travel</h1>
+                                <h1>24/7 Availability</h1>
+                                <h1>Professional Drivers</h1>
+                                <h1>We are pocket-friendly</h1>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card1">
+                        <div class="card" style="display: none;">
+                            <h3>Order your ride now</h3>
+                            <p><a href="req.html" class="btn">Request Now</a></p>
+                        </div>
+                        <div class="card">
+                            <h3>Travel Reservations</h3>
+                            <p><a href="#request" class="btn" onclick="switchSection('request')">Book Now</a></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+
+
+                <!-- Services Section -->
+                <section class="services" id="services">
+                    <div class="container">
+                        <div class="section-title">
+                            <h2>Our Services</h2>
+                            <p>We offer a wide range of taxi services to meet all your transportation needs</p>
+                        </div>
+                        <div class="services-grid">
+                            <div class="service-card">
+                                <div class="service-icon">
+                                    <i class="fas fa-plane"></i>
+                                </div>
+                                <h3>Airport Transfers</h3>
+                                <p>Reliable airport pickups and drop-offs with flight tracking to ensure timely service.</p>
+                                <a href="#request" class="btn" onclick="switchSection('request')">Book Now</a>
+                            </div>
+                            <div class="service-card">
+                                <div class="service-icon">
+                                    <i class="fas fa-city"></i>
+                                </div>
+                                <h3>City Rides</h3>
+                                <p>Comfortable rides within the city for business meetings, shopping, or leisure.</p>
+                                <a href="#request" class="btn" onclick="switchSection('request')">Book Now</a>
+                            </div>
+                            <div class="service-card">
+                                <div class="service-icon">
+                                    <i class="fas fa-briefcase"></i>
+                                </div>
+                                <h3>Business Travel</h3>
+                                <p>Professional service for corporate clients with receipt generation for expenses.</p>
+                                <a href="#request" class="btn" onclick="switchSection('request')">Book Now</a>
+                            </div>
+                            <div class="service-card">
+                                <div class="service-icon">
+                                    <i class="fas fa-map-marked-alt"></i>
+                                </div>
+                                <h3>Tours Travel</h3>
+                                <p>Experience the beauty of our tourist sites with our exciting tour packages and expert guides.</p>
+                                <a href="#request" class="btn" onclick="switchSection('request')">Book Now</a>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                    
+                
+
+                <!-- Features Section -->
+                <section class="features" id="features">
+                    <div class="container">
+                        <div class="section-title">
+                            <h2>Why Choose Us</h2>
+                            <p>We provide the best taxi service with these outstanding features</p>
+                        </div>
+                        <div class="features-grid">
+                            <div class="feature-card">
+                                <div class="feature-icon">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <h3>Punctual Service</h3>
+                                <p>We value your time and ensure timely pickups and drop-offs.</p>
+                            </div>
+                            <div class="feature-card">
+                                <div class="feature-icon">
+                                    <i class="fas fa-shield-alt"></i>
+                                </div>
+                                <h3>Safe & Secure</h3>
+                                <p>All our drivers are verified and vehicles are regularly maintained.</p>
+                            </div>
+                            <div class="feature-card">
+                                <div class="feature-icon">
+                                    <i class="fas fa-money-bill-wave"></i>
+                                </div>
+                                <h3>Affordable Prices</h3>
+                                <p>Competitive pricing with no hidden charges for transparent billing.</p>
+                            </div>
+                            <div class="feature-card">
+                                <div class="feature-icon">
+                                    <i class="fas fa-headset"></i>
+                                </div>
+                                <h3>24/7 Support</h3>
+                                <p>Round-the-clock customer support to assist you anytime.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                    
+                
+
+        
+                <section class="contact" id="contact">
+                    <div class="container">
+                        <div class="section-title">
+                            <h2>Contact Us</h2>
+                            <p>Get in touch with us for your transportation needs</p>
+                        </div>
+                        <div class="contact-container">
+                            <div class="contact-info">
+                                <div class="contact-card contact-card--clickable" role="button" tabindex="0" data-type="phone" data-value="+256788408032">
+                                    <i class="fas fa-phone"></i>
+                                    <h3>Call Us</h3>
+                                    <p class="contact-value">+256 788 408 032</p>
+                                    <p>24/7 Customer Support</p>
+                                </div>
+                                <!-- WhatsApp contact removed -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+
+            </div>
+            <div id="request" class="section">
+                <h1>Request a Ride</h1>
+                <div class="request-grid">
+                    <form class="ride-form" id="ride-form">
+                        <label>Pickup Location</label>
+                        <input id="pickup-location" type="text" placeholder="Enter pickup address" autocomplete="off" required>
+
+                        <label>Dropoff Location</label>
+                        <input id="dropoff-location" type="text" placeholder="Enter dropoff address" autocomplete="off" required>
+
+                        <label>Date &amp; Time</label>
+                        <input id="ride-date" type="datetime-local" required>
+
+                        <label class="select-label">Car Type</label>
+                        <select id="car-type" required>
+                            <option value="standard">Standard</option>
+                            <option value="premium">Premium</option>
+                            <option value="suv">SUV</option>
+                        </select>
+
+                        <label class="select-label">Payment Method</label>
+                        <select id="payment-method" required>
+                            <option value="card">Credit/Debit Card</option>
+                            <option value="cash">Cash</option>
+                            <option value="wallet">Wallet</option>
+                        </select>
+
+                        <div class="fare-estimate">
+                            <div>
+                                <strong>Estimated Fare</strong>
+                                <p class="estimate-subtitle">Based on route distance</p>
+                            </div>
+                            <div>
+                                <span id="fare-amount">UGX 0</span>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn">Request Ride</button>
+                    </form>
+
+                    <div class="map-panel">
+                        <div id="map"></div>
+                        <p class="map-hint">Pickup and dropoff autofill powered by Google Places. Route appears here.</p>
+            <div id="history" class="section">
+            
+                <h1>Ride Status</h1>
+                <table class="history-table">
+                    <div class="summary-cards">
+                        <div class="card">
+                            <h3>Upcoming Ride</h3>
+                            <p>No rides scheduled</p>
+                        </div>
+                        <div class="card1">
+                            <div class="card">
+                                <h3>Total Rides</h3>
+                                <p>0</p>
+                            </div>
+                            <div class="card">
+                                <h3>Account Balance</h3>
+                                <p>$0.00</p>
+                            </div>
+                        </div>
+                    </div>
+                    <h1>Ride History</h1>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Pickup</th>
+                            <th>Dropoff</th>
+                            <th>Fare</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="5">No rides yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="payments" class="section">
+                <h1>Payment Methods</h1>
+                <p>Manage your saved cards and wallets.</p>
+                <button class="btn">Add New Payment Method</button>
+            </div>
+            <div id="profile" class="section">
+                <h1>Profile</h1>
+                <form class="profile-form">
+                    <label>Full Name</label>
+                    <input type="text" value="[Customer Name]" required>
+
+                    <label>Email</label>
+                    <input type="email" value="customer@example.com" required>
+
+                    <label>Phone</label>
+                    <input type="tel" value="+1234567890" required>
+
+                    <button type="submit" class="btn">Update Profile</button>
+                </form>
+            </div>
+            <div id="support" class="section">
+                <h1>Support</h1>
+                <p>If you need help, contact us at <a href="mailto:support@teleka.com">support@teleka.com</a> or use the live chat below.</p>
+            </div>
+            <div id="settings" class="section">
+                <h1>Settings</h1>
+                <form class="settings-form">
+                    <label>
+                        <input type="checkbox" id="promo-emails" checked>
+                        Receive promotional emails
+                    </label>
+                    <label>
+                        <input type="checkbox" id="dark-mode-toggle">
+                        Enable dark mode
+                    </label>
+                    <button type="submit" class="btn">Save Settings</button>
+                </form>
+            </div>
+        </section>
+
+
+        
+    </main>
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-container">
+                <div class="footer-col">
+                    <h3>Teleka Taxi</h3>
+                    <p>Your reliable partner for airport transfers and city rides. We ensure comfortable and safe journeys for all our customers.</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-facebook-f"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                        <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                    </div>
+                </div>
+                <div class="footer-col">
+                    <h3 class="footer-toggle">Quick Links</h3>
+                    <ul class="footer-content">
+                        <li><a href="#home">Home</a></li>
+                        <li><a href="#services">Services</a></li>
+                        <li><a href="#booking">Booking</a></li>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="../privacy-policy.html">Privacy Policy</a></li>
+                        <li><a href="#contact">Contact</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h3 class="footer-toggle">Services</h3>
+                    <ul class="footer-content">
+                        <li><a href="#">Airport Transfers</a></li>
+                        <li><a href="#">City Rides</a></li>
+                        <li><a href="#">Business Travel</a></li>
+                        <li><a href="#">Corporate Accounts</a></li>
+                        <li><a href="#">Luxury Rides</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h3 class="footer-toggle">Contact Us</h3>
+                    <ul class="footer-content">
+                        <li><i class="fas fa-map-marker-alt"></i> Kampala, Uganda</li>
+                        <li><i class="fas fa-phone"></i> +256 788408032</li>
+                        <li><i class="fas fa-envelope"></i> info@teleka.com</li>
+                        <li><i class="fas fa-clock"></i> Available 24/7</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="copyright">
+                <p>&copy; 2025 Teleka Taxi. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+<script src="https://maps.googleapis.com/maps/api/js?key={{GOOGLE_MAPS_API_KEY}}&libraries=places&callback=initRideRequest" async defer></script>
+<script src="script.js"></script>
+</html>
