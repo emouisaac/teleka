@@ -101,6 +101,10 @@ function switchSection(sectionId) {
         }
     });
 
+    if (sectionId === 'request') {
+        initRideRequest();
+    }
+
     // Update sidebar active state if sidebar exists
     const sidebarItems = document.querySelectorAll('.sidebar-menu li[data-section]');
     sidebarItems.forEach(item => {
@@ -297,7 +301,11 @@ function updateRouteAndFare(origin, destination) {
     );
 }
 
+let rideRequestInitialized = false;
+
 function initRideRequest() {
+    if (rideRequestInitialized) return;
+
     if (!window.google || !google.maps) {
         console.error('Google Maps API not loaded. Make sure the API key is valid and the script is included.');
         return;
@@ -367,9 +375,37 @@ function initRideRequest() {
 
         const pickupText = pickupInput.value.trim();
         const dropoffText = dropoffInput.value.trim();
+        const dateText = document.getElementById('ride-date')?.value || '';
+        const carType = document.getElementById('car-type')?.value || '';
+        const paymentMethod = document.getElementById('payment-method')?.value || '';
         const fareText = document.getElementById('fare-amount')?.textContent || 'UGX 0';
 
         alert(`Ride requested from:\n• ${pickupText}\n• ${dropoffText}\n\nEstimated fare: ${fareText}`);
+
+        // Only send server-side email notifications when launched from the live telekataxi domains
+        if (['telekataxi.com', 'www.telekataxi.com'].includes(location.hostname)) {
+            fetch('/api/ride-request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    pickup: pickupText,
+                    dropoff: dropoffText,
+                    date: dateText,
+                    carType,
+                    payment: paymentMethod,
+                }),
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.ok) {
+                        console.warn('Ride notification failed:', data);
+                    }
+                })
+                .catch(err => {
+                    console.warn('Ride notification error:', err);
+                });
+        }
+
         rideForm.reset();
         origin = null;
         destination = null;
@@ -382,4 +418,6 @@ function initRideRequest() {
         map.setCenter(DEFAULT_CENTER);
         map.setZoom(12);
     });
+
+    rideRequestInitialized = true;
 }
