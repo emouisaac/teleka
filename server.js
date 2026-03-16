@@ -30,12 +30,47 @@ const port = Number(process.env.PORT || env.PORT || 3000);
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
 
 // Email configuration (used for ride request notifications)
-const EMAIL_HOST = process.env.EMAIL_HOST || env.EMAIL_HOST || '';
-const EMAIL_PORT = Number(process.env.EMAIL_PORT || env.EMAIL_PORT || 587);
-const EMAIL_SECURE = String(process.env.EMAIL_SECURE || env.EMAIL_SECURE || 'false').toLowerCase() === 'true';
-const EMAIL_USER = process.env.EMAIL_USER || env.EMAIL_USER || '';
-const EMAIL_PASS = process.env.EMAIL_PASS || env.EMAIL_PASS || '';
-const EMAIL_FROM = process.env.EMAIL_FROM || env.EMAIL_FROM || `no-reply@telekataxi.com`;
+const EMAIL_HOST =
+  process.env.EMAIL_HOST ||
+  process.env.SMTP_HOST ||
+  env.EMAIL_HOST ||
+  env.SMTP_HOST ||
+  '';
+const EMAIL_PORT = Number(
+  process.env.EMAIL_PORT ||
+    process.env.SMTP_PORT ||
+    env.EMAIL_PORT ||
+    env.SMTP_PORT ||
+    587
+);
+const EMAIL_SECURE =
+  String(
+    process.env.EMAIL_SECURE ||
+      process.env.SMTP_SECURE ||
+      env.EMAIL_SECURE ||
+      env.SMTP_SECURE ||
+      'false'
+  ).toLowerCase() === 'true';
+const EMAIL_USER =
+  process.env.EMAIL_USER ||
+  process.env.SMTP_USER ||
+  env.EMAIL_USER ||
+  env.SMTP_USER ||
+  '';
+const EMAIL_PASS =
+  process.env.EMAIL_PASS ||
+  process.env.SMTP_PASS ||
+  env.EMAIL_PASS ||
+  env.SMTP_PASS ||
+  '';
+const SENDGRID_API_KEY =
+  process.env.SENDGRID_API_KEY ||
+  env.SENDGRID_API_KEY ||
+  '';
+const EMAIL_FROM =
+  process.env.EMAIL_FROM ||
+  env.EMAIL_FROM ||
+  `no-reply@telekataxi.com`;
 const EMAIL_TO = (process.env.EMAIL_TO || env.EMAIL_TO || 'emouisaac1@gmail.com,telekataxi@gmail.com')
   .split(',')
   .map(s => s.trim())
@@ -54,6 +89,13 @@ if (!GOOGLE_MAPS_API_KEY) {
   const keyShort = `${GOOGLE_MAPS_API_KEY.slice(0, 6)}...${GOOGLE_MAPS_API_KEY.slice(-4)}`;
   console.log(`Using Google Maps API key: ${keyShort}`);
 }
+
+// Log email config state so it's easier to verify in hosted environments (Render, etc.)
+console.log('Email config:');
+console.log('  - EMAIL_HOST set:', !!EMAIL_HOST); // not printing values for security
+console.log('  - EMAIL_USER set:', !!EMAIL_USER);
+console.log('  - EMAIL_PASS set:', !!EMAIL_PASS);
+console.log('  - SENDGRID_API_KEY set:', !!SENDGRID_API_KEY);
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -93,6 +135,17 @@ function parseJsonBody(req) {
 }
 
 function createMailTransport() {
+  // Prefer SendGrid API key if provided
+  if (SENDGRID_API_KEY) {
+    return nodemailer.createTransport({
+      service: 'SendGrid',
+      auth: {
+        user: 'apikey',
+        pass: SENDGRID_API_KEY,
+      },
+    });
+  }
+
   if (!EMAIL_HOST || !EMAIL_USER || !EMAIL_PASS) {
     return null;
   }
@@ -215,8 +268,15 @@ function createServer() {
         };
 
         const emailResult = await sendRideRequestEmail(rideRequest);
+        if (!emailResult.ok) {
+          console.error('Ride request email failed:', emailResult.message || emailResult.error || 'Unknown');
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, message: emailResult.message || 'Failed to send notification email' }));
+          return;
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: emailResult.ok, info: emailResult.info || emailResult.message }));
+        res.end(JSON.stringify({ ok: true, info: emailResult.info }));
       } catch (err) {
         console.error('Error processing ride request:', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
