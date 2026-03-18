@@ -25,9 +25,8 @@ function loadEnv() {
 }
 
 const env = loadEnv();
-// Always bind to port 3000 per project requirement.
-// If this port is occupied, the process will exit and require the user to free it.
-const port = 3000;
+// Use the port provided by the environment (Render, Heroku, etc.), default to 3000 for local.
+const port = Number(process.env.PORT || env.PORT || 3000);
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || ''; 
@@ -337,7 +336,8 @@ function createServer() {
 function startServer(port) {
   const server = createServer();
 
-  server.listen(port, 'localhost', () => {
+  // Bind to 0.0.0.0 so hosting platforms (Render, Heroku) can route traffic in.
+  server.listen(port, '0.0.0.0', () => {
     console.log(`Static server running at http://localhost:${port}`);
     console.log('Press Ctrl+C to stop.');
   });
