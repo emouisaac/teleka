@@ -78,6 +78,24 @@ const EMAIL_TO = (process.env.EMAIL_TO || env.EMAIL_TO || 'emouisaac1@gmail.com,
   .map(s => s.trim())
   .filter(Boolean);
 
+// WhatsApp notification (Twilio)
+const TWILIO_ACCOUNT_SID =
+  process.env.TWILIO_ACCOUNT_SID ||
+  env.TWILIO_ACCOUNT_SID ||
+  '';
+const TWILIO_AUTH_TOKEN =
+  process.env.TWILIO_AUTH_TOKEN ||
+  env.TWILIO_AUTH_TOKEN ||
+  '';
+const TWILIO_WHATSAPP_FROM =
+  process.env.TWILIO_WHATSAPP_FROM ||
+  env.TWILIO_WHATSAPP_FROM ||
+  '';
+const WHATSAPP_TO =
+  process.env.WHATSAPP_TO ||
+  env.WHATSAPP_TO ||
+  'whatsapp:+256788408032';
+
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
@@ -98,6 +116,13 @@ console.log('  - EMAIL_HOST set:', !!EMAIL_HOST); // not printing values for sec
 console.log('  - EMAIL_USER set:', !!EMAIL_USER);
 console.log('  - EMAIL_PASS set:', !!EMAIL_PASS);
 console.log('  - SENDGRID_API_KEY set:', !!SENDGRID_API_KEY);
+
+// Log WhatsApp config state
+console.log('WhatsApp config:');
+console.log('  - TWILIO_ACCOUNT_SID set:', !!TWILIO_ACCOUNT_SID); // not printing values for security
+console.log('  - TWILIO_AUTH_TOKEN set:', !!TWILIO_AUTH_TOKEN);
+console.log('  - TWILIO_WHATSAPP_FROM set:', !!TWILIO_WHATSAPP_FROM);
+console.log('  - WHATSAPP_TO set:', !!WHATSAPP_TO);
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -195,6 +220,52 @@ Submitted from: ${rideRequest.origin || 'unknown'}
   return { ok: true, info };
 }
 
+function normalizeWhatsAppNumber(number) {
+  if (!number) return '';
+  if (number.startsWith('whatsapp:')) return number;
+  return `whatsapp:${number}`;
+}
+
+async function sendWhatsAppNotification(rideRequest) {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_WHATSAPP_FROM) {
+    console.warn('WhatsApp not sent: Twilio configuration is missing (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_WHATSAPP_FROM).');
+    return { ok: false, message: 'WhatsApp not configured' };
+  }
+
+  const from = normalizeWhatsAppNumber(TWILIO_WHATSAPP_FROM);
+  const to = normalizeWhatsAppNumber(WHATSAPP_TO);
+
+  const body = `New ride request:\n\nPickup: ${rideRequest.pickup || '-'}\nDropoff: ${rideRequest.dropoff || '-'}\nDate & Time: ${rideRequest.date || '-'}\nCar Type: ${rideRequest.carType || '-'}\nPayment: ${rideRequest.payment || '-'}\n\nOrigin: ${rideRequest.origin || '-'}`;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
+    TWILIO_ACCOUNT_SID
+  )}/Messages.json`;
+
+  const params = new URLSearchParams({ From: from, To: to, Body: body });
+
+  const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return { ok: false, message: data.message || 'Twilio API error', data };
+    }
+
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, message: err.message || 'WhatsApp send failed', error: err };
+  }
+}
+
 function sendFile(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = mimeTypes[ext] || 'application/octet-stream';
@@ -283,8 +354,15 @@ function createServer() {
           return;
         }
 
+        const whatsappResult = await sendWhatsAppNotification(rideRequest);
+        if (!whatsappResult.ok) {
+          console.warn('WhatsApp notification failed:', whatsappResult.message || whatsappResult.error || 'Unknown');
+        }
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, info: emailResult.info }));
+        res.end(
+          JSON.stringify({ ok: true, info: emailResult.info, whatsapp: whatsappResult })
+        );
       } catch (err) {
         console.error('Error processing ride request:', err);
         res.writeHead(500, { 'Content-Type': 'application/json' });
