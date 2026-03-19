@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="icon" type="image/png" href="ims/ticon.png">
 </head>
 <body>
    <nav class="navbar">
@@ -229,40 +230,58 @@
             </div>
 
             <div id="history" class="section">
-            
                 <h1>Ride Status</h1>
-                <table class="history-table">
-                    <div class="summary-cards">
-                        <div class="card">
-                            <h3>Upcoming Ride</h3>
-                            <p id="upcoming-ride-status">No rides scheduled</p>
-                            <p id="active-driver-contact" class="muted">Driver contact will appear after acceptance.</p>
+
+                <div class="ride-status-shell">
+                    <div class="ride-status-hero">
+                        <div class="ride-status-copy">
+                            <span class="ride-status-kicker">Live Trip Monitor</span>
+                            <h2>Upcoming Ride</h2>
+                            <p id="upcoming-ride-status" class="ride-status-title">No rides scheduled</p>
+                            <p id="active-driver-contact" class="ride-status-subtitle">Driver contact will appear after acceptance.</p>
                         </div>
-                        <div class="card1">
-                            <div class="card">
-                                <h3>Total Rides</h3>
-                                <p id="total-rides-count">0</p>
-                            </div>
-                            <div class="card">
-                                <h3>Completed Spend</h3>
-                                <p id="account-balance">UGX 0</p>
-                            </div>
+                        <div class="ride-status-badge">
+                            <span class="ride-status-badge-label">Status</span>
+                            <strong>Live</strong>
                         </div>
                     </div>
-                    <h1>Ride History</h1>
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Pickup</th>
-                            <th>Dropoff</th>
-                            <th>Fare</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ride-history-body">
-                        <tr><td colspan="5">No rides yet.</td></tr>
-                    </tbody>
-                </table>
+
+                    <div class="ride-status-stats">
+                        <div class="ride-status-stat">
+                            <span class="ride-status-stat-label">Total Rides</span>
+                            <strong id="total-rides-count">0</strong>
+                            <p>All requests linked to your account.</p>
+                        </div>
+                        <div class="ride-status-stat">
+                            <span class="ride-status-stat-label">Completed Spend</span>
+                            <strong id="account-balance">UGX 0</strong>
+                            <p>Total confirmed spend from completed rides.</p>
+                        </div>
+                        <div class="ride-status-stat ride-status-stat--accent">
+                            <span class="ride-status-stat-label">Driver Contact</span>
+                            <strong>Available after acceptance</strong>
+                            <p>Call details and chat access appear as soon as a driver is assigned.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <h1>Ride History</h1>
+                <div class="history-table-wrap">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Pickup</th>
+                                <th>Dropoff</th>
+                                <th>Fare</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ride-history-body">
+                            <tr><td colspan="5">No rides yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <div id="payments" class="section">
                 <h1>Payment Methods</h1>
