@@ -234,16 +234,16 @@
                     <div class="summary-cards">
                         <div class="card">
                             <h3>Upcoming Ride</h3>
-                            <p>No rides scheduled</p>
+                            <p id="upcoming-ride-status">No rides scheduled</p>
                         </div>
                         <div class="card1">
                             <div class="card">
                                 <h3>Total Rides</h3>
-                                <p>0</p>
+                                <p id="total-rides-count">0</p>
                             </div>
                             <div class="card">
-                                <h3>Account Balance</h3>
-                                <p>$0.00</p>
+                                <h3>Completed Spend</h3>
+                                <p id="account-balance">UGX 0</p>
                             </div>
                         </div>
                     </div>
@@ -257,7 +257,7 @@
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="ride-history-body">
                         <tr><td colspan="5">No rides yet.</td></tr>
                     </tbody>
                 </table>
@@ -269,15 +269,15 @@
             </div>
             <div id="profile" class="section">
                 <h1>Profile</h1>
-                <form class="profile-form">
+                <form class="profile-form" id="customer-profile-form">
                     <label>Full Name</label>
-                    <input type="text" value="[Customer Name]" required>
+                    <input id="customer-name" type="text" placeholder="Enter your full name" required>
 
                     <label>Email</label>
-                    <input type="email" value="customer@example.com" required>
+                    <input id="customer-email" type="email" placeholder="Enter your email" required>
 
                     <label>Phone</label>
-                    <input type="tel" value="+1234567890" required>
+                    <input id="customer-phone" type="tel" placeholder="+256..." required>
 
                     <button type="submit" class="btn">Update Profile</button>
                 </form>

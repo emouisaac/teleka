@@ -1,44 +1,21 @@
-/* Driver Dashboard Logic (Teleka Taxi)
-   - Mobile-first, lightweight, responsive, and ready for Socket.io integration.
-   - Uses localStorage for persistence of preferences, profile, and ride history.
-*/
-
 const DriverApp = (() => {
-  const STORAGE_KEY = 'telekaDriverState';
-  const REQUEST_TIMEOUT = 15; // seconds to accept
+  const STORAGE_KEYS = {
+    driverId: 'telekaDriverId',
+    driverProfile: 'telekaDriverProfile',
+  };
 
   const appEl = document.querySelector('.driver-app');
 
   const state = {
-    driver: {
-      name: 'Alex Rider',
-      phone: '+256 700 000 000',
-      vehicle: 'Toyota Prius',
-      plate: 'TKA 123A',
-      avatar: 'https://ui-avatars.com/api/?name=Alex+Rider&background=667eea&color=fff&rounded=true&size=80',
-    },
-    online: false,
-    settings: {
-      notifications: true,
-      sound: true,
-      autoAccept: false,
-    },
-    stats: {
-      todayEarnings: 0,
-      weekEarnings: 0,
-      trips: 0,
-      rating: 4.9,
-      ratingCount: 0,
-    },
+    driverId: localStorage.getItem(STORAGE_KEYS.driverId) || '',
+    driver: loadStoredDriver(),
     activeRide: null,
-    pendingRequest: null,
-    rideHistory: [],
-    reviews: [],
+    availableRequests: [],
+    history: [],
     notifications: [],
-    requestTimer: null,
-    requestCountdown: REQUEST_TIMEOUT,
-    simulationInterval: null,
+    settings: null,
     chart: null,
+    eventSource: null,
   };
 
   const selectors = {
@@ -49,12 +26,9 @@ const DriverApp = (() => {
     onlineLabel: '#onlineLabel',
     notifBtn: '#notifBtn',
     notifCount: '#notifCount',
-
     section: '.driver-section',
     navLink: '.nav-link',
     bottomNav: '.bottom-nav-item',
-
-    // Dashboard
     statEarnings: '#statEarnings',
     statTrips: '#statTrips',
     statRating: '#statRating',
@@ -65,13 +39,8 @@ const DriverApp = (() => {
     statNewNotifs: '#statNewNotifs',
     statUnreadNotifs: '#statUnreadNotifs',
     mapStatus: '#mapStatus',
-
-    // Actions
     actionGoOnline: '#actionGoOnline',
     actionViewRequests: '#actionViewRequests',
-
-    // Request
-    requestPanel: '#requestPanel',
     requestEmpty: '#requestEmpty',
     incomingRequest: '#incomingRequest',
     requestPassenger: '#requestPassenger',
@@ -81,8 +50,6 @@ const DriverApp = (() => {
     requestDistance: '#requestDistance',
     acceptRequest: '#acceptRequest',
     rejectRequest: '#rejectRequest',
-
-    // Active Ride
     activeRidePanel: '#activeRidePanel',
     activeRideEmpty: '#activeRideEmpty',
     activePassenger: '#activePassenger',
@@ -96,8 +63,6 @@ const DriverApp = (() => {
     timelinePickup: '#timelinePickup',
     timelineEnroute: '#timelineEnroute',
     timelineComplete: '#timelineComplete',
-
-    // Earnings
     earningsToday: '#earningsToday',
     earningsWeek: '#earningsWeek',
     earningsTrips: '#earningsTrips',
@@ -105,39 +70,38 @@ const DriverApp = (() => {
     breakdownBase: '#breakdownBase',
     breakdownDistance: '#breakdownDistance',
     breakdownCommission: '#breakdownCommission',
-    chartRangeBtns: '.chart-controls .btn',
-
-    // History
     historyFilter: '#historyFilter',
     historySearch: '#historySearch',
     historySearchClear: '#historySearchClear',
     historyList: '#historyList',
-
-    // Ratings
     ratingValue: '#ratingValue',
     ratingStars: '#ratingStars',
     ratingCount: '#ratingCount',
     reviewList: '#reviewList',
-
-    // Profile
     profileForm: '#profileForm',
     profileName: '#profileName',
     profilePhone: '#profilePhone',
     profileVehicle: '#profileVehicle',
     profilePlate: '#profilePlate',
-    profilePhoto: '#profilePhoto',
-    profileDocs: '#profileDocs',
     resetProfile: '#resetProfile',
-
-    // Settings
     settingNotifications: '#settingNotifications',
     settingSound: '#settingSound',
     settingAutoAccept: '#settingAutoAccept',
     logoutBtn: '#logoutBtn',
-
-    // Notifications
     notificationsList: '#notificationsList',
   };
+
+  function loadStoredDriver() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.driverProfile) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  function storeDriver(driver) {
+    localStorage.setItem(STORAGE_KEYS.driverProfile, JSON.stringify(driver));
+  }
 
   const utils = {
     qs(selector) {
@@ -147,68 +111,41 @@ const DriverApp = (() => {
       return Array.from(document.querySelectorAll(selector));
     },
     formatCurrency(amount) {
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+      return new Intl.NumberFormat('en-UG', {
+        style: 'currency',
+        currency: 'UGX',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(Number(amount) || 0);
     },
-    formatTime(seconds) {
-      const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-      const s = Math.floor(seconds % 60).toString().padStart(2, '0');
-      return `${m}:${s}`;
+    formatTime(dateString) {
+      if (!dateString) return '--';
+      return new Date(dateString).toLocaleString();
     },
-    clamp(value, min, max) {
-      return Math.max(min, Math.min(max, value));
+    toast(message) {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      requestAnimationFrame(() => toast.classList.add('visible'));
+      setTimeout(() => {
+        toast.classList.remove('visible');
+        setTimeout(() => toast.remove(), 300);
+      }, 2600);
     },
-    randomFrom(arr) {
-      return arr[Math.floor(Math.random() * arr.length)];
-    },
-    uuid() {
-      return `d-${Math.random().toString(16).slice(2)}-${Date.now()}`;
-    },
-    beep() {
-      if (!state.settings.sound || !window.AudioContext) return;
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 880;
-        gain.gain.value = 0.08;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        setTimeout(() => {
-          osc.stop();
-          ctx.close();
-        }, 150);
-      } catch (err) {
-        // silently fail on unsupported devices
+    async api(url, options = {}) {
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+        ...options,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message || `Request failed: ${response.status}`);
       }
-    },
-  };
-
-  const Storage = {
-    load() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return null;
-        return JSON.parse(raw);
-      } catch {
-        return null;
-      }
-    },
-    save() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        driver: state.driver,
-        online: state.online,
-        settings: state.settings,
-        stats: state.stats,
-        rideHistory: state.rideHistory,
-        reviews: state.reviews,
-        notifications: state.notifications,
-      }));
-    },
-    reset() {
-      localStorage.removeItem(STORAGE_KEY);
-      window.location.reload();
+      return payload.data;
     },
   };
 
@@ -222,46 +159,6 @@ const DriverApp = (() => {
       menuToggle.setAttribute('aria-expanded', String(isOpen));
     },
 
-    setActiveSection(sectionId) {
-      utils.qsa(selectors.section).forEach((section) => {
-        section.classList.toggle('active', section.id === sectionId);
-      });
-      utils.qsa(selectors.navLink).forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.section === sectionId);
-      });
-      utils.qsa(selectors.bottomNav).forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.section === sectionId);
-      });
-
-      // Keep sidebar small on mobile when changing sections.
-      if (window.innerWidth <= 900 && appEl) {
-        UI.setNavState(false);
-      }
-    },
-
-    updateOnlineStatus() {
-      const statusEl = utils.qs(selectors.driverStatus);
-      const labelEl = statusEl.querySelector('.status-text');
-      const dot = statusEl.querySelector('.status-dot');
-      const mapStatus = utils.qs(selectors.mapStatus);
-      if (state.online) {
-        labelEl.textContent = 'Online';
-        dot.classList.remove('offline');
-        dot.classList.add('online');
-        mapStatus.textContent = 'Live';
-        mapStatus.classList.add('live');
-      } else {
-        labelEl.textContent = 'Offline';
-        dot.classList.remove('online');
-        dot.classList.add('offline');
-        mapStatus.textContent = 'Offline';
-        mapStatus.classList.remove('live');
-      }
-      utils.qs(selectors.onlineLabel).textContent = state.online ? 'Go Offline' : 'Go Online';
-      utils.qs(selectors.onlineToggle).checked = state.online;
-      UI.renderDashboard();
-    },
-
     setNavState(isOpen) {
       if (!appEl) return;
       appEl.classList.toggle('nav-open', isOpen);
@@ -269,41 +166,73 @@ const DriverApp = (() => {
     },
 
     toggleNav() {
-      if (!appEl) return;
-      UI.setNavState(!appEl.classList.contains('nav-open'));
+      if (window.innerWidth <= 900) {
+        UI.setNavState(!appEl?.classList.contains('nav-open'));
+        return;
+      }
+      appEl?.classList.toggle('nav-closed');
+      UI.syncMenuToggle();
     },
 
-    showNotification(message, type = 'info') {
-      const id = utils.uuid();
-      state.notifications.unshift({ id, message, type, time: new Date().toISOString(), read: false });
-      UI.renderNotifications();
-      UI.updateNotificationBadge();
-      if (state.settings.notifications) {
-        UI.toast(message);
+    setActiveSection(sectionId) {
+      utils.qsa(selectors.section).forEach((section) => {
+        section.classList.toggle('active', section.id === sectionId);
+      });
+      utils.qsa(selectors.navLink).forEach((button) => {
+        button.classList.toggle('active', button.dataset.section === sectionId);
+      });
+      utils.qsa(selectors.bottomNav).forEach((button) => {
+        button.classList.toggle('active', button.dataset.section === sectionId);
+      });
+      if (window.innerWidth <= 900) {
+        UI.setNavState(false);
       }
     },
 
-    toast(message) {
-      const toast = document.createElement('div');
-      toast.className = 'toast';
-      toast.textContent = message;
-      document.body.appendChild(toast);
-      requestAnimationFrame(() => toast.classList.add('visible'));
-      setTimeout(() => {
-        toast.classList.remove('visible');
-        setTimeout(() => toast.remove(), 300);
-      }, 2600);
+    renderProfile() {
+      const driver = state.driver || {};
+      utils.qs(selectors.driverName).textContent = driver.name || 'Driver';
+      utils.qs(selectors.driverAvatar).src = driver.avatar
+        || `https://ui-avatars.com/api/?name=${encodeURIComponent(driver.name || 'Driver')}&background=667eea&color=fff&rounded=true&size=80`;
+      utils.qs(selectors.profileName).value = driver.name || '';
+      utils.qs(selectors.profilePhone).value = driver.phone || '';
+      utils.qs(selectors.profileVehicle).value = driver.vehicle || '';
+      utils.qs(selectors.profilePlate).value = driver.plate || '';
+    },
+
+    renderStatus() {
+      const statusEl = utils.qs(selectors.driverStatus);
+      const labelEl = statusEl.querySelector('.status-text');
+      const dot = statusEl.querySelector('.status-dot');
+      const isOnline = Boolean(state.driver.online);
+
+      labelEl.textContent = isOnline ? 'Online' : 'Offline';
+      dot.classList.toggle('online', isOnline);
+      dot.classList.toggle('offline', !isOnline);
+      utils.qs(selectors.onlineLabel).textContent = isOnline ? 'Go Offline' : 'Go Online';
+      utils.qs(selectors.onlineToggle).checked = isOnline;
+
+      const mapStatus = utils.qs(selectors.mapStatus);
+      mapStatus.textContent = isOnline ? 'Live' : 'Offline';
+      mapStatus.classList.toggle('live', isOnline);
     },
 
     renderDashboard() {
-      const eps = state.stats;
-      utils.qs(selectors.statEarnings).textContent = utils.formatCurrency(eps.todayEarnings);
-      utils.qs(selectors.statTrips).textContent = eps.trips;
-      utils.qs(selectors.statRating).textContent = eps.rating.toFixed(1);
+      const stats = {
+        todayEarnings: state.driver.earningsToday || 0,
+        totalTrips: state.history.filter((ride) => ride.status === 'completed').length,
+        rating: state.driver.rating || 5,
+      };
+      utils.qs(selectors.statEarnings).textContent = utils.formatCurrency(stats.todayEarnings);
+      utils.qs(selectors.statTrips).textContent = String(stats.totalTrips);
+      utils.qs(selectors.statRating).textContent = Number(stats.rating).toFixed(1);
+      utils.qs(selectors.statNotifications).textContent = String(state.notifications.length);
+      utils.qs(selectors.statNewNotifs).textContent = String(state.notifications.length);
+      utils.qs(selectors.statUnreadNotifs).textContent = String(state.notifications.length);
 
       if (state.activeRide) {
-        utils.qs(selectors.statActiveRide).textContent = 'In progress';
-        utils.qs(selectors.statDistance).textContent = `${state.activeRide.distance.toFixed(1)} km`;
+        utils.qs(selectors.statActiveRide).textContent = state.activeRide.status;
+        utils.qs(selectors.statDistance).textContent = `${Number(state.activeRide.distanceKm || 0).toFixed(1)} km`;
         utils.qs(selectors.statFare).textContent = utils.formatCurrency(state.activeRide.fare);
       } else {
         utils.qs(selectors.statActiveRide).textContent = 'None';
@@ -311,35 +240,36 @@ const DriverApp = (() => {
         utils.qs(selectors.statFare).textContent = utils.formatCurrency(0);
       }
 
-      utils.qs(selectors.statNotifications).textContent = state.notifications.length;
-      utils.qs(selectors.statNewNotifs).textContent = state.notifications.filter((n) => !n.read).length;
-      utils.qs(selectors.statUnreadNotifs).textContent = state.notifications.filter((n) => !n.read).length;
-
-      // Map placeholder
       const mapEl = utils.qs('#driverMap');
-      mapEl.classList.toggle('online', state.online);
-      mapEl.querySelector('.map-placeholder-text').textContent = state.online
-        ? 'Your location is being shared.'
-        : 'Go online to share your location.';
+      mapEl.classList.toggle('online', Boolean(state.driver.online));
+      mapEl.querySelector('.map-placeholder-text').textContent = state.activeRide
+        ? `Assigned route: ${state.activeRide.pickup} to ${state.activeRide.dropoff}`
+        : state.driver.online
+          ? 'You are visible to dispatch and riders.'
+          : 'Go online to receive ride requests.';
     },
 
     renderRequest() {
+      const request = state.availableRequests[0];
       const panel = utils.qs(selectors.incomingRequest);
       const empty = utils.qs(selectors.requestEmpty);
-      if (!state.pendingRequest) {
+
+      if (!request || !state.driver.online) {
         panel.classList.add('hidden');
         empty.classList.remove('hidden');
+        empty.querySelector('p').textContent = state.driver.online
+          ? 'No ride requests right now. Stay online to receive new requests.'
+          : 'Go online to receive ride requests.';
         return;
       }
 
       empty.classList.add('hidden');
       panel.classList.remove('hidden');
-
-      utils.qs(selectors.requestPassenger).textContent = state.pendingRequest.passenger;
-      utils.qs(selectors.requestRoute).textContent = `${state.pendingRequest.pickup} → ${state.pendingRequest.dropoff}`;
-      utils.qs(selectors.requestFare).textContent = utils.formatCurrency(state.pendingRequest.fare);
-      utils.qs(selectors.requestDistance).textContent = `${state.pendingRequest.distance.toFixed(1)} km`;
-      utils.qs(selectors.requestTimer).textContent = state.requestCountdown;
+      utils.qs(selectors.requestPassenger).textContent = request.customerName || 'Customer';
+      utils.qs(selectors.requestRoute).textContent = `${request.pickup} → ${request.dropoff}`;
+      utils.qs(selectors.requestFare).textContent = utils.formatCurrency(request.fare);
+      utils.qs(selectors.requestDistance).textContent = `${Number(request.distanceKm || 0).toFixed(1)} km`;
+      utils.qs(selectors.requestTimer).textContent = 'Live';
     },
 
     renderActiveRide() {
@@ -355,67 +285,96 @@ const DriverApp = (() => {
       empty.classList.add('hidden');
 
       const ride = state.activeRide;
-      utils.qs(selectors.activePassenger).textContent = ride.passenger;
+      utils.qs(selectors.activePassenger).textContent = ride.customerName || 'Customer';
       utils.qs(selectors.activeRoute).textContent = `${ride.pickup} → ${ride.dropoff}`;
-      utils.qs(selectors.activeStatus).textContent = ride.statusLabel;
-      utils.qs(selectors.activeDistance).textContent = `${ride.distance.toFixed(1)} km`;
+      utils.qs(selectors.activeStatus).textContent = ride.status;
+      utils.qs(selectors.activeDistance).textContent = `${Number(ride.distanceKm || 0).toFixed(1)} km`;
       utils.qs(selectors.activeFare).textContent = utils.formatCurrency(ride.fare);
-      utils.qs(selectors.activeElapsed).textContent = utils.formatTime(ride.elapsed);
+      utils.qs(selectors.activeElapsed).textContent = utils.formatTime(ride.updatedAt);
 
-      utils.qs(selectors.timelinePickup).textContent = ride.timeline.pickup;
-      utils.qs(selectors.timelineEnroute).textContent = ride.timeline.enroute;
-      utils.qs(selectors.timelineComplete).textContent = ride.timeline.complete;
-
-      const navUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+      utils.qs(selectors.timelinePickup).textContent = ride.timeline?.arrivedAt ? 'Arrived' : 'Waiting';
+      utils.qs(selectors.timelineEnroute).textContent = ride.timeline?.startedAt ? 'Trip started' : 'Not started';
+      utils.qs(selectors.timelineComplete).textContent = ride.timeline?.completedAt ? 'Completed' : 'Not started';
+      utils.qs(selectors.navButton).href = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
         ride.pickup
       )}&destination=${encodeURIComponent(ride.dropoff)}&travelmode=driving`;
-      utils.qs(selectors.navButton).href = navUrl;
 
       const actionBtn = utils.qs(selectors.rideAction);
-      if (ride.status === 'waiting') {
-        actionBtn.textContent = 'Arrived';
-      } else if (ride.status === 'arrived') {
-        actionBtn.textContent = 'Start Trip';
-      } else if (ride.status === 'enroute') {
-        actionBtn.textContent = 'End Trip';
-      } else {
-        actionBtn.textContent = 'Done';
-      }
+      if (ride.status === 'accepted') actionBtn.textContent = 'Arrived';
+      else if (ride.status === 'arrived') actionBtn.textContent = 'Start Trip';
+      else if (ride.status === 'in-progress') actionBtn.textContent = 'End Trip';
+      else actionBtn.textContent = 'Done';
     },
 
     renderEarnings() {
-      utils.qs(selectors.earningsToday).textContent = utils.formatCurrency(state.stats.todayEarnings);
-      utils.qs(selectors.earningsWeek).textContent = utils.formatCurrency(state.stats.weekEarnings);
-      utils.qs(selectors.earningsTrips).textContent = state.stats.trips;
+      const completedRides = state.history.filter((ride) => ride.status === 'completed');
+      const weekEarnings = completedRides.reduce((sum, ride) => sum + (ride.fare || 0), 0);
+      utils.qs(selectors.earningsToday).textContent = utils.formatCurrency(state.driver.earningsToday || 0);
+      utils.qs(selectors.earningsWeek).textContent = utils.formatCurrency(weekEarnings);
+      utils.qs(selectors.earningsTrips).textContent = String(completedRides.length);
+      utils.qs(selectors.breakdownBase).textContent = utils.formatCurrency((state.driver.earningsToday || 0) * 0.45);
+      utils.qs(selectors.breakdownDistance).textContent = utils.formatCurrency((state.driver.earningsToday || 0) * 0.35);
+      utils.qs(selectors.breakdownCommission).textContent = utils.formatCurrency((state.driver.earningsToday || 0) * 0.2);
+      UI.renderEarningsChart(completedRides);
+    },
 
-      utils.qs(selectors.breakdownBase).textContent = utils.formatCurrency(state.stats.breakdown?.base ?? 0);
-      utils.qs(selectors.breakdownDistance).textContent = utils.formatCurrency(state.stats.breakdown?.distance ?? 0);
-      utils.qs(selectors.breakdownCommission).textContent = utils.formatCurrency(state.stats.breakdown?.commission ?? 0);
+    renderEarningsChart(completedRides) {
+      const canvas = utils.qs(selectors.earningsChart);
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      const labels = completedRides.slice(0, 7).reverse().map((ride) =>
+        new Date(ride.updatedAt || ride.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      );
+      const values = completedRides.slice(0, 7).reverse().map((ride) => ride.fare || 0);
+
+      if (!state.chart) {
+        state.chart = new Chart(canvas.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: labels.length ? labels : ['No trips'],
+            datasets: [
+              {
+                label: 'Earnings',
+                data: values.length ? values : [0],
+                borderColor: '#5b6cff',
+                backgroundColor: 'rgba(102, 126, 234, 0.2)',
+                fill: true,
+                tension: 0.35,
+                pointRadius: 3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+          },
+        });
+        return;
+      }
+
+      state.chart.data.labels = labels.length ? labels : ['No trips'];
+      state.chart.data.datasets[0].data = values.length ? values : [0];
+      state.chart.update();
     },
 
     renderHistory() {
       const list = utils.qs(selectors.historyList);
-      list.innerHTML = '';
       const filter = utils.qs(selectors.historyFilter).value;
       const term = utils.qs(selectors.historySearch).value.trim().toLowerCase();
-
       const now = new Date();
-      const filtered = state.rideHistory.filter((ride) => {
-        if (term && !(`${ride.passenger} ${ride.id}`.toLowerCase().includes(term))) return false;
-        if (filter === 'today') {
-          return new Date(ride.completedAt).toDateString() === now.toDateString();
-        }
-        if (filter === 'week') {
-          const diff = now - new Date(ride.completedAt);
-          return diff <= 7 * 24 * 60 * 60 * 1000;
-        }
-        if (filter === 'month') {
-          const diff = now - new Date(ride.completedAt);
-          return diff <= 30 * 24 * 60 * 60 * 1000;
-        }
+
+      const filtered = state.history.filter((ride) => {
+        const matchesTerm = !term || `${ride.customerName} ${ride.id}`.toLowerCase().includes(term);
+        if (!matchesTerm) return false;
+        const rideDate = new Date(ride.updatedAt || ride.createdAt);
+        if (filter === 'today') return rideDate.toDateString() === now.toDateString();
+        if (filter === 'week') return now - rideDate <= 7 * 24 * 60 * 60 * 1000;
+        if (filter === 'month') return now - rideDate <= 30 * 24 * 60 * 60 * 1000;
         return true;
       });
 
+      list.innerHTML = '';
       if (!filtered.length) {
         list.innerHTML = '<div class="history-empty"><p>No rides match this filter.</p></div>';
         return;
@@ -427,17 +386,17 @@ const DriverApp = (() => {
         item.innerHTML = `
           <div class="history-header">
             <div>
-              <div class="history-title">${ride.passenger}</div>
+              <div class="history-title">${ride.customerName || 'Customer'}</div>
               <div class="history-sub">${ride.pickup} → ${ride.dropoff}</div>
             </div>
             <div class="history-meta">
               <span class="history-fare">${utils.formatCurrency(ride.fare)}</span>
-              <span class="history-date">${new Date(ride.completedAt).toLocaleDateString()}</span>
+              <span class="history-date">${new Date(ride.updatedAt || ride.createdAt).toLocaleDateString()}</span>
             </div>
           </div>
           <div class="history-footer">
             <span class="tag">${ride.status}</span>
-            <span class="muted">${ride.distance.toFixed(1)} km</span>
+            <span class="muted">${Number(ride.distanceKm || 0).toFixed(1)} km</span>
           </div>
         `;
         list.appendChild(item);
@@ -445,49 +404,35 @@ const DriverApp = (() => {
     },
 
     renderRatings() {
-      const avg = state.reviews.length
-        ? state.reviews.reduce((sum, r) => sum + r.rating, 0) / state.reviews.length
-        : 0;
-      const rounded = Math.max(0, Math.min(5, avg));
-      utils.qs(selectors.ratingValue).textContent = rounded.toFixed(1);
-      utils.qs(selectors.ratingStars).textContent = '★'.repeat(Math.round(rounded)) + '☆'.repeat(5 - Math.round(rounded));
-      utils.qs(selectors.ratingCount).textContent = `${state.reviews.length} review${state.reviews.length === 1 ? '' : 's'}`;
+      const rating = Number(state.driver.rating || 5).toFixed(1);
+      const rounded = Math.round(Number(rating));
+      utils.qs(selectors.ratingValue).textContent = rating;
+      utils.qs(selectors.ratingStars).textContent = '★'.repeat(rounded) + '☆'.repeat(5 - rounded);
+      utils.qs(selectors.ratingCount).textContent = `${state.driver.ratingCount || 0} review${state.driver.ratingCount === 1 ? '' : 's'}`;
 
-      const list = utils.qs(selectors.reviewList);
-      list.innerHTML = '';
-      if (!state.reviews.length) {
-        list.innerHTML = '<div class="review-empty"><p>No reviews yet.</p></div>';
+      const reviewList = utils.qs(selectors.reviewList);
+      reviewList.innerHTML = '';
+      if (!state.history.filter((ride) => ride.status === 'completed').length) {
+        reviewList.innerHTML = '<div class="review-empty"><p>No reviews yet. Complete rides to build your rating.</p></div>';
         return;
       }
 
-      state.reviews.slice(0, 10).forEach((review) => {
-        const card = document.createElement('div');
-        card.className = 'review-card';
-        card.innerHTML = `
-          <div class="review-head">
-            <span class="review-name">${review.name}</span>
-            <span class="review-stars">${'★'.repeat(review.rating)}${'☆'.repeat(5 - review.rating)}</span>
-          </div>
-          <p class="review-text">${review.comment}</p>
-          <div class="review-meta">${new Date(review.date).toLocaleDateString()}</div>
-        `;
-        list.appendChild(card);
-      });
-    },
-
-    renderProfile() {
-      utils.qs(selectors.driverName).textContent = state.driver.name;
-      utils.qs(selectors.driverAvatar).src = state.driver.avatar;
-      utils.qs(selectors.profileName).value = state.driver.name;
-      utils.qs(selectors.profilePhone).value = state.driver.phone;
-      utils.qs(selectors.profileVehicle).value = state.driver.vehicle;
-      utils.qs(selectors.profilePlate).value = state.driver.plate;
-    },
-
-    renderSettings() {
-      utils.qs(selectors.settingNotifications).checked = state.settings.notifications;
-      utils.qs(selectors.settingSound).checked = state.settings.sound;
-      utils.qs(selectors.settingAutoAccept).checked = state.settings.autoAccept;
+      state.history
+        .filter((ride) => ride.status === 'completed')
+        .slice(0, 5)
+        .forEach((ride) => {
+          const card = document.createElement('div');
+          card.className = 'review-card';
+          card.innerHTML = `
+            <div class="review-head">
+              <span class="review-name">${ride.customerName || 'Customer'}</span>
+              <span class="review-stars">★★★★★</span>
+            </div>
+            <p class="review-text">Ride ${ride.id} completed successfully.</p>
+            <div class="review-meta">${new Date(ride.updatedAt || ride.createdAt).toLocaleDateString()}</div>
+          `;
+          reviewList.appendChild(card);
+        });
     },
 
     renderNotifications() {
@@ -498,401 +443,221 @@ const DriverApp = (() => {
         return;
       }
 
-      state.notifications.forEach((notif) => {
+      state.notifications.forEach((notification) => {
         const row = document.createElement('div');
-        row.className = `notification-card ${notif.type}`;
+        row.className = `notification-card ${notification.type || 'info'}`;
         row.innerHTML = `
           <div class="notification-content">
-            <p>${notif.message}</p>
-            <span class="notification-time">${new Date(notif.time).toLocaleTimeString()}</span>
+            <p>${notification.message}</p>
+            <span class="notification-time">${new Date(notification.createdAt).toLocaleTimeString()}</span>
           </div>
         `;
-        row.addEventListener('click', () => {
-          notif.read = true;
-          UI.updateNotificationBadge();
-          row.classList.add('read');
-        });
         list.appendChild(row);
       });
-    },
 
-    updateNotificationBadge() {
-      const unread = state.notifications.filter((n) => !n.read).length;
       const badge = utils.qs(selectors.notifCount);
-      badge.textContent = unread;
-      badge.style.display = unread ? 'inline-flex' : 'none';
+      badge.textContent = String(state.notifications.length);
+      badge.style.display = state.notifications.length ? 'inline-flex' : 'none';
     },
 
-    updateEarningsChart(range = 'week') {
-      const labels = [];
-      const values = [];
-      const now = new Date();
-      const points = range === 'month' ? 30 : 7;
-
-      for (let i = points - 1; i >= 0; i -= 1) {
-        const d = new Date(now);
-        d.setDate(now.getDate() - i);
-        labels.push(d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
-        const amount = Math.round(Math.random() * 120 + 40);
-        values.push(amount);
-      }
-
-      state.stats.todayEarnings = values[values.length - 1];
-      state.stats.weekEarnings = values.reduce((sum, v) => sum + v, 0);
-      state.stats.trips = values.reduce((sum) => sum + Math.floor(Math.random() * 4 + 1), 0);
-
-      UI.renderEarnings();
-
-      if (!state.chart) {
-        const ctx = utils.qs(selectors.earningsChart).getContext('2d');
-        state.chart = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels,
-            datasets: [
-              {
-                label: 'Earnings',
-                data: values,
-                borderColor: '#5b6cff',
-                backgroundColor: 'rgba(102, 126, 234, 0.25)',
-                tension: 0.35,
-                fill: true,
-                pointRadius: 2,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-            },
-            scales: {
-              x: { grid: { display: false } },
-              y: {
-                ticks: { callback: (value) => `$${value}` },
-                grid: { color: 'rgba(0,0,0,0.05)' },
-              },
-            },
-          },
-        });
-      } else {
-        state.chart.data.labels = labels;
-        state.chart.data.datasets[0].data = values;
-        state.chart.update();
-      }
-
-      state.stats.breakdown = {
-        base: Math.round(state.stats.todayEarnings * 0.45),
-        distance: Math.round(state.stats.todayEarnings * 0.35),
-        commission: Math.round(state.stats.todayEarnings * 0.2),
-      };
-      UI.renderEarnings();
-    },
-  };
-
-  const Simulation = {
-    start() {
-      if (state.simulationInterval) return;
-      state.simulationInterval = setInterval(() => {
-        if (!state.online) return;
-        if (state.pendingRequest || state.activeRide) return;
-        Simulation.createRideRequest();
-      }, 22000);
-    },
-    stop() {
-      clearInterval(state.simulationInterval);
-      state.simulationInterval = null;
-    },
-    createRideRequest() {
-      const passengers = ['Moses', 'Amina', 'Joy', 'Brian', 'Nadia', 'David'];
-      const places = ['Downtown', 'Airport', 'Central Station', 'University', 'Mall', 'Harbor'];
-      const pickup = utils.randomFrom(places);
-      const dropoff = utils.randomFrom(places.filter((p) => p !== pickup));
-      const distance = Math.random() * 18 + 2;
-      const fare = Math.max(8, distance * 1.25);
-
-      state.pendingRequest = {
-        id: utils.uuid(),
-        passenger: utils.randomFrom(passengers),
-        pickup,
-        dropoff,
-        distance,
-        fare,
-        createdAt: Date.now(),
-      };
-      state.requestCountdown = REQUEST_TIMEOUT;
+    renderAll() {
+      UI.renderProfile();
+      UI.renderStatus();
+      UI.renderDashboard();
       UI.renderRequest();
-      UI.showNotification(`New ride request from ${state.pendingRequest.passenger}`);
-      utils.beep();
-
-      if (state.settings.autoAccept) {
-        setTimeout(() => {
-          if (state.pendingRequest) {
-            Actions.acceptRequest();
-          }
-        }, 1100);
-      }
-
-      Simulation.startRequestCountdown();
-    },
-    startRequestCountdown() {
-      clearInterval(state.requestTimer);
-      state.requestTimer = setInterval(() => {
-        state.requestCountdown -= 1;
-        if (state.requestCountdown <= 0) {
-          clearInterval(state.requestTimer);
-          Actions.rejectRequest('timed out');
-          return;
-        }
-        const timerEl = utils.qs(selectors.requestTimer);
-        if (timerEl) timerEl.textContent = state.requestCountdown;
-      }, 1000);
-    },
-    stopRequestCountdown() {
-      clearInterval(state.requestTimer);
-      state.requestTimer = null;
+      UI.renderActiveRide();
+      UI.renderEarnings();
+      UI.renderHistory();
+      UI.renderRatings();
+      UI.renderNotifications();
     },
   };
 
   const Actions = {
-    toggleOnline(value) {
-      state.online = typeof value === 'boolean' ? value : !state.online;
-      UI.updateOnlineStatus();
-      Storage.save();
-      if (state.online) {
-        Simulation.start();
-        UI.showNotification('You are now online. Waiting for requests...');
-      } else {
-        Simulation.stop();
-        if (state.pendingRequest) {
-          Actions.rejectRequest('offline');
-        }
-        UI.showNotification('You are offline. Ride requests are paused.');
-      }
-    },
-
-    acceptRequest() {
-      if (!state.pendingRequest) return;
-      Simulation.stopRequestCountdown();
-      state.activeRide = {
-        ...state.pendingRequest,
-        status: 'waiting',
-        statusLabel: 'Waiting for pickup',
-        elapsed: 0,
-        timeline: { pickup: 'Waiting', enroute: 'Not started', complete: 'Not started' },
+    async ensureDriverSession() {
+      const driverProfile = {
+        driverId: state.driverId || undefined,
+        name: state.driver.name || 'Teleka Driver',
+        phone: state.driver.phone || '+256 700 000 000',
+        vehicle: state.driver.vehicle || 'Toyota Corolla',
+        plate: state.driver.plate || 'UBA 001A',
+        avatar: state.driver.avatar || '',
       };
-      state.pendingRequest = null;
-      UI.renderRequest();
-      UI.renderActiveRide();
+      const driver = await utils.api('/api/drivers/session', {
+        method: 'POST',
+        body: JSON.stringify(driverProfile),
+      });
+      state.driverId = driver.id;
+      state.driver = driver;
+      localStorage.setItem(STORAGE_KEYS.driverId, driver.id);
+      storeDriver(driver);
+      await Actions.refreshState();
+      Actions.ensureEventStream();
+    },
+
+    async refreshState() {
+      if (!state.driverId) return;
+      const data = await utils.api(`/api/driver/state?driverId=${encodeURIComponent(state.driverId)}`);
+      state.driver = data.driver;
+      state.activeRide = data.activeRide;
+      state.availableRequests = data.availableRequests || [];
+      state.history = data.history || [];
+      state.notifications = data.notifications || [];
+      state.settings = data.settings;
+      storeDriver(state.driver);
+      UI.renderAll();
+    },
+
+    ensureEventStream() {
+      if (state.eventSource) return;
+      const stream = new EventSource('/api/events');
+      stream.addEventListener('state-update', () => {
+        Actions.refreshState().catch(console.warn);
+      });
+      stream.onerror = () => {
+        stream.close();
+        state.eventSource = null;
+        setTimeout(() => Actions.ensureEventStream(), 3000);
+      };
+      state.eventSource = stream;
+    },
+
+    async toggleOnline(online) {
+      if (!state.driverId) return;
+      const driver = await utils.api(`/api/drivers/${encodeURIComponent(state.driverId)}/availability`, {
+        method: 'POST',
+        body: JSON.stringify({ online }),
+      });
+      state.driver = driver;
+      await Actions.refreshState();
+      utils.toast(`You are now ${online ? 'online' : 'offline'}.`);
+    },
+
+    async saveProfile() {
+      if (!state.driverId) return;
+      const payload = {
+        name: utils.qs(selectors.profileName).value.trim(),
+        phone: utils.qs(selectors.profilePhone).value.trim(),
+        vehicle: utils.qs(selectors.profileVehicle).value.trim(),
+        plate: utils.qs(selectors.profilePlate).value.trim(),
+      };
+      state.driver = await utils.api(`/api/drivers/${encodeURIComponent(state.driverId)}/profile`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      await Actions.refreshState();
+      utils.toast('Profile updated.');
+    },
+
+    async acceptRequest() {
+      const request = state.availableRequests[0];
+      if (!request) return;
+      await utils.api(`/api/rides/${encodeURIComponent(request.id)}/accept`, {
+        method: 'POST',
+        body: JSON.stringify({ driverId: state.driverId }),
+      });
+      await Actions.refreshState();
       UI.setActiveSection('activeRide');
-      UI.showNotification('Ride accepted. Proceed to pickup.');
-      Storage.save();
+      utils.toast('Ride accepted.');
     },
 
-    rejectRequest(reason = 'rejected') {
-      if (!state.pendingRequest) return;
-      Simulation.stopRequestCountdown();
-      UI.showNotification(`Ride request ${reason}.`);
-      state.pendingRequest = null;
-      UI.renderRequest();
-      Storage.save();
+    async rejectRequest() {
+      const request = state.availableRequests[0];
+      if (!request) return;
+      await utils.api(`/api/rides/${encodeURIComponent(request.id)}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ driverId: state.driverId }),
+      });
+      await Actions.refreshState();
+      utils.toast('Ride skipped.');
     },
 
-    advanceRide() {
+    async advanceRide() {
       if (!state.activeRide) return;
-      const ride = state.activeRide;
+      let nextStatus = '';
+      if (state.activeRide.status === 'accepted') nextStatus = 'arrived';
+      else if (state.activeRide.status === 'arrived') nextStatus = 'in-progress';
+      else if (state.activeRide.status === 'in-progress') nextStatus = 'completed';
+      else return;
 
-      if (ride.status === 'waiting') {
-        ride.status = 'arrived';
-        ride.statusLabel = 'Arrived at pickup';
-        ride.timeline.pickup = 'Arrived';
-        UI.showNotification('You have arrived at the pickup location.');
-      } else if (ride.status === 'arrived') {
-        ride.status = 'enroute';
-        ride.statusLabel = 'On the way';
-        ride.timeline.enroute = 'In progress';
-        UI.showNotification('Trip started. Drive safely.');
-        RideTimer.start();
-      } else if (ride.status === 'enroute') {
-        ride.status = 'completed';
-        ride.statusLabel = 'Trip complete';
-        ride.timeline.complete = 'Completed';
-        RideTimer.stop();
-        Actions.completeRide();
+      await utils.api(`/api/rides/${encodeURIComponent(state.activeRide.id)}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      await Actions.refreshState();
+      utils.toast(`Ride updated: ${nextStatus}.`);
+    },
+
+    logout() {
+      if (state.eventSource) {
+        state.eventSource.close();
       }
-      UI.renderActiveRide();
-    },
-
-    completeRide() {
-      const ride = state.activeRide;
-      if (!ride) return;
-      state.stats.todayEarnings += ride.fare;
-      state.stats.weekEarnings += ride.fare;
-      state.stats.trips += 1;
-
-      state.rideHistory.unshift({
-        ...ride,
-        completedAt: new Date().toISOString(),
-        status: 'Completed',
-      });
-
-      const reviewRating = Math.max(3, 5 - Math.floor(Math.random() * 2));
-      state.reviews.unshift({
-        id: utils.uuid(),
-        name: ride.passenger,
-        rating: reviewRating,
-        comment: 'Smooth ride, thank you!',
-        date: new Date().toISOString(),
-      });
-
-      UI.showNotification('Ride completed. Great job!');
-      state.activeRide = null;
-
-      UI.renderDashboard();
-      UI.renderHistory();
-      UI.renderRatings();
-      UI.updateEarningsChart();
-      UI.renderActiveRide();
-      Storage.save();
-    },
-
-    updateProfile() {
-      state.driver.name = utils.qs(selectors.profileName).value.trim() || state.driver.name;
-      state.driver.phone = utils.qs(selectors.profilePhone).value.trim() || state.driver.phone;
-      state.driver.vehicle = utils.qs(selectors.profileVehicle).value.trim() || state.driver.vehicle;
-      state.driver.plate = utils.qs(selectors.profilePlate).value.trim() || state.driver.plate;
-
-      UI.renderProfile();
-      Storage.save();
-      UI.showNotification('Profile updated.');
-    },
-
-    applySettings() {
-      state.settings.notifications = utils.qs(selectors.settingNotifications).checked;
-      state.settings.sound = utils.qs(selectors.settingSound).checked;
-      state.settings.autoAccept = utils.qs(selectors.settingAutoAccept).checked;
-      Storage.save();
-      UI.showNotification('Settings saved.');
-    },
-  };
-
-  const RideTimer = {
-    interval: null,
-    start() {
-      if (this.interval) return;
-      this.interval = setInterval(() => {
-        if (!state.activeRide) return;
-        state.activeRide.elapsed += 1;
-        state.activeRide.distance += 0.03; // ~30m per second
-        state.activeRide.fare = Math.max(3, state.activeRide.distance * 1.3);
-        UI.renderActiveRide();
-      }, 1000);
-    },
-    stop() {
-      clearInterval(this.interval);
-      this.interval = null;
+      localStorage.removeItem(STORAGE_KEYS.driverId);
+      localStorage.removeItem(STORAGE_KEYS.driverProfile);
+      window.location.reload();
     },
   };
 
   const Events = {
     attach() {
-      // navigation
-      utils.qsa(selectors.navLink).forEach((btn) => {
-        btn.addEventListener('click', () => {
-          UI.setActiveSection(btn.dataset.section);
-        });
+      utils.qsa(selectors.navLink).forEach((button) => {
+        button.addEventListener('click', () => UI.setActiveSection(button.dataset.section));
       });
-      utils.qsa(selectors.bottomNav).forEach((btn) => {
-        btn.addEventListener('click', () => {
-          UI.setActiveSection(btn.dataset.section);
-        });
+      utils.qsa(selectors.bottomNav).forEach((button) => {
+        button.addEventListener('click', () => UI.setActiveSection(button.dataset.section));
       });
 
-      // Top controls
-      utils.qs(selectors.onlineToggle).addEventListener('change', (evt) => {
-        Actions.toggleOnline(evt.target.checked);
+      utils.qs(selectors.onlineToggle).addEventListener('change', (event) => {
+        Actions.toggleOnline(event.target.checked).catch((error) => utils.toast(error.message));
       });
-
       utils.qs(selectors.actionGoOnline).addEventListener('click', () => {
-        Actions.toggleOnline(true);
+        Actions.toggleOnline(true).catch((error) => utils.toast(error.message));
       });
-      utils.qs(selectors.actionViewRequests).addEventListener('click', () => {
-        UI.setActiveSection('requests');
-      });
-
+      utils.qs(selectors.actionViewRequests).addEventListener('click', () => UI.setActiveSection('requests'));
       utils.qs(selectors.acceptRequest).addEventListener('click', () => {
-        Actions.acceptRequest();
+        Actions.acceptRequest().catch((error) => utils.toast(error.message));
       });
       utils.qs(selectors.rejectRequest).addEventListener('click', () => {
-        Actions.rejectRequest('rejected');
+        Actions.rejectRequest().catch((error) => utils.toast(error.message));
       });
-
       utils.qs(selectors.rideAction).addEventListener('click', () => {
-        Actions.advanceRide();
+        Actions.advanceRide().catch((error) => utils.toast(error.message));
       });
-
       utils.qs(selectors.historyFilter).addEventListener('change', () => UI.renderHistory());
       utils.qs(selectors.historySearch).addEventListener('input', () => UI.renderHistory());
       utils.qs(selectors.historySearchClear).addEventListener('click', () => {
         utils.qs(selectors.historySearch).value = '';
         UI.renderHistory();
       });
-
-      utils.qs(selectors.profileForm).addEventListener('submit', (evt) => {
-        evt.preventDefault();
-        Actions.updateProfile();
+      utils.qs(selectors.profileForm).addEventListener('submit', (event) => {
+        event.preventDefault();
+        Actions.saveProfile().catch((error) => utils.toast(error.message));
       });
       utils.qs(selectors.resetProfile).addEventListener('click', () => {
-        Storage.reset();
+        UI.renderProfile();
       });
-
-      utils.qs(selectors.settingNotifications).addEventListener('change', () => Actions.applySettings());
-      utils.qs(selectors.settingSound).addEventListener('change', () => Actions.applySettings());
-      utils.qs(selectors.settingAutoAccept).addEventListener('change', () => Actions.applySettings());
-
-      utils.qs(selectors.logoutBtn).addEventListener('click', () => {
-        Storage.reset();
-      });
-
-      utils.qs(selectors.notifBtn).addEventListener('click', () => {
-        UI.setActiveSection('notifications');
-      });
+      utils.qs(selectors.settingNotifications).addEventListener('change', () => {});
+      utils.qs(selectors.settingSound).addEventListener('change', () => {});
+      utils.qs(selectors.settingAutoAccept).addEventListener('change', () => {});
+      utils.qs(selectors.logoutBtn).addEventListener('click', Actions.logout);
+      utils.qs(selectors.notifBtn).addEventListener('click', () => UI.setActiveSection('notifications'));
 
       const menuToggle = document.getElementById('menuToggle');
       if (menuToggle) {
-        menuToggle.addEventListener('click', () => {
-          if (window.innerWidth <= 900) {
-            UI.toggleNav();
-            return;
-          }
-          appEl?.classList.toggle('nav-closed');
-          UI.syncMenuToggle();
-        });
+        menuToggle.addEventListener('click', () => UI.toggleNav());
       }
 
-      // Chart range controls
-      utils.qsa(selectors.chartRangeBtns).forEach((btn) => {
-        btn.addEventListener('click', () => {
-          utils.qsa(selectors.chartRangeBtns).forEach((b) => b.classList.remove('active'));
-          btn.classList.add('active');
-          UI.updateEarningsChart(btn.dataset.range);
-        });
-      });
-
-      // Ensure small screens can close nav by tapping outside
-      document.addEventListener('click', (evt) => {
+      document.addEventListener('click', (event) => {
         if (
           window.innerWidth <= 900 &&
-          !evt.target.closest('.driver-sidebar') &&
-          !evt.target.closest('.driver-topbar') &&
-          !evt.target.closest('.bottom-nav-item')
+          !event.target.closest('.driver-sidebar') &&
+          !event.target.closest('.driver-topbar') &&
+          !event.target.closest('.bottom-nav-item')
         ) {
           UI.setNavState(false);
         }
       });
 
-      // Allow tapping the avatar to scroll to profile
       utils.qs(selectors.driverAvatar).addEventListener('click', () => {
         UI.setActiveSection('profile');
       });
@@ -900,30 +665,20 @@ const DriverApp = (() => {
   };
 
   const App = {
-    init() {
-      const saved = Storage.load();
-      if (saved) {
-        Object.assign(state, saved);
-      }
+    async init() {
       UI.setNavState(false);
       UI.syncMenuToggle();
       UI.setActiveSection('dashboard');
-      UI.renderProfile();
-      UI.renderSettings();
-      UI.renderDashboard();
-      UI.renderRequest();
-      UI.renderActiveRide();
-      UI.renderHistory();
-      UI.renderRatings();
-      UI.renderNotifications();
-      UI.updateNotificationBadge();
-      UI.updateEarningsChart();
-      Simulation.start();
       Events.attach();
+      await Actions.ensureDriverSession();
     },
   };
 
   return App;
 })();
 
-document.addEventListener('DOMContentLoaded', () => DriverApp.init());
+document.addEventListener('DOMContentLoaded', () => {
+  DriverApp.init().catch((error) => {
+    window.alert(error.message);
+  });
+});

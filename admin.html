@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Teleka Taxi — Admin Dashboard</title>
+  <title>Teleka Taxi - Admin Dashboard</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -22,59 +22,27 @@
         </li>
         <li class="sidebar-item" data-section="users" role="menuitem" tabindex="0">
           <i class="fas fa-users"></i>
-          <span>User Management</span>
+          <span>Customers</span>
         </li>
         <li class="sidebar-item" data-section="drivers" role="menuitem" tabindex="0">
           <i class="fas fa-car-side"></i>
-          <span>Driver Management</span>
+          <span>Drivers</span>
         </li>
         <li class="sidebar-item" data-section="rides" role="menuitem" tabindex="0">
           <i class="fas fa-route"></i>
-          <span>Ride Management</span>
+          <span>Rides</span>
         </li>
         <li class="sidebar-item" data-section="earnings" role="menuitem" tabindex="0">
           <i class="fas fa-wallet"></i>
           <span>Earnings</span>
         </li>
-        <li class="sidebar-item" data-section="analytics" role="menuitem" tabindex="0">
-          <i class="fas fa-chart-line"></i>
-          <span>Analytics</span>
-        </li>
         <li class="sidebar-item" data-section="notifications" role="menuitem" tabindex="0">
           <i class="fas fa-bell"></i>
           <span>Notifications</span>
         </li>
-        <li class="sidebar-item" data-section="reviews" role="menuitem" tabindex="0">
-          <i class="fas fa-star"></i>
-          <span>Ratings & Reviews</span>
-        </li>
         <li class="sidebar-item" data-section="settings" role="menuitem" tabindex="0">
           <i class="fas fa-sliders-h"></i>
-          <span>Pricing & Settings</span>
-        </li>
-        <li class="sidebar-item" data-section="zones" role="menuitem" tabindex="0">
-          <i class="fas fa-map-marked-alt"></i>
-          <span>Zones</span>
-        </li>
-        <li class="sidebar-item" data-section="support" role="menuitem" tabindex="0">
-          <i class="fas fa-headset"></i>
-          <span>Support & Disputes</span>
-        </li>
-        <li class="sidebar-item" data-section="security" role="menuitem" tabindex="0">
-          <i class="fas fa-shield-alt"></i>
-          <span>Roles & Security</span>
-        </li>
-        <li class="sidebar-item" data-section="monitoring" role="menuitem" tabindex="0">
-          <i class="fas fa-server"></i>
-          <span>System Monitoring</span>
-        </li>
-        <li class="sidebar-item" data-section="marketing" role="menuitem" tabindex="0">
-          <i class="fas fa-bullhorn"></i>
-          <span>Marketing Tools</span>
-        </li>
-        <li class="sidebar-item logout" data-action="logout" role="menuitem" tabindex="0">
-          <i class="fas fa-sign-out-alt"></i>
-          <span>Sign Out</span>
+          <span>Settings</span>
         </li>
       </ul>
 
@@ -94,171 +62,82 @@
           </button>
           <div class="page-header">
             <h1 class="page-title">Overview</h1>
-            <p class="page-subtitle">Control center for driver activity, rides, earnings and system health.</p>
+            <p class="page-subtitle">Operational control for customers, drivers, rides, revenue, and dispatch settings.</p>
           </div>
         </div>
 
         <div class="topbar-right">
-          <div class="search-wrapper">
-            <input id="globalSearch" type="search" placeholder="Search users, rides, drivers…" aria-label="Search" />
-            <i class="fas fa-search"></i>
-          </div>
-
           <button class="icon-btn" id="notifToggle" aria-label="Notifications">
             <i class="fas fa-bell"></i>
             <span class="badge" id="notifCount" aria-label="Unread notifications">0</span>
           </button>
-
-          <div class="profile-menu" id="profileMenu">
-            <button class="profile-btn" aria-haspopup="true" aria-expanded="false">
-              <img src="https://ui-avatars.com/api/?name=Admin&background=667eea&color=fff&rounded=true&size=40" alt="Admin" />
-              <span class="profile-name">Admin</span>
-              <i class="fas fa-caret-down"></i>
-            </button>
-
-            <div class="profile-dropdown" role="menu">
-              <button class="dropdown-item" data-action="profile">Profile</button>
-              <button class="dropdown-item" data-action="settings">Settings</button>
-              <button class="dropdown-item" data-action="signout">Sign out</button>
-            </div>
-          </div>
         </div>
       </header>
 
       <div class="main-content" id="mainContent">
-        <!-- OVERVIEW -->
         <section id="overview" class="section active">
           <div class="section-header">
             <h2>Real-time Overview</h2>
-            <p>Live system metrics and map simulation. Data refreshes automatically to mimic real-time updates.</p>
+            <p>Live platform activity across requests, assignments, completed trips, and revenue.</p>
           </div>
 
-          <div class="summary-cards" aria-label="Overview statistics">
-            <div class="card" aria-label="Total rides">
-              <h3>Total rides</h3>
-              <p><span id="cardTotalRides">0</span></p>
-              <div class="card-meta">
-                <span>Daily</span> <strong id="cardTotalRidesDaily">0</strong>
-                <span>Weekly</span> <strong id="cardTotalRidesWeekly">0</strong>
-                <span>Monthly</span> <strong id="cardTotalRidesMonthly">0</strong>
-              </div>
+          <div class="summary-cards">
+            <div class="card">
+              <h3>Customers</h3>
+              <p id="summaryCustomers">0</p>
             </div>
-
-            <div class="card" aria-label="Active rides">
+            <div class="card">
+              <h3>Drivers online</h3>
+              <p id="summaryDriversOnline">0</p>
+            </div>
+            <div class="card">
+              <h3>Pending rides</h3>
+              <p id="summaryPendingRides">0</p>
+            </div>
+            <div class="card">
               <h3>Active rides</h3>
-              <p><span id="cardActiveRides">0</span></p>
-              <div class="card-meta">
-                <span class="badge badge-live"><i class="fas fa-circle"></i> Live</span>
-                <span class="badge badge-info">Updated <span id="liveStatus">now</span></span>
-              </div>
+              <p id="summaryActiveRides">0</p>
             </div>
-
-            <div class="card" aria-label="Active users">
-              <h3>Active users</h3>
-              <p><span id="cardActiveUsers">0</span></p>
-              <div class="card-meta">
-                <span>Drivers</span> <strong id="cardActiveDrivers">0</strong>
-                <span>Customers</span> <strong id="cardActiveCustomers">0</strong>
-              </div>
+            <div class="card">
+              <h3>Completed rides</h3>
+              <p id="summaryCompletedRides">0</p>
             </div>
-
-            <div class="card" aria-label="Revenue">
-              <h3>Total revenue</h3>
-              <p><span id="cardRevenue">$0</span></p>
-              <div class="card-meta">
-                <span>Today</span> <strong id="cardRevenueToday">$0</strong>
-                <span>Month</span> <strong id="cardRevenueMonth">$0</strong>
-              </div>
+            <div class="card">
+              <h3>Revenue</h3>
+              <p id="summaryRevenue">UGX 0</p>
             </div>
-
-            <div class="card" aria-label="Cancelled rides">
-              <h3>Cancelled rides</h3>
-              <p><span id="cardCancelled">0</span></p>
-              <div class="card-meta">
-                <span>Rate</span> <strong id="cardCancelRate">0%</strong>
-                <span>Last hour</span> <strong id="cardCancelLastHour">0</strong>
-              </div>
-            </div>
-
-            <div class="card" aria-label="Average rating">
-              <h3>Average rating</h3>
-              <p><span id="cardRating">0.0</span> <i class="fas fa-star"></i></p>
-              <div class="card-meta">
-                <span>Drivers</span> <strong id="cardRatingDrivers">0</strong>
-                <span>Customers</span> <strong id="cardRatingCustomers">0</strong>
-              </div>
-            </div>
-          </div>
-
-          <div class="overview-grid">
-            <div class="panel">
-              <div class="panel-header">
-                <h3>Live route map</h3>
-                <span class="panel-subtitle">Driver locations update every 3 seconds.</span>
-              </div>
-              <div class="map-card" aria-label="Live driver locations">
-                <canvas id="liveMap" width="800" height="400" aria-label="Map placeholder"></canvas>
-                <div class="map-legend">
-                  <span><span class="legend-dot legend-driver"></span> Driver</span>
-                  <span><span class="legend-dot legend-trip"></span> Trip</span>
-                  <span><span class="legend-dot legend-demand"></span> Demand</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="panel">
-              <div class="panel-header">
-                <h3>Live analytics</h3>
-                <span class="panel-subtitle">Quick insights & trending metrics.</span>
-              </div>
-              <div class="analytics-cards">
-                <div class="small-card">
-                  <h4>Heatmap demand</h4>
-                  <p><span id="heatmapDemand">Moderate</span></p>
-                </div>
-                <div class="small-card">
-                  <h4>Peak hour</h4>
-                  <p><span id="peakHour">--</span></p>
-                </div>
-                <div class="small-card">
-                  <h4>Average wait</h4>
-                  <p><span id="avgWait">--</span></p>
-                </div>
-                <div class="small-card">
-                  <h4>API status</h4>
-                  <p><span id="apiStatus" class="status status-ok">Online</span></p>
-                </div>
-              </div>
-              <div class="chart-block">
-                <canvas id="overviewChart" width="400" height="180" aria-label="Revenue trend" role="img"></canvas>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- USER MANAGEMENT -->
-        <section id="users" class="section">
-          <div class="section-header">
-            <h2>User management</h2>
-            <p>Search, filter and manage customers. Review ride history, block accounts, and monitor activity.</p>
           </div>
 
           <div class="panel">
             <div class="panel-header">
-              <h3>Customers</h3>
-              <div class="panel-actions">
-                <div class="input-group">
-                  <input id="userSearch" type="search" placeholder="Search by name or email" aria-label="Search users" />
-                  <button class="btn small" id="userSearchClear" aria-label="Clear search"><i class="fas fa-times"></i></button>
-                </div>
-                <select id="userStatusFilter" class="select" aria-label="Filter by status">
-                  <option value="all">All users</option>
-                  <option value="active">Active</option>
-                  <option value="blocked">Blocked</option>
-                </select>
-              </div>
+              <h3>Latest rides</h3>
+              <span class="panel-subtitle">Newest requests and ride status changes.</span>
             </div>
+            <div class="table-responsive">
+              <table class="table" aria-label="Latest rides">
+                <thead>
+                  <tr>
+                    <th>Ride ID</th>
+                    <th>Customer</th>
+                    <th>Driver</th>
+                    <th>Route</th>
+                    <th>Status</th>
+                    <th>Fare</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewRidesBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
+        <section id="users" class="section">
+          <div class="section-header">
+            <h2>Customers</h2>
+            <p>Registered riders and their current activity.</p>
+          </div>
+
+          <div class="panel">
             <div class="table-responsive">
               <table class="table" aria-label="Customer list">
                 <thead>
@@ -266,107 +145,47 @@
                     <th>Name</th>
                     <th>Email</th>
                     <th>Phone</th>
-                    <th>Status</th>
-                    <th>Rides</th>
-                    <th>Actions</th>
+                    <th>Created</th>
                   </tr>
                 </thead>
                 <tbody id="usersTableBody"></tbody>
               </table>
             </div>
-
-            <div class="table-footer">
-              <div class="pagination" id="usersPagination"></div>
-              <div class="table-meta" id="usersMeta"></div>
-            </div>
           </div>
         </section>
 
-        <!-- DRIVER MANAGEMENT -->
         <section id="drivers" class="section">
           <div class="section-header">
-            <h2>Driver management</h2>
-            <p>Approve new drivers, monitor online status, and review documents and performance.</p>
+            <h2>Drivers</h2>
+            <p>Driver profiles, availability, assignments, and earnings.</p>
           </div>
 
           <div class="panel">
-            <div class="panel-header">
-              <h3>Driver accounts</h3>
-              <div class="panel-actions">
-                <div class="input-group">
-                  <input id="driverSearch" type="search" placeholder="Search by name or vehicle" aria-label="Search drivers" />
-                  <button class="btn small" id="driverSearchClear" aria-label="Clear search"><i class="fas fa-times"></i></button>
-                </div>
-                <select id="driverStatusFilter" class="select" aria-label="Filter drivers">
-                  <option value="all">All</option>
-                  <option value="pending">Pending</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
-            </div>
-
             <div class="table-responsive">
               <table class="table" aria-label="Driver list">
                 <thead>
                   <tr>
                     <th>Name</th>
+                    <th>Phone</th>
                     <th>Vehicle</th>
                     <th>Status</th>
-                    <th>Rating</th>
+                    <th>Current Ride</th>
                     <th>Earnings</th>
-                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="driversTableBody"></tbody>
               </table>
             </div>
-
-            <div class="panel-footer">
-              <div class="stats-grid">
-                <div class="stat-card">
-                  <h4>Completed rides</h4>
-                  <p><span id="driverCompletedRides">0</span></p>
-                </div>
-                <div class="stat-card">
-                  <h4>Total earnings</h4>
-                  <p><span id="driverTotalEarnings">$0</span></p>
-                </div>
-                <div class="stat-card">
-                  <h4>Cancellation rate</h4>
-                  <p><span id="driverCancelRate">0%</span></p>
-                </div>
-              </div>
-            </div>
           </div>
         </section>
 
-        <!-- RIDE MANAGEMENT -->
         <section id="rides" class="section">
           <div class="section-header">
-            <h2>Ride management</h2>
-            <p>Monitor trips in real-time, assign drivers, and handle cancellations.</p>
+            <h2>Rides</h2>
+            <p>End-to-end view of all customer requests and dispatch progress.</p>
           </div>
 
           <div class="panel">
-            <div class="panel-header">
-              <h3>Current rides</h3>
-              <div class="panel-actions">
-                <div class="input-group">
-                  <input id="rideSearch" type="search" placeholder="Search by ride ID, user or driver" aria-label="Search rides" />
-                  <button class="btn small" id="rideSearchClear" aria-label="Clear search"><i class="fas fa-times"></i></button>
-                </div>
-                <select id="rideStatusFilter" class="select" aria-label="Filter rides">
-                  <option value="all">All statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="accepted">Accepted</option>
-                  <option value="in-progress">In-progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
-            </div>
-
             <div class="table-responsive">
               <table class="table" aria-label="Ride list">
                 <thead>
@@ -374,6 +193,8 @@
                     <th>Ride ID</th>
                     <th>Customer</th>
                     <th>Driver</th>
+                    <th>Pickup</th>
+                    <th>Dropoff</th>
                     <th>Status</th>
                     <th>Fare</th>
                     <th>Actions</th>
@@ -382,70 +203,43 @@
                 <tbody id="ridesTableBody"></tbody>
               </table>
             </div>
-
-            <div class="table-footer">
-              <div class="pagination" id="ridesPagination"></div>
-              <div class="table-meta" id="ridesMeta"></div>
-            </div>
           </div>
         </section>
 
-        <!-- EARNINGS & PAYMENTS -->
         <section id="earnings" class="section">
           <div class="section-header">
-            <h2>Earnings & payments</h2>
-            <p>Track revenue, payouts, and payment methods across the platform.</p>
+            <h2>Earnings</h2>
+            <p>Revenue and driver payout visibility from completed trips.</p>
           </div>
 
           <div class="summary-cards">
             <div class="card">
-              <h3>Revenue (30d)</h3>
-              <p><span id="earningsRevenue">$0</span></p>
-              <div class="card-meta">
-                <span>Net</span> <strong id="earningsNet">$0</strong>
-                <span>Gross</span> <strong id="earningsGross">$0</strong>
-              </div>
+              <h3>Total revenue</h3>
+              <p id="earningsRevenue">UGX 0</p>
             </div>
             <div class="card">
-              <h3>Pending payouts</h3>
-              <p><span id="earningsPending">$0</span></p>
-              <div class="card-meta">
-                <span>Drivers</span> <strong id="earningsDriversPending">0</strong>
-                <span>Last payout</span> <strong id="earningsLastPayout">--</strong>
-              </div>
+              <h3>Completed trips</h3>
+              <p id="earningsCompletedTrips">0</p>
             </div>
             <div class="card">
-              <h3>Payment methods</h3>
-              <p><span id="earningsPaymentMethods">3</span></p>
-              <div class="card-meta">
-                <span>Mobile money</span> <strong id="payMobile">45%</strong>
-                <span>Card</span> <strong id="payCard">35%</strong>
-                <span>Cash</span> <strong id="payCash">20%</strong>
-              </div>
-            </div>
-            <div class="card">
-              <h3>Chargebacks</h3>
-              <p><span id="earningsChargebacks">0</span></p>
-              <div class="card-meta">
-                <span>Resolved</span> <strong id="earningsResolved">0</strong>
-                <span>Pending</span> <strong id="earningsPendingCharge">0</strong>
-              </div>
+              <h3>Cancelled trips</h3>
+              <p id="earningsCancelledTrips">0</p>
             </div>
           </div>
 
           <div class="panel">
             <div class="panel-header">
               <h3>Driver earnings</h3>
-              <span class="panel-subtitle">Review payouts and earnings per driver.</span>
+              <span class="panel-subtitle">Current cumulative earnings by driver.</span>
             </div>
             <div class="table-responsive">
               <table class="table" aria-label="Driver earnings">
                 <thead>
                   <tr>
                     <th>Driver</th>
-                    <th>Completed rides</th>
-                    <th>Earnings</th>
-                    <th>Payout status</th>
+                    <th>Trips</th>
+                    <th>Today</th>
+                    <th>Total</th>
                   </tr>
                 </thead>
                 <tbody id="driverEarningsBody"></tbody>
@@ -454,60 +248,15 @@
           </div>
         </section>
 
-        <!-- ANALYTICS & REPORTS -->
-        <section id="analytics" class="section">
-          <div class="section-header">
-            <h2>Analytics & reports</h2>
-            <p>Generate trend reports and export data (mock UI).</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <div>
-                <h3>Traffic overview</h3>
-                <p class="panel-subtitle">Switch between daily / weekly / monthly views.</p>
-              </div>
-              <div class="panel-actions">
-                <div class="tabs" role="tablist">
-                  <button class="tab active" data-range="daily" role="tab">Daily</button>
-                  <button class="tab" data-range="weekly" role="tab">Weekly</button>
-                  <button class="tab" data-range="monthly" role="tab">Monthly</button>
-                </div>
-                <div class="export-buttons">
-                  <button class="btn small" id="exportCsv"><i class="fas fa-file-csv"></i> CSV</button>
-                  <button class="btn small" id="exportPdf"><i class="fas fa-file-pdf"></i> PDF</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="chart-area">
-              <canvas id="revenueChart" width="800" height="320" aria-label="Revenue trend chart"></canvas>
-            </div>
-
-            <div class="chart-grid">
-              <div class="chart-card">
-                <h4>Ride trends</h4>
-                <canvas id="rideChart" width="400" height="240" aria-label="Ride trend chart"></canvas>
-              </div>
-              <div class="chart-card">
-                <h4>User growth</h4>
-                <canvas id="userGrowthChart" width="400" height="240" aria-label="User growth chart"></canvas>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- NOTIFICATIONS -->
         <section id="notifications" class="section">
           <div class="section-header">
             <h2>Notifications</h2>
-            <p>Send announcements and monitor the notification history.</p>
+            <p>Broadcast platform announcements and review dispatch events.</p>
           </div>
 
           <div class="panel">
             <div class="panel-header">
               <h3>Send notification</h3>
-              <span class="panel-subtitle">Target drivers, customers, or everyone.</span>
             </div>
 
             <form class="send-form" id="notificationForm">
@@ -519,422 +268,75 @@
                   <option value="customers">Customers</option>
                 </select>
               </div>
-
               <div class="form-row">
                 <label>Message</label>
-                <textarea id="notificationMessage" rows="3" placeholder="Write a message..."></textarea>
+                <textarea id="notificationMessage" rows="3" placeholder="Write a message..." required></textarea>
               </div>
               <button class="btn" type="submit">Send notification</button>
             </form>
-
-            <div class="panel">
-              <div class="panel-header">
-                <h3>History</h3>
-                <span class="panel-subtitle">Most recent notifications appear first.</span>
-              </div>
-              <div class="table-responsive">
-                <table class="table" aria-label="Notification history">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Target</th>
-                      <th>Message</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody id="notificationsBody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- RATINGS & REVIEWS -->
-        <section id="reviews" class="section">
-          <div class="section-header">
-            <h2>Ratings & reviews</h2>
-            <p>Review feedback, flag concerns, and respond directly.</p>
           </div>
 
           <div class="panel">
             <div class="panel-header">
-              <h3>Recent reviews</h3>
-              <span class="panel-subtitle">Flag inappropriate feedback or respond directly.</span>
+              <h3>Notification history</h3>
             </div>
-
             <div class="table-responsive">
-              <table class="table" aria-label="Review list">
+              <table class="table" aria-label="Notification history">
                 <thead>
                   <tr>
-                    <th>User</th>
-                    <th>Driver</th>
-                    <th>Rating</th>
-                    <th>Comment</th>
-                    <th>Actions</th>
+                    <th>Time</th>
+                    <th>Target</th>
+                    <th>Type</th>
+                    <th>Message</th>
                   </tr>
                 </thead>
-                <tbody id="reviewsBody"></tbody>
+                <tbody id="notificationsBody"></tbody>
               </table>
             </div>
           </div>
         </section>
 
-        <!-- SETTINGS -->
         <section id="settings" class="section">
           <div class="section-header">
-            <h2>Settings & pricing</h2>
-            <p>Adjust fare settings and platform pricing. Changes are saved locally (demo only).</p>
+            <h2>Pricing Settings</h2>
+            <p>Server-side fare configuration applied to new rides.</p>
           </div>
 
           <div class="panel">
-            <div class="panel-header">
-              <h3>Pricing controls</h3>
-              <span class="panel-subtitle">Update base fare, per km/minute rates, surge multipliers and cancellation fees.</span>
-            </div>
-
             <form class="settings-form" id="pricingForm">
               <div class="form-grid">
                 <div class="form-row">
                   <label>Base fare</label>
-                  <input id="settingBaseFare" type="number" step="0.01" required />
+                  <input id="settingBaseFare" type="number" min="0" step="1" required />
                 </div>
                 <div class="form-row">
                   <label>Cost per km</label>
-                  <input id="settingPerKm" type="number" step="0.01" required />
+                  <input id="settingPerKm" type="number" min="0" step="1" required />
                 </div>
                 <div class="form-row">
                   <label>Cost per minute</label>
-                  <input id="settingPerMin" type="number" step="0.01" required />
+                  <input id="settingPerMin" type="number" min="0" step="1" required />
                 </div>
                 <div class="form-row">
                   <label>Surge multiplier</label>
-                  <input id="settingSurge" type="number" step="0.1" required />
+                  <input id="settingSurge" type="number" min="0.5" step="0.1" required />
                 </div>
                 <div class="form-row">
                   <label>Cancellation fee</label>
-                  <input id="settingCancelFee" type="number" step="0.01" required />
+                  <input id="settingCancelFee" type="number" min="0" step="1" required />
                 </div>
               </div>
 
               <div class="form-actions">
                 <button class="btn" type="submit">Save settings</button>
-                <button class="btn secondary" type="button" id="resetSettings">Reset</button>
-              </div>
-              <p class="hint">Settings are stored in <code>localStorage</code> for demo purposes.</p>
-            </form>
-          </div>
-        </section>
-
-        <!-- ZONES -->
-        <section id="zones" class="section">
-          <div class="section-header">
-            <h2>Zones & pricing</h2>
-            <p>Define service zones and assign zone-specific pricing multipliers.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Zones</h3>
-              <span class="panel-subtitle">Create new zones and toggle availability.</span>
-            </div>
-
-            <form class="settings-form" id="zoneForm">
-              <div class="form-grid">
-                <div class="form-row">
-                  <label>Zone name</label>
-                  <input id="zoneName" type="text" required />
-                </div>
-                <div class="form-row">
-                  <label>Multipler</label>
-                  <input id="zoneMultiplier" type="number" step="0.1" value="1" required />
-                </div>
-                <div class="form-row checkbox-row">
-                  <label>
-                    <input id="zoneActive" type="checkbox" checked /> Available
-                  </label>
-                </div>
-              </div>
-              <div class="form-actions">
-                <button class="btn" type="submit">Add zone</button>
               </div>
             </form>
-
-            <div class="table-responsive">
-              <table class="table" aria-label="Zones list">
-                <thead>
-                  <tr>
-                    <th>Zone</th>
-                    <th>Multiplier</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="zonesBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <!-- SUPPORT & DISPUTES -->
-        <section id="support" class="section">
-          <div class="section-header">
-            <h2>Support & disputes</h2>
-            <p>Manage tickets, chat logs, and issue resolution workflows.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Tickets</h3>
-              <span class="panel-subtitle">Review and resolve customer support requests.</span>
-            </div>
-
-            <div class="table-responsive">
-              <table class="table" aria-label="Support tickets">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>User</th>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th>Last update</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="ticketsBody"></tbody>
-              </table>
-            </div>
-
-            <div class="panel-footer">
-              <div class="hint">
-                <strong>Tip:</strong> Use the view button to inspect a mock conversation and add admin notes.
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ROLES & SECURITY -->
-        <section id="security" class="section">
-          <div class="section-header">
-            <h2>Roles & security</h2>
-            <p>View admin roles, login sessions, and audit logs for access control.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Admin roles</h3>
-              <span class="panel-subtitle">Different levels of access for support and finance teams.</span>
-            </div>
-
-            <div class="role-grid">
-              <div class="role-card">
-                <h4>Super Admin</h4>
-                <p>Full access to all modules, settings, and user management.</p>
-                <ul>
-                  <li>Manage users & drivers</li>
-                  <li>Change settings</li>
-                  <li>Audit access logs</li>
-                </ul>
-              </div>
-              <div class="role-card">
-                <h4>Support</h4>
-                <p>Handles tickets, refunds, and customer interactions.</p>
-                <ul>
-                  <li>Support tickets</li>
-                  <li>View ride history</li>
-                  <li>Send notifications</li>
-                </ul>
-              </div>
-              <div class="role-card">
-                <h4>Finance</h4>
-                <p>Monitors payouts, earnings and payment reconciliations.</p>
-                <ul>
-                  <li>Driver payouts</li>
-                  <li>Revenue analytics</li>
-                  <li>Chargeback reports</li>
-                </ul>
-              </div>
-            </div>
-
-            <div class="panel">
-              <div class="panel-header">
-                <h3>Activity logs</h3>
-                <span class="panel-subtitle">Recent admin actions and system events.</span>
-              </div>
-              <div class="table-responsive">
-                <table class="table" aria-label="Activity logs">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>User</th>
-                      <th>Action</th>
-                      <th>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody id="activityLogBody"></tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="session-info">
-              <div class="session-card">
-                <h4>Current session</h4>
-                <p><strong>IP:</strong> <span id="sessionIp">-</span></p>
-                <p><strong>Device:</strong> <span id="sessionDevice">-</span></p>
-                <p><strong>Started:</strong> <span id="sessionStarted">-</span></p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- SYSTEM MONITORING -->
-        <section id="monitoring" class="section">
-          <div class="section-header">
-            <h2>System monitoring</h2>
-            <p>Keep an eye on server uptime, API status, and error logs.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Service status</h3>
-              <span class="panel-subtitle">Mocked status indicators for API connectivity.</span>
-            </div>
-
-            <div class="status-grid">
-              <div class="status-card">
-                <h4>API</h4>
-                <p><span id="apiStatusIndicator" class="status status-ok">Online</span></p>
-              </div>
-              <div class="status-card">
-                <h4>Database</h4>
-                <p><span id="dbStatusIndicator" class="status status-ok">Online</span></p>
-              </div>
-              <div class="status-card">
-                <h4>Uptime</h4>
-                <p><span id="uptime">0d 0h 0m</span></p>
-              </div>
-              <div class="status-card">
-                <h4>Errors (24h)</h4>
-                <p><span id="errorCount">0</span></p>
-              </div>
-            </div>
-
-            <div class="panel">
-              <div class="panel-header">
-                <h3>Error logs</h3>
-                <span class="panel-subtitle">Recent system warnings and errors (mocked).</span>
-              </div>
-              <div class="table-responsive">
-                <table class="table" aria-label="Error logs">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Service</th>
-                      <th>Error</th>
-                      <th>Severity</th>
-                    </tr>
-                  </thead>
-                  <tbody id="errorLogsBody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- MARKETING TOOLS -->
-        <section id="marketing" class="section">
-          <div class="section-header">
-            <h2>Marketing tools</h2>
-            <p>Generate promo codes, track referrals, and view campaign performance.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Promo code generator</h3>
-              <span class="panel-subtitle">Quickly create campaigns and offer discounts.</span>
-            </div>
-
-            <form class="settings-form" id="promoForm">
-              <div class="form-grid">
-                <div class="form-row">
-                  <label>Promo code</label>
-                  <input id="promoCode" type="text" placeholder="e.g. TELEKA10" required />
-                </div>
-                <div class="form-row">
-                  <label>Discount (%)</label>
-                  <input id="promoDiscount" type="number" min="1" max="99" required />
-                </div>
-                <div class="form-row">
-                  <label>Expires (days)</label>
-                  <input id="promoExpire" type="number" min="1" max="90" required />
-                </div>
-              </div>
-              <div class="form-actions">
-                <button class="btn" type="submit">Generate</button>
-                <button class="btn secondary" type="button" id="clearPromos">Clear</button>
-              </div>
-            </form>
-
-            <div class="table-responsive">
-              <table class="table" aria-label="Promo codes">
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Discount</th>
-                    <th>Expires</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody id="promoBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Referral program</h3>
-              <span class="panel-subtitle">Track referrals and reward conversions.</span>
-            </div>
-
-            <div class="table-responsive">
-              <table class="table" aria-label="Referral tracking">
-                <thead>
-                  <tr>
-                    <th>Referrer</th>
-                    <th>Referrals</th>
-                    <th>Rewards</th>
-                  </tr>
-                </thead>
-                <tbody id="referralBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Campaign performance</h3>
-              <span class="panel-subtitle">Quick view of current marketing campaigns.</span>
-            </div>
-
-            <div class="campaign-grid" id="campaignGrid"></div>
           </div>
         </section>
       </div>
     </main>
   </div>
 
-  <!-- MODAL -->
-  <div class="modal" id="modal" aria-hidden="true" role="dialog">
-    <div class="modal-backdrop" data-close="true"></div>
-    <div class="modal-content" role="document">
-      <header class="modal-header">
-        <h3 id="modalTitle">Details</h3>
-        <button class="btn-icon" id="modalClose" aria-label="Close modal"><i class="fas fa-times"></i></button>
-      </header>
-      <div class="modal-body" id="modalBody"></div>
-    </div>
-  </div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="app.js"></script>
 </body>
 </html>
