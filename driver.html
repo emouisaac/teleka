@@ -41,6 +41,10 @@
 
     <aside class="driver-sidebar" id="driverSidebar" aria-label="Primary navigation">
       <div class="sidebar-inner">
+        <button class="nav-link" data-section="driverAuthPanel">
+          <i class="fas fa-sign-in-alt"></i>
+          <span>Access</span>
+        </button>
         <button class="nav-link active" data-section="dashboard">
           <i class="fas fa-home"></i>
           <span>Dashboard</span>
@@ -77,10 +81,93 @@
           <i class="fas fa-envelope"></i>
           <span>Notifications</span>
         </button>
+        <button class="nav-link" data-section="chat">
+          <i class="fas fa-comments"></i>
+          <span>Chat</span>
+        </button>
       </div>
     </aside>
 
     <main class="driver-main">
+      <section id="driverAuthPanel" class="driver-section">
+        <div class="section-header">
+          <h2>Driver Access</h2>
+          <p>Log in if your account is approved, or submit a registration for admin review.</p>
+        </div>
+
+        <div class="driver-auth-shell">
+          <div class="driver-auth-hero">
+            <span class="driver-auth-kicker">Teleka Driver</span>
+            <h3>LOGIN</h3>
+            <p>Access your approved driver account, go online, receive requests, and manage live rides from one secure workspace.</p>
+            <div class="driver-auth-points">
+              <span><i class="fas fa-shield-check"></i> Admin approved accounts only</span>
+              <span><i class="fas fa-route"></i> Live dispatch and ride tracking</span>
+              <span><i class="fas fa-comments"></i> Direct rider communication</span>
+            </div>
+          </div>
+
+          <div class="driver-auth-stack">
+            <div class="driver-auth-card driver-auth-card--login">
+              <div class="driver-auth-card-head">
+                <span class="driver-auth-label">LOGIN</span>
+                <h3>Welcome back</h3>
+                <p>Use your approved driver credentials to enter the dashboard.</p>
+              </div>
+              <form id="driverLoginForm" class="profile-form driver-auth-form">
+                <div class="form-grid">
+                  <label>Phone</label>
+                  <input id="driverLoginPhone" type="tel" placeholder="+256..." required />
+                  <label>Password</label>
+                  <input id="driverLoginPassword" type="password" placeholder="Enter your password" required />
+                </div>
+                <div class="actions-row">
+                  <button type="submit" class="btn primary">LOGIN</button>
+                </div>
+                <button type="button" class="driver-auth-toggle" id="showRegisterForm" aria-expanded="false" aria-controls="driverRegisterCard">
+                  No account? Register
+                </button>
+              </form>
+            </div>
+
+            <div class="driver-auth-card driver-auth-card--register hidden" id="driverRegisterCard">
+              <div class="driver-auth-card-head">
+                <span class="driver-auth-label">No account? Register</span>
+                <h3>Submit driver application</h3>
+                <p>Create your account request and wait for admin review, document verification, and approval.</p>
+              </div>
+              <form id="driverRegisterForm" class="profile-form driver-auth-form">
+                <div class="form-grid">
+                  <label>Full Name</label>
+                  <input id="registerName" type="text" required />
+                  <label>Phone</label>
+                  <input id="registerPhone" type="tel" required />
+                  <label>Vehicle</label>
+                  <input id="registerVehicle" type="text" required />
+                  <label>License Plate</label>
+                  <input id="registerPlate" type="text" required />
+                  <label>Password</label>
+                  <input id="registerPassword" type="password" minlength="6" required />
+                  <label>License Number</label>
+                  <input id="registerLicenseNumber" type="text" required />
+                  <label>National ID Number</label>
+                  <input id="registerNationalIdNumber" type="text" required />
+                  <label>Insurance Number</label>
+                  <input id="registerInsuranceNumber" type="text" required />
+                  <label>Profile Photo</label>
+                  <input id="registerPhoto" type="file" accept="image/*" />
+                  <label>Supporting Documents</label>
+                  <input id="registerDocs" type="file" accept="application/pdf,image/*" multiple />
+                </div>
+                <div class="actions-row">
+                  <button type="submit" class="btn primary">Submit Application</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="dashboard" class="driver-section active">
         <div class="section-header">
           <h2>Dashboard</h2>
@@ -201,6 +288,7 @@
 
           <div class="actions-row">
             <a class="btn outline" id="navButton" target="_blank" rel="noreferrer"><i class="fas fa-map-marked-alt"></i> Navigate</a>
+            <a class="btn outline" id="chatButton" href="chat.html?role=driver">Chat Passenger</a>
             <button class="btn primary" id="rideAction">Arrived</button>
           </div>
 
@@ -428,6 +516,16 @@
           </div>
         </div>
       </section>
+
+      <section id="chat" class="driver-section">
+        <div class="section-header">
+          <h2>Chat</h2>
+          <p>Open the live ride chat to communicate directly with your passenger.</p>
+        </div>
+        <div class="actions-row">
+          <a class="btn primary" href="chat.html?role=driver">Open Driver Chat</a>
+        </div>
+      </section>
     </main>
 
     <footer class="driver-bottom-nav" aria-label="Bottom navigation">
@@ -450,6 +548,10 @@
       <button class="bottom-nav-item" data-section="notifications">
         <i class="fas fa-envelope"></i>
         <span>Alerts</span>
+      </button>
+      <button class="bottom-nav-item" data-section="chat">
+        <i class="fas fa-comments"></i>
+        <span>Chat</span>
       </button>
     </footer>
   </div>

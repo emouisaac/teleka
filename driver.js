@@ -6,7 +6,7 @@ const DriverApp = (() => {
 
   const appEl = document.querySelector('.driver-app');
   const state = {
-    auth: loadJson(STORAGE_KEYS.driverAuth, { driverId: '', accessKey: '', token: '' }),
+    auth: loadJson(STORAGE_KEYS.driverAuth, { driverId: '', token: '' }),
     profile: loadJson(STORAGE_KEYS.driverProfile, {}),
     data: null,
     chart: null,
@@ -81,6 +81,35 @@ const DriverApp = (() => {
       else appEl?.classList.toggle('nav-closed');
       UI.syncMenuToggle();
     },
+    setAuthenticated(authenticated) {
+      utils.qsa('.driver-section').forEach((section) => {
+        if (section.id === 'driverAuthPanel') {
+          section.classList.toggle('active', !authenticated);
+        } else {
+          section.classList.toggle('active', false);
+        }
+      });
+      utils.qsa('.nav-link, .bottom-nav-item').forEach((button) => {
+        if (button.dataset.section === 'driverAuthPanel') {
+          button.classList.toggle('active', !authenticated);
+        }
+      });
+      utils.qs('.driver-sidebar').style.display = authenticated ? '' : 'none';
+      utils.qs('.driver-topbar').style.display = authenticated ? '' : 'none';
+      utils.qs('.driver-bottom-nav').style.display = authenticated ? '' : 'none';
+      if (authenticated) {
+        UI.setActiveSection('dashboard');
+      }
+    },
+    toggleRegisterForm(forceOpen) {
+      const registerCard = utils.qs('#driverRegisterCard');
+      const toggleButton = utils.qs('#showRegisterForm');
+      if (!registerCard || !toggleButton) return;
+      const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : registerCard.classList.contains('hidden');
+      registerCard.classList.toggle('hidden', !shouldOpen);
+      toggleButton.setAttribute('aria-expanded', String(shouldOpen));
+      toggleButton.textContent = shouldOpen ? 'Hide registration form' : 'No account? Register';
+    },
     setActiveSection(sectionId) {
       utils.qsa(selectors.section).forEach((section) => section.classList.toggle('active', section.id === sectionId));
       utils.qsa(selectors.navLink).forEach((button) => button.classList.toggle('active', button.dataset.section === sectionId));
@@ -127,8 +156,8 @@ const DriverApp = (() => {
         utils.qs('#statFare').textContent = utils.money(activeRide.fare);
         utils.qs('#activeRidePanel').classList.remove('hidden');
         utils.qs('#activeRideEmpty').classList.add('hidden');
-        utils.qs('#activePassenger').textContent = activeRide.customerName || 'Customer';
-        utils.qs('#activeRoute').textContent = `${activeRide.pickup} → ${activeRide.dropoff}`;
+      utils.qs('#activePassenger').textContent = activeRide.customerName || 'Customer';
+      utils.qs('#activeRoute').textContent = `${activeRide.pickup} → ${activeRide.dropoff}`;
         utils.qs('#activeStatus').textContent = activeRide.status;
         utils.qs('#activeDistance').textContent = `${Number(activeRide.distanceKm || 0).toFixed(1)} km`;
         utils.qs('#activeFare').textContent = utils.money(activeRide.fare);
@@ -137,6 +166,7 @@ const DriverApp = (() => {
         utils.qs('#timelineEnroute').textContent = activeRide.timeline?.startedAt ? 'Trip started' : 'Not started';
         utils.qs('#timelineComplete').textContent = activeRide.timeline?.completedAt ? 'Completed' : 'Not started';
         utils.qs('#navButton').href = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(activeRide.pickup)}&destination=${encodeURIComponent(activeRide.dropoff)}&travelmode=driving`;
+        utils.qs('#chatButton').href = `chat.html?role=driver&rideId=${encodeURIComponent(activeRide.id)}`;
         utils.qs('#rideAction').textContent = activeRide.status === 'accepted' ? 'Arrived' : activeRide.status === 'arrived' ? 'Start Trip' : activeRide.status === 'in-progress' ? 'End Trip' : 'Done';
       } else {
         utils.qs('#statActiveRide').textContent = 'None';
@@ -240,33 +270,18 @@ const DriverApp = (() => {
 
   const Actions = {
     async ensureSession(reset = false) {
-      if (reset) state.auth = { driverId: '', accessKey: '', token: '' };
-      const payload = {
-        driverId: state.auth.driverId || undefined,
-        accessKey: state.auth.accessKey || undefined,
-        name: state.profile.name || 'Teleka Driver',
-        phone: state.profile.phone || '+256 700 000 000',
-        vehicle: state.profile.vehicle || 'Toyota Corolla',
-        plate: state.profile.plate || 'UBA 001A',
-        avatar: state.profile.avatar || '',
-      };
-      try {
-        const data = await utils.api('/api/auth/driver/session', { method: 'POST', body: JSON.stringify(payload) }, '');
-        state.auth = { driverId: data.driver.id, accessKey: data.accessKey, token: data.token };
-        state.profile = data.driver;
-        saveJson(STORAGE_KEYS.driverAuth, state.auth);
-        saveJson(STORAGE_KEYS.driverProfile, state.profile);
-        await Actions.refresh();
-        Actions.ensureEvents();
-      } catch (error) {
-        if (!reset && /authentication failed/i.test(error.message)) return Actions.ensureSession(true);
-        throw error;
-      }
+      if (reset) state.auth = { driverId: '', token: '' };
+      if (!state.auth.token) throw new Error('No stored driver session');
+      await Actions.refresh();
+      Actions.ensureEvents();
     },
     async refresh() {
       state.data = await utils.api('/api/driver/state');
       state.profile = state.data.driver;
+      state.auth.driverId = state.data.driver.id;
+      saveJson(STORAGE_KEYS.driverAuth, state.auth);
       saveJson(STORAGE_KEYS.driverProfile, state.profile);
+      UI.setAuthenticated(true);
       UI.render();
     },
     ensureEvents() {
@@ -284,6 +299,43 @@ const DriverApp = (() => {
       await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/availability`, { method: 'POST', body: JSON.stringify({ online }) });
       await Actions.refresh();
       utils.toast(`You are now ${online ? 'online' : 'offline'}.`);
+    },
+    async login() {
+      const phone = utils.qs('#driverLoginPhone').value.trim();
+      const password = utils.qs('#driverLoginPassword').value;
+      const data = await utils.api('/api/drivers/login', {
+        method: 'POST',
+        body: JSON.stringify({ phone, password }),
+      }, '');
+      state.auth = { driverId: data.driver.id, token: data.token };
+      state.profile = data.driver;
+      saveJson(STORAGE_KEYS.driverAuth, state.auth);
+      saveJson(STORAGE_KEYS.driverProfile, state.profile);
+      await Actions.refresh();
+      Actions.ensureEvents();
+      utils.toast('Driver login successful.');
+    },
+    async register() {
+      const photoInput = utils.qs('#registerPhoto');
+      const docsInput = utils.qs('#registerDocs');
+      await utils.api('/api/drivers/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: utils.qs('#registerName').value.trim(),
+          phone: utils.qs('#registerPhone').value.trim(),
+          vehicle: utils.qs('#registerVehicle').value.trim(),
+          plate: utils.qs('#registerPlate').value.trim(),
+          password: utils.qs('#registerPassword').value,
+          licenseNumber: utils.qs('#registerLicenseNumber').value.trim(),
+          nationalIdNumber: utils.qs('#registerNationalIdNumber').value.trim(),
+          insuranceNumber: utils.qs('#registerInsuranceNumber').value.trim(),
+          photoName: photoInput?.files?.[0]?.name || '',
+          documentNames: docsInput?.files ? Array.from(docsInput.files).map((file) => file.name) : [],
+        }),
+      }, '');
+      utils.toast('Application submitted. Wait for admin approval before logging in.');
+      utils.qs('#driverRegisterForm').reset();
+      UI.toggleRegisterForm(false);
     },
     async saveProfile() {
       state.profile = {
@@ -324,6 +376,7 @@ const DriverApp = (() => {
     },
     logout() {
       state.eventSource?.close();
+      state.eventSource = null;
       localStorage.removeItem(STORAGE_KEYS.driverAuth);
       localStorage.removeItem(STORAGE_KEYS.driverProfile);
       window.location.reload();
@@ -335,6 +388,15 @@ const DriverApp = (() => {
       utils.qsa(selectors.navLink).forEach((button) => button.addEventListener('click', () => UI.setActiveSection(button.dataset.section)));
       utils.qsa(selectors.bottomNav).forEach((button) => button.addEventListener('click', () => UI.setActiveSection(button.dataset.section)));
       utils.qs('#onlineToggle').addEventListener('change', (event) => Actions.toggleOnline(event.target.checked).catch((error) => utils.toast(error.message)));
+      utils.qs('#driverLoginForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        Actions.login().catch((error) => utils.toast(error.message));
+      });
+      utils.qs('#showRegisterForm').addEventListener('click', () => UI.toggleRegisterForm());
+      utils.qs('#driverRegisterForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        Actions.register().catch((error) => utils.toast(error.message));
+      });
       utils.qs('#actionGoOnline').addEventListener('click', () => Actions.toggleOnline(true).catch((error) => utils.toast(error.message)));
       utils.qs('#actionViewRequests').addEventListener('click', () => UI.setActiveSection('requests'));
       utils.qs('#acceptRequest').addEventListener('click', () => Actions.acceptRequest().catch((error) => utils.toast(error.message)));
@@ -361,9 +423,18 @@ const DriverApp = (() => {
     async init() {
       UI.setNavState(false);
       UI.syncMenuToggle();
-      UI.setActiveSection('dashboard');
+      UI.setAuthenticated(false);
+      UI.toggleRegisterForm(false);
       Events.attach();
-      await Actions.ensureSession();
+      if (state.auth.token) {
+        try {
+          await Actions.ensureSession();
+        } catch {
+          localStorage.removeItem(STORAGE_KEYS.driverAuth);
+          state.auth = { driverId: '', token: '' };
+          UI.setAuthenticated(false);
+        }
+      }
     },
   };
 })();

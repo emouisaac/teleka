@@ -2739,6 +2739,120 @@ footer {
     margin-bottom: 1.2rem;
 }
 
+.driver-auth-shell {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.95fr) minmax(320px, 1.25fr);
+    gap: 1.25rem;
+    align-items: start;
+}
+
+.driver-auth-hero {
+    border-radius: 22px;
+    padding: 1.5rem;
+    background:
+        linear-gradient(160deg, rgba(18, 49, 103, 0.94), rgba(41, 112, 187, 0.88)),
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.24), transparent 48%);
+    color: #f7fbff;
+    box-shadow: 0 20px 40px rgba(18, 49, 103, 0.2);
+}
+
+.driver-auth-kicker,
+.driver-auth-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.driver-auth-kicker {
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.92);
+}
+
+.driver-auth-hero h3 {
+    margin: 1rem 0 0.6rem;
+    font-size: clamp(2rem, 4vw, 2.7rem);
+    letter-spacing: 0.08em;
+}
+
+.driver-auth-hero p {
+    color: rgba(247, 251, 255, 0.86);
+    line-height: 1.65;
+}
+
+.driver-auth-points {
+    display: grid;
+    gap: 0.8rem;
+    margin-top: 1.35rem;
+}
+
+.driver-auth-points span {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    font-weight: 500;
+}
+
+.driver-auth-stack {
+    display: grid;
+    gap: 1rem;
+}
+
+.driver-auth-card {
+    border: 1px solid rgba(18, 49, 103, 0.09);
+    border-radius: 22px;
+    padding: 1.35rem;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 18px 34px rgba(10, 34, 68, 0.08);
+}
+
+.driver-auth-card-head h3 {
+    margin: 0.55rem 0 0.4rem;
+}
+
+.driver-auth-card-head p {
+    margin: 0 0 1rem;
+    color: var(--text-secondary);
+}
+
+.driver-auth-card--login .driver-auth-label {
+    background: rgba(41, 112, 187, 0.12);
+    color: #215a98;
+}
+
+.driver-auth-card--register .driver-auth-label {
+    background: rgba(17, 132, 86, 0.12);
+    color: #118456;
+}
+
+.driver-auth-form .actions-row {
+    margin-top: 1rem;
+}
+
+.driver-auth-toggle {
+    margin-top: 0.35rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: #215a98;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+}
+
+.driver-auth-toggle:hover {
+    text-decoration: underline;
+}
+
+.hidden {
+    display: none !important;
+}
+
 .map-card {
     border: 1px solid var(--border-color);
     border-radius: 14px;
@@ -3260,6 +3374,10 @@ footer {
 }
 
 @media (max-width: 899px) {
+    .driver-auth-shell {
+        grid-template-columns: 1fr;
+    }
+
     .driver-sidebar {
         transform: translateX(-100%);
     }

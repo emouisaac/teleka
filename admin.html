@@ -182,10 +182,36 @@
         <section id="drivers" class="section">
           <div class="section-header">
             <h2>Drivers</h2>
-            <p>Driver profiles, availability, assignments, and earnings.</p>
+            <p>Driver applications, document verification, approvals, and live driver operations.</p>
           </div>
 
           <div class="panel">
+            <div class="panel-header">
+              <h3>Pending Applications</h3>
+              <span class="panel-subtitle">Review submitted documents and approve or reject onboarding.</span>
+            </div>
+            <div class="table-responsive">
+              <table class="table" aria-label="Driver applications">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Vehicle</th>
+                    <th>Documents</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="driverApplicationsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Approved Drivers</h3>
+              <span class="panel-subtitle">Drivers who can log in, go online, and receive rides.</span>
+            </div>
             <div class="table-responsive">
               <table class="table" aria-label="Driver list">
                 <thead>
@@ -194,6 +220,7 @@
                     <th>Phone</th>
                     <th>Vehicle</th>
                     <th>Status</th>
+                    <th>Verification</th>
                     <th>Current Ride</th>
                     <th>Earnings</th>
                   </tr>

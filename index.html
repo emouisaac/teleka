@@ -26,6 +26,7 @@
                 <li><a href="#payments" class="navbar-link" onclick="switchSection('payments')">Payment Methods</a></li>
                 <li><a href="#profile" class="navbar-link" onclick="switchSection('profile')">Profile</a></li>
                 <li><a href="#support" class="navbar-link" onclick="switchSection('support')">Support</a></li>
+                <li><a href="#chat" class="navbar-link" onclick="switchSection('chat')">Chat</a></li>
                 <li><a href="#settings" class="navbar-link" onclick="switchSection('settings')">Settings</a></li>
                 <li><a href="#" id="auth-action" class="navbar-link" onclick="handleAuthClick(event)">Login</a></li>
             </ul>
@@ -235,6 +236,7 @@
                         <div class="card">
                             <h3>Upcoming Ride</h3>
                             <p id="upcoming-ride-status">No rides scheduled</p>
+                            <p id="active-driver-contact" class="muted">Driver contact will appear after acceptance.</p>
                         </div>
                         <div class="card1">
                             <div class="card">
@@ -285,6 +287,13 @@
             <div id="support" class="section">
                 <h1>Support</h1>
                 <p>If you need help, contact us at <a href="mailto:support@teleka.com">support@teleka.com</a> or use the live chat below.</p>
+            </div>
+            <div id="chat" class="section">
+                <h1>Ride Chat</h1>
+                <p>Open your live chat with the assigned driver when your ride has been accepted.</p>
+                <div class="actions-row">
+                    <a id="customer-chat-link" href="chat.html?role=customer" class="btn">Open Chat</a>
+                </div>
             </div>
             <div id="settings" class="section">
                 <h1>Settings</h1>

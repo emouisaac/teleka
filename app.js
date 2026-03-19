@@ -110,10 +110,23 @@ const TelekaAdmin = (() => {
         <td>${driver.name}</td>
         <td>${driver.phone || '-'}</td>
         <td>${driver.vehicle || '-'}</td>
-        <td>${driver.online ? 'online' : 'offline'}</td>
+        <td>${driver.online ? 'online' : driver.approvalStatus || 'offline'}</td>
+        <td>${driver.documents?.verified ? 'verified' : (driver.approvalStatus || 'pending')}</td>
         <td>${driver.currentRideId || '-'}</td>
         <td>${DOM.money(driver.earningsTotal || 0)}</td>
-      `, 6, 'No drivers registered yet.');
+      `, 7, 'No drivers registered yet.');
+
+      renderTable('#driverApplicationsBody', data.driverApplications || [], (driver) => `
+        <td>${driver.name}</td>
+        <td>${driver.phone || '-'}</td>
+        <td>${driver.vehicle || '-'}${driver.plate ? ` / ${driver.plate}` : ''}</td>
+        <td>${formatDocuments(driver.documents)}</td>
+        <td>${driver.approvalStatus || 'pending'}</td>
+        <td>${driver.approvalStatus === 'pending'
+          ? `<button class="btn small" data-action="approve-driver" data-id="${driver.id}">Approve</button>
+             <button class="btn small secondary" data-action="reject-driver" data-id="${driver.id}">Reject</button>`
+          : (driver.approvalNotes || '-')}</td>
+      `, 6, 'No pending driver applications.');
 
       renderTable('#ridesTableBody', data.rides, (ride) => `
         <td>${ride.id}</td>
@@ -166,6 +179,17 @@ const TelekaAdmin = (() => {
     });
   }
 
+  function formatDocuments(documents = {}) {
+    const items = [
+      documents.licenseNumber && `License: ${documents.licenseNumber}`,
+      documents.nationalIdNumber && `National ID: ${documents.nationalIdNumber}`,
+      documents.insuranceNumber && `Insurance: ${documents.insuranceNumber}`,
+      documents.photoName && `Photo: ${documents.photoName}`,
+      Array.isArray(documents.documentNames) && documents.documentNames.length ? `Files: ${documents.documentNames.join(', ')}` : '',
+    ].filter(Boolean);
+    return items.length ? items.join(' | ') : 'No documents';
+  }
+
   const Actions = {
     async login() {
       const email = DOM.qs('#adminEmail').value.trim();
@@ -199,6 +223,18 @@ const TelekaAdmin = (() => {
       await DOM.api(`/api/rides/${encodeURIComponent(rideId)}/cancel`, { method: 'POST', body: '{}' });
       await Actions.refresh();
       DOM.toast(`Ride ${rideId} cancelled.`);
+    },
+    async approveDriver(driverId) {
+      await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/approve`, { method: 'POST', body: JSON.stringify({ notes: 'Documents verified by admin' }) });
+      await Actions.refresh();
+      DOM.toast('Driver approved.');
+    },
+    async rejectDriver(driverId) {
+      const notes = window.prompt('Reason for rejection', 'Incomplete or invalid driver documents');
+      if (!notes) return;
+      await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/reject`, { method: 'POST', body: JSON.stringify({ notes }) });
+      await Actions.refresh();
+      DOM.toast('Driver rejected.');
     },
     async sendNotification() {
       const target = DOM.qs('#notificationTarget').value;
@@ -246,6 +282,10 @@ const TelekaAdmin = (() => {
       document.body.addEventListener('click', (event) => {
         const action = event.target.closest('[data-action="cancel-ride"]');
         if (action) Actions.cancelRide(action.dataset.id).catch((error) => DOM.toast(error.message));
+        const approve = event.target.closest('[data-action="approve-driver"]');
+        if (approve) Actions.approveDriver(approve.dataset.id).catch((error) => DOM.toast(error.message));
+        const reject = event.target.closest('[data-action="reject-driver"]');
+        if (reject) Actions.rejectDriver(reject.dataset.id).catch((error) => DOM.toast(error.message));
       });
       document.addEventListener('click', (event) => {
         if (window.innerWidth <= 1024 && !event.target.closest('.sidebar') && !event.target.closest('#mobileSidebarToggle')) {

@@ -95,9 +95,10 @@ function hash(value) { return crypto.createHash('sha256').update(String(value)).
 function secret() { return crypto.randomBytes(24).toString('hex'); }
 function findCustomer(customerId) { return state.customers.find((item) => item.id === customerId); }
 function findDriver(driverId) { return state.drivers.find((item) => item.id === driverId); }
+function findDriverByPhone(phone) { return state.drivers.find((item) => item.phone === phone); }
 function findRide(rideId) { return state.rides.find((item) => item.id === rideId); }
 function safeCustomer(customer) { if (!customer) return null; const { accessKeyHash, ...safe } = customer; return safe; }
-function safeDriver(driver) { if (!driver) return null; const { accessKeyHash, ...safe } = driver; return safe; }
+function safeDriver(driver) { if (!driver) return null; const { accessKeyHash, passwordHash, ...safe } = driver; return safe; }
 function recent(items) { return items.slice().sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)); }
 
 function signToken(payload) {
@@ -166,6 +167,7 @@ function publicRide(ride) {
     driverName: driver ? driver.name : 'Unassigned',
     driverPhone: driver ? driver.phone : '',
     driverVehicle: driver ? driver.vehicle : '',
+    chatMessages: Array.isArray(ride.chatMessages) ? ride.chatMessages : [],
   };
 }
 
@@ -176,12 +178,14 @@ function adminState() {
     settings: state.settings,
     customers: recent(state.customers).map(safeCustomer),
     drivers: recent(state.drivers).map(safeDriver),
+    driverApplications: recent(state.drivers.filter((driver) => driver.approvalStatus !== 'approved')).map(safeDriver),
     rides,
     notifications: filterNotifications('admin').slice(0, 50),
     summary: {
       totalCustomers: state.customers.length,
       totalDrivers: state.drivers.length,
       onlineDrivers: state.drivers.filter((driver) => driver.online).length,
+      pendingDriverApplications: state.drivers.filter((driver) => driver.approvalStatus === 'pending').length,
       activeRides: rides.filter((ride) => ['accepted', 'arrived', 'in-progress'].includes(ride.status)).length,
       pendingRides: rides.filter((ride) => ride.status === 'pending').length,
       completedRides: completed.length,
@@ -250,44 +254,67 @@ function createCustomerSession(body) {
   return { customer: safeCustomer(customer), accessKey, token: issueToken('customer', customer.id) };
 }
 
-function createDriverSession(body) {
-  const existing = text(body.driverId) ? findDriver(text(body.driverId)) : null;
-  if (existing) {
-    if (!text(body.accessKey) || existing.accessKeyHash !== hash(body.accessKey)) {
-      throw new Error('Driver authentication failed');
-    }
-    existing.name = text(body.name, existing.name);
-    existing.phone = text(body.phone, existing.phone);
-    existing.vehicle = text(body.vehicle, existing.vehicle);
-    existing.plate = text(body.plate, existing.plate);
-    existing.avatar = text(body.avatar, existing.avatar);
-    existing.updatedAt = now();
-    saveState();
-    return { driver: safeDriver(existing), accessKey: text(body.accessKey), token: issueToken('driver', existing.id) };
+function registerDriver(body) {
+  const phone = text(body.phone);
+  if (!phone) throw new Error('Phone number is required');
+  if (!text(body.password) || text(body.password).length < 6) {
+    throw new Error('Driver password must be at least 6 characters');
   }
-  const accessKey = secret();
+  if (findDriverByPhone(phone)) {
+    throw new Error('A driver account with this phone number already exists');
+  }
   const driver = {
     id: id('drv'),
     name: text(body.name, 'Driver'),
-    phone: text(body.phone),
+    phone,
     vehicle: text(body.vehicle),
     plate: text(body.plate),
     avatar: text(body.avatar),
-    accessKeyHash: hash(accessKey),
+    passwordHash: hash(body.password),
+    accessKeyHash: hash(secret()),
     online: false,
-    status: 'active',
+    status: 'inactive',
+    approvalStatus: 'pending',
+    approvalNotes: '',
     currentRideId: null,
     earningsToday: 0,
     earningsTotal: 0,
     rating: 5,
     ratingCount: 0,
+    documents: {
+      licenseNumber: text(body.licenseNumber),
+      nationalIdNumber: text(body.nationalIdNumber),
+      insuranceNumber: text(body.insuranceNumber),
+      photoName: text(body.photoName),
+      documentNames: Array.isArray(body.documentNames) ? body.documentNames.map((item) => text(item)).filter(Boolean) : [],
+      verified: false,
+      verifiedAt: '',
+    },
     createdAt: now(),
     updatedAt: now(),
   };
   state.drivers.unshift(driver);
   saveState();
-  notification({ targetType: 'admin', message: `Driver profile created: ${driver.name}` });
-  return { driver: safeDriver(driver), accessKey, token: issueToken('driver', driver.id) };
+  notification({ targetType: 'admin', message: `New driver application: ${driver.name}` });
+  return { driver: safeDriver(driver) };
+}
+
+function loginDriver(body) {
+  const phone = text(body.phone);
+  const password = text(body.password);
+  const driver = findDriverByPhone(phone);
+  if (!driver || driver.passwordHash !== hash(password)) {
+    throw new Error('Invalid driver phone or password');
+  }
+  if (driver.approvalStatus === 'pending') {
+    throw new Error('Your driver application is still pending admin approval');
+  }
+  if (driver.approvalStatus === 'rejected') {
+    throw new Error(driver.approvalNotes || 'Your driver application was rejected');
+  }
+  driver.updatedAt = now();
+  saveState();
+  return { driver: safeDriver(driver), token: issueToken('driver', driver.id) };
 }
 
 function parseJsonBody(req) {
@@ -395,8 +422,13 @@ async function handleApi(req, res, url) {
     catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
   }
 
-  if (pathname === '/api/auth/driver/session' && req.method === 'POST') {
-    try { return sendJson(res, 200, { ok: true, data: createDriverSession(await parseJsonBody(req)) }), broadcastState(), true; }
+  if (pathname === '/api/drivers/register' && req.method === 'POST') {
+    try { return sendJson(res, 201, { ok: true, data: registerDriver(await parseJsonBody(req)) }), broadcastState(), true; }
+    catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
+  }
+
+  if (pathname === '/api/drivers/login' && req.method === 'POST') {
+    try { return sendJson(res, 200, { ok: true, data: loginDriver(await parseJsonBody(req)) }), true; }
     catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
   }
 
@@ -438,6 +470,7 @@ async function handleApi(req, res, url) {
       createdAt: now(),
       updatedAt: now(),
       timeline: { requestedAt: now() },
+      chatMessages: [],
     };
     state.rides.unshift(ride);
     saveState();
@@ -454,6 +487,7 @@ async function handleApi(req, res, url) {
     const auth = requireAuth(req, url, 'driver');
     if (!auth || auth.sub !== availability.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
     const driver = findDriver(auth.sub);
+    if (!driver || driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
     driver.online = Boolean((await parseJsonBody(req)).online);
     driver.updatedAt = now();
     saveState();
@@ -479,22 +513,60 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
   }
 
+  const approveDriver = routeMatches(pathname, '/api/admin/drivers/:driverId/approve');
+  if (approveDriver && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const driver = findDriver(approveDriver.driverId);
+    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
+    driver.approvalStatus = 'approved';
+    driver.status = 'active';
+    driver.approvalNotes = text((await parseJsonBody(req)).notes);
+    driver.documents = { ...(driver.documents || {}), verified: true, verifiedAt: now() };
+    driver.updatedAt = now();
+    saveState();
+    notification({ targetType: 'driver', targetId: driver.id, message: 'Your driver application has been approved. You can now log in.' });
+    notification({ targetType: 'admin', message: `Driver approved: ${driver.name}` });
+    broadcastState();
+    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
+  }
+
+  const rejectDriver = routeMatches(pathname, '/api/admin/drivers/:driverId/reject');
+  if (rejectDriver && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const body = await parseJsonBody(req);
+    const driver = findDriver(rejectDriver.driverId);
+    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
+    driver.approvalStatus = 'rejected';
+    driver.status = 'inactive';
+    driver.online = false;
+    driver.approvalNotes = text(body.notes, 'Application rejected by admin');
+    driver.updatedAt = now();
+    saveState();
+    notification({ targetType: 'admin', message: `Driver rejected: ${driver.name}` });
+    broadcastState();
+    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
+  }
+
   const accept = routeMatches(pathname, '/api/rides/:rideId/accept');
   if (accept && req.method === 'POST') {
     const auth = requireAuth(req, url, 'driver');
     const ride = auth ? findRide(accept.rideId) : null;
     const driver = auth ? findDriver(auth.sub) : null;
     if (!ride || !driver) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    if (driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
     if (ride.status !== 'pending' || ride.driverId) return sendJson(res, 409, { ok: false, message: 'Ride is no longer available' }), true;
     if (!driver.online) return sendJson(res, 409, { ok: false, message: 'Driver must be online to accept rides' }), true;
     ride.driverId = driver.id;
     ride.status = 'accepted';
     ride.updatedAt = now();
     ride.timeline.acceptedAt = now();
+    ride.chatMessages = Array.isArray(ride.chatMessages) ? ride.chatMessages : [];
     driver.currentRideId = ride.id;
     driver.updatedAt = now();
     saveState();
-    notification({ targetType: 'customer', targetId: ride.customerId, message: `${driver.name} accepted your ride ${ride.id}.` });
+    notification({ targetType: 'customer', targetId: ride.customerId, message: `${driver.name} accepted your ride ${ride.id}. Call or chat via ${driver.phone}.` });
     notification({ targetType: 'admin', message: `${driver.name} accepted ride ${ride.id}.` });
     broadcastState();
     return sendJson(res, 200, { ok: true, data: publicRide(ride) }), true;
@@ -582,6 +654,49 @@ async function handleApi(req, res, url) {
     notification({ targetType: 'admin', message: 'Platform pricing settings updated.' });
     broadcastState();
     return sendJson(res, 200, { ok: true, data: state.settings }), true;
+  }
+
+  const chatRoute = routeMatches(pathname, '/api/rides/:rideId/chat');
+  if (chatRoute && req.method === 'GET') {
+    const auth = requireAuth(req, url);
+    const ride = auth ? findRide(chatRoute.rideId) : null;
+    if (!auth || !ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const allowed = auth.role === 'admin'
+      || (auth.role === 'customer' && ride.customerId === auth.sub)
+      || (auth.role === 'driver' && ride.driverId === auth.sub);
+    if (!allowed) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
+    return sendJson(res, 200, { ok: true, data: { ride: publicRide(ride), messages: Array.isArray(ride.chatMessages) ? ride.chatMessages : [] } }), true;
+  }
+
+  if (chatRoute && req.method === 'POST') {
+    const auth = requireAuth(req, url);
+    const ride = auth ? findRide(chatRoute.rideId) : null;
+    if (!auth || !ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const allowed = (auth.role === 'customer' && ride.customerId === auth.sub) || (auth.role === 'driver' && ride.driverId === auth.sub);
+    if (!allowed) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
+    const body = await parseJsonBody(req);
+    const messageText = text(body.message);
+    if (!messageText) return sendJson(res, 400, { ok: false, message: 'Message is required' }), true;
+    ride.chatMessages = Array.isArray(ride.chatMessages) ? ride.chatMessages : [];
+    const senderName = auth.role === 'customer' ? (findCustomer(auth.sub)?.name || 'Customer') : (findDriver(auth.sub)?.name || 'Driver');
+    ride.chatMessages.push({
+      id: id('msg'),
+      senderRole: auth.role,
+      senderId: auth.sub,
+      senderName,
+      message: messageText,
+      createdAt: now(),
+    });
+    ride.updatedAt = now();
+    saveState();
+    if (auth.role === 'customer' && ride.driverId) {
+      notification({ targetType: 'driver', targetId: ride.driverId, message: `New message from rider on ride ${ride.id}.` });
+    }
+    if (auth.role === 'driver') {
+      notification({ targetType: 'customer', targetId: ride.customerId, message: `New message from your driver on ride ${ride.id}.` });
+    }
+    broadcastState();
+    return sendJson(res, 201, { ok: true, data: { ride: publicRide(ride), messages: ride.chatMessages } }), true;
   }
 
   return false;

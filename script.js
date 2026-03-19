@@ -18,6 +18,7 @@ const appState = {
   auth: loadJson(STORAGE_KEYS.customerAuth, { customerId: '', accessKey: '', token: '' }),
   profile: loadJson(STORAGE_KEYS.customerProfile, {}),
   eventSource: null,
+  lastRideStatus: '',
 };
 
 function loadJson(key, fallback) {
@@ -207,9 +208,22 @@ async function syncCustomerSession(resetAuth = false) {
 async function refreshCustomerState() {
   const data = await api('/api/customer/state');
   const rides = data.rides || [];
+  const activeRide = data.activeRide;
+  if (activeRide && appState.lastRideStatus && appState.lastRideStatus !== activeRide.status && activeRide.status === 'accepted') {
+    showMessage(`Your ride was accepted by ${activeRide.driverName}. Driver contact: ${activeRide.driverPhone || 'Unavailable'}`);
+  }
+  appState.lastRideStatus = activeRide ? activeRide.status : '';
   document.getElementById('upcoming-ride-status').textContent = data.activeRide
     ? `${data.activeRide.status.toUpperCase()}: ${data.activeRide.pickup} to ${data.activeRide.dropoff}`
     : 'No rides scheduled';
+  document.getElementById('active-driver-contact').textContent = activeRide?.driverPhone
+    ? `Driver ${activeRide.driverName}: ${activeRide.driverPhone}`
+    : 'Driver contact will appear after acceptance.';
+  const chatLink = document.getElementById('customer-chat-link');
+  if (chatLink) {
+    chatLink.href = activeRide ? `chat.html?role=customer&rideId=${encodeURIComponent(activeRide.id)}` : 'chat.html?role=customer';
+    chatLink.classList.toggle('disabled', !activeRide);
+  }
   document.getElementById('total-rides-count').textContent = String(rides.length);
   document.getElementById('account-balance').textContent = formatUGX(
     rides.filter((ride) => ride.status === 'completed').reduce((sum, ride) => sum + (ride.fare || 0), 0)
