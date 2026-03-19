@@ -1,31 +1,460 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teleka Taxi</title>
-    <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teleka Taxi — Driver Dashboard</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
-   <nav class="navbar">
-        <div class="navbar-container">
-            <a href="index.html" class="navbar-logo"><img src="ims/ticon.png" alt="Teleka Logo"></a>
-            <button class="navbar-toggle" id="mobile-menu">
-                <span class="bar"></span>
-                <span class="bar"></span>
-                <span class="bar"></span>
-            </button>
-        
-            <ul class="navbar-menu">
-                <li><a href="#home" class="navbar-link">Home</a></li>
-                <li><a href="#services" class="navbar-link">Services</a></li>
-                <li><a href="#about" class="navbar-link">About</a></li>
-                <li><a href="#booking" class="navbar-link">Booking</a></li>
-                <li><a href="#contact" class="navbar-link">Contact</a></li>
-            </ul>
+<body class="driver-page">
+  <div class="driver-app">
+    <header class="driver-topbar">
+      <div class="driver-topbar-left">
+        <button class="icon-btn" id="menuToggle" aria-label="Open menu" title="Menu">
+          <i class="fas fa-bars"></i>
+        </button>
+        <img class="driver-avatar" id="driverAvatar" src="https://ui-avatars.com/api/?name=Driver&background=667eea&color=fff&rounded=true&size=80" alt="Driver profile" />
+        <div class="driver-intro">
+          <div class="driver-name" id="driverName">Driver</div>
+          <div class="driver-status" id="driverStatus">
+            <span class="status-dot offline"></span>
+            <span class="status-text">Offline</span>
+          </div>
         </div>
-   </nav>
-    
+      </div>
+
+      <div class="driver-topbar-right">
+        <div class="toggle-wrapper">
+          <div class="toggle-label" id="onlineLabel">Go Online</div>
+          <label class="switch">
+            <input id="onlineToggle" type="checkbox" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <button class="icon-btn" id="notifBtn" aria-label="Notifications">
+          <i class="fas fa-bell"></i>
+          <span class="badge" id="notifCount">0</span>
+        </button>
+      </div>
+    </header>
+
+    <aside class="driver-sidebar" aria-label="Primary navigation">
+      <div class="sidebar-inner">
+        <button class="nav-link active" data-section="dashboard">
+          <i class="fas fa-home"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-link" data-section="requests">
+          <i class="fas fa-bell"></i>
+          <span>Requests</span>
+        </button>
+        <button class="nav-link" data-section="activeRide">
+          <i class="fas fa-route"></i>
+          <span>Active Ride</span>
+        </button>
+        <button class="nav-link" data-section="earnings">
+          <i class="fas fa-wallet"></i>
+          <span>Earnings</span>
+        </button>
+        <button class="nav-link" data-section="history">
+          <i class="fas fa-history"></i>
+          <span>History</span>
+        </button>
+        <button class="nav-link" data-section="ratings">
+          <i class="fas fa-star"></i>
+          <span>Ratings</span>
+        </button>
+        <button class="nav-link" data-section="profile">
+          <i class="fas fa-user"></i>
+          <span>Profile</span>
+        </button>
+        <button class="nav-link" data-section="settings">
+          <i class="fas fa-cog"></i>
+          <span>Settings</span>
+        </button>
+        <button class="nav-link" data-section="notifications">
+          <i class="fas fa-envelope"></i>
+          <span>Notifications</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="driver-main">
+      <section id="dashboard" class="driver-section active">
+        <div class="section-header">
+          <h2>Dashboard</h2>
+          <p>Quick summary of your earnings, rides, and active status.</p>
+        </div>
+
+        <div class="summary-cards driver-cards">
+          <div class="card">
+            <h3>Today’s earnings</h3>
+            <p class="stat" id="statEarnings">$0</p>
+            <div class="card-meta">
+              <span>Trips</span> <strong id="statTrips">0</strong>
+              <span>Rating</span> <strong id="statRating">0.0</strong>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Active ride</h3>
+            <p class="stat" id="statActiveRide">None</p>
+            <div class="card-meta">
+              <span>Distance</span> <strong id="statDistance">0 km</strong>
+              <span>Fare</span> <strong id="statFare">$0</strong>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Notifications</h3>
+            <p class="stat" id="statNotifications">0</p>
+            <div class="card-meta">
+              <span>New</span> <strong id="statNewNotifs">0</strong>
+              <span>Unread</span> <strong id="statUnreadNotifs">0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="map-card">
+          <div class="map-header">
+            <h4>Live location</h4>
+            <span class="map-tag" id="mapStatus">Offline</span>
+          </div>
+          <div id="driverMap" class="map-placeholder" aria-label="Driver location map">
+            <span class="map-placeholder-text">Map ready when online</span>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn primary" id="actionGoOnline">Go Online</button>
+          <button class="btn outline" id="actionViewRequests">View Requests</button>
+        </div>
+      </section>
+
+      <section id="requests" class="driver-section">
+        <div class="section-header">
+          <h2>Ride Requests</h2>
+          <p>Accept or reject new rides quickly. You have 15 seconds to respond.</p>
+        </div>
+
+        <div class="request-panel" id="requestPanel">
+          <div class="request-empty" id="requestEmpty">
+            <p>No ride requests right now. Stay online to receive new requests.</p>
+          </div>
+
+          <div class="request-card hidden" id="incomingRequest">
+            <div class="request-top">
+              <div>
+                <h3 id="requestPassenger">Passenger Name</h3>
+                <p class="muted" id="requestRoute">Pickup → Drop-off</p>
+              </div>
+              <div class="request-timer" id="requestTimer">15</div>
+            </div>
+
+            <div class="request-meta">
+              <div>
+                <span class="meta-label">Estimated fare</span>
+                <span class="meta-value" id="requestFare">$0</span>
+              </div>
+              <div>
+                <span class="meta-label">Distance</span>
+                <span class="meta-value" id="requestDistance">0 km</span>
+              </div>
+            </div>
+
+            <div class="request-actions">
+              <button class="btn outline" id="rejectRequest">Reject</button>
+              <button class="btn primary" id="acceptRequest">Accept</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="activeRide" class="driver-section">
+        <div class="section-header">
+          <h2>Active Ride</h2>
+          <p>Control and track the current ride in real time.</p>
+        </div>
+
+        <div class="active-ride-panel" id="activeRidePanel">
+          <div class="active-ride-header">
+            <div>
+              <h3 id="activePassenger">Passenger</h3>
+              <p class="muted" id="activeRoute">Pickup → Drop-off</p>
+            </div>
+            <span class="badge" id="activeStatus">Waiting</span>
+          </div>
+
+          <div class="active-ride-details">
+            <div class="detail-row">
+              <span class="detail-label">Distance</span>
+              <span class="detail-value" id="activeDistance">0 km</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Fare</span>
+              <span class="detail-value" id="activeFare">$0</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Elapsed</span>
+              <span class="detail-value" id="activeElapsed">00:00</span>
+            </div>
+          </div>
+
+          <div class="actions-row">
+            <a class="btn outline" id="navButton" target="_blank" rel="noreferrer"><i class="fas fa-map-marked-alt"></i> Navigate</a>
+            <button class="btn primary" id="rideAction">Arrived</button>
+          </div>
+
+          <div class="ride-timeline" id="rideTimeline">
+            <div class="timeline-step" data-step="pickup">
+              <div class="timeline-dot"></div>
+              <div>
+                <h4>Pickup</h4>
+                <p class="muted" id="timelinePickup">Waiting</p>
+              </div>
+            </div>
+            <div class="timeline-step" data-step="enroute">
+              <div class="timeline-dot"></div>
+              <div>
+                <h4>En route</h4>
+                <p class="muted" id="timelineEnroute">Not started</p>
+              </div>
+            </div>
+            <div class="timeline-step" data-step="complete">
+              <div class="timeline-dot"></div>
+              <div>
+                <h4>Complete</h4>
+                <p class="muted" id="timelineComplete">Not started</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="active-ride-empty" id="activeRideEmpty">
+          <p>No active ride right now. Accept a ride request to start driving.</p>
+        </div>
+      </section>
+
+      <section id="earnings" class="driver-section">
+        <div class="section-header">
+          <h2>Earnings</h2>
+          <p>Track your daily and weekly revenue at a glance.</p>
+        </div>
+
+        <div class="summary-cards driver-cards">
+          <div class="card">
+            <h3>Today</h3>
+            <p class="stat" id="earningsToday">$0</p>
+          </div>
+          <div class="card">
+            <h3>This week</h3>
+            <p class="stat" id="earningsWeek">$0</p>
+          </div>
+          <div class="card">
+            <h3>Total trips</h3>
+            <p class="stat" id="earningsTrips">0</p>
+          </div>
+        </div>
+
+        <div class="chart-panel">
+          <div class="chart-header">
+            <h4>Earnings trend</h4>
+            <div class="chart-controls">
+              <button class="btn tiny active" data-range="week">Week</button>
+              <button class="btn tiny" data-range="month">Month</button>
+            </div>
+          </div>
+          <canvas id="earningsChart" aria-label="Earnings chart" role="img"></canvas>
+        </div>
+
+        <div class="breakdown-cards">
+          <div class="card">
+            <h4>Base fare</h4>
+            <p class="stat" id="breakdownBase">$0</p>
+          </div>
+          <div class="card">
+            <h4>Distance fare</h4>
+            <p class="stat" id="breakdownDistance">$0</p>
+          </div>
+          <div class="card">
+            <h4>Commission</h4>
+            <p class="stat" id="breakdownCommission">$0</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="history" class="driver-section">
+        <div class="section-header">
+          <h2>Ride History</h2>
+          <p>Review completed trips and earnings.</p>
+        </div>
+
+        <div class="history-controls">
+          <div class="filter-group">
+            <label>Filter</label>
+            <select id="historyFilter">
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div class="search-group">
+            <input id="historySearch" type="search" placeholder="Search passenger or ride ID" />
+            <button class="icon-btn" id="historySearchClear" aria-label="Clear search"><i class="fas fa-times"></i></button>
+          </div>
+        </div>
+
+        <div class="history-list" id="historyList">
+          <div class="history-empty">
+            <p>No rides completed yet. Complete a ride to see it here.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="ratings" class="driver-section">
+        <div class="section-header">
+          <h2>Ratings & Feedback</h2>
+          <p>Keep your rating high by delivering great service.</p>
+        </div>
+
+        <div class="rating-summary">
+          <div class="rating-score">
+            <div class="rating-value" id="ratingValue">0.0</div>
+            <div class="rating-stars" id="ratingStars">★★★★★</div>
+          </div>
+          <p class="muted" id="ratingCount">0 reviews</p>
+        </div>
+
+        <div class="reviews" id="reviewList">
+          <div class="review-empty">
+            <p>No reviews yet. Keep driving to earn feedback.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="profile" class="driver-section">
+        <div class="section-header">
+          <h2>Profile</h2>
+          <p>Manage your personal & vehicle information.</p>
+        </div>
+
+        <form id="profileForm" class="profile-form">
+          <div class="form-grid">
+            <label>Driver Name</label>
+            <input id="profileName" type="text" required />
+
+            <label>Phone</label>
+            <input id="profilePhone" type="tel" required />
+
+            <label>Vehicle</label>
+            <input id="profileVehicle" type="text" required />
+
+            <label>License Plate</label>
+            <input id="profilePlate" type="text" required />
+
+            <label>Upload photo</label>
+            <input id="profilePhoto" type="file" accept="image/*" />
+
+            <label>Upload documents</label>
+            <input id="profileDocs" type="file" accept="application/pdf,image/*" multiple />
+          </div>
+
+          <div class="actions-row">
+            <button type="submit" class="btn primary">Save Profile</button>
+            <button type="button" class="btn outline" id="resetProfile">Reset</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="settings" class="driver-section">
+        <div class="section-header">
+          <h2>Settings</h2>
+          <p>Control app behavior and preferences.</p>
+        </div>
+
+        <div class="settings-grid">
+          <div class="setting-card">
+            <div class="setting-head">
+              <h4>Notifications</h4>
+              <label class="switch small">
+                <input id="settingNotifications" type="checkbox" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <p class="muted">Toggle ride request and system alerts.</p>
+          </div>
+
+          <div class="setting-card">
+            <div class="setting-head">
+              <h4>Sound alerts</h4>
+              <label class="switch small">
+                <input id="settingSound" type="checkbox" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <p class="muted">Play a sound when a new ride arrives.</p>
+          </div>
+
+          <div class="setting-card">
+            <div class="setting-head">
+              <h4>Auto-accept</h4>
+              <label class="switch small">
+                <input id="settingAutoAccept" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <p class="muted">Automatically accept requests when online.</p>
+          </div>
+
+          <div class="setting-card">
+            <div class="setting-head">
+              <h4>Logout</h4>
+              <button class="btn outline" id="logoutBtn">Sign Out</button>
+            </div>
+            <p class="muted">Securely exit the driver dashboard.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="notifications" class="driver-section">
+        <div class="section-header">
+          <h2>Notifications</h2>
+          <p>Latest alerts and messages.</p>
+        </div>
+
+        <div class="notifications-list" id="notificationsList">
+          <div class="notification-empty">
+            <p>No notifications yet. Stay online to receive updates.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="driver-bottom-nav" aria-label="Bottom navigation">
+      <button class="bottom-nav-item active" data-section="dashboard">
+        <i class="fas fa-home"></i>
+        <span>Home</span>
+      </button>
+      <button class="bottom-nav-item" data-section="requests">
+        <i class="fas fa-bell"></i>
+        <span>Requests</span>
+      </button>
+      <button class="bottom-nav-item" data-section="activeRide">
+        <i class="fas fa-route"></i>
+        <span>Ride</span>
+      </button>
+      <button class="bottom-nav-item" data-section="earnings">
+        <i class="fas fa-wallet"></i>
+        <span>Earnings</span>
+      </button>
+      <button class="bottom-nav-item" data-section="notifications">
+        <i class="fas fa-envelope"></i>
+        <span>Alerts</span>
+      </button>
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="driver.js"></script>
 </body>
-<script src="script.js"></script>
 </html>

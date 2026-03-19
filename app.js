@@ -1012,7 +1012,8 @@ const TelekaAdmin = (() => {
           const section = item.dataset.section;
           if (section) {
             Renderer.setActiveSection(section);
-            if (window.innerWidth < 900) {
+            // Close the mobile sidebar on selection (matches CSS min-width behavior)
+            if (window.innerWidth <= 1024) {
               UI.toggleSidebar(true);
             }
           } else if (item.dataset.action === 'logout') {
@@ -1075,6 +1076,16 @@ const TelekaAdmin = (() => {
       // Mobile sidebar toggle
       DOM.qs('#mobileSidebarToggle').addEventListener('click', () => UI.toggleSidebar());
       DOM.qs('#toggleSidebar').addEventListener('click', () => UI.toggleSidebar());
+
+      // Collapse sidebar when tapping the logo on mobile/tablet
+      const sidebarLogo = DOM.qs('.sidebar-logo');
+      if (sidebarLogo) {
+        sidebarLogo.addEventListener('click', () => {
+          if (window.innerWidth <= 1024) {
+            UI.toggleSidebar(true);
+          }
+        });
+      }
 
       // User management handlers
       DOM.qs('#userSearch').addEventListener('input', () => Renderer.renderUsers());
@@ -1232,7 +1243,7 @@ const TelekaAdmin = (() => {
   const UI = {
     toggleSidebar(forceClose = false) {
       const sidebar = DOM.qs('.sidebar');
-      const isMobile = window.innerWidth < 1024;
+      const isMobile = window.innerWidth <= 1024;
 
       if (isMobile) {
         const isOpen = sidebar.classList.contains('open');
