@@ -213,6 +213,15 @@ const DriverApp = (() => {
   };
 
   const UI = {
+    syncMenuToggle() {
+      const menuToggle = document.getElementById('menuToggle');
+      if (!menuToggle || !appEl) return;
+      const isOpen = window.innerWidth <= 900
+        ? appEl.classList.contains('nav-open')
+        : !appEl.classList.contains('nav-closed');
+      menuToggle.setAttribute('aria-expanded', String(isOpen));
+    },
+
     setActiveSection(sectionId) {
       utils.qsa(selectors.section).forEach((section) => {
         section.classList.toggle('active', section.id === sectionId);
@@ -226,7 +235,7 @@ const DriverApp = (() => {
 
       // Keep sidebar small on mobile when changing sections.
       if (window.innerWidth <= 900 && appEl) {
-        appEl.classList.remove('nav-open');
+        UI.setNavState(false);
       }
     },
 
@@ -253,8 +262,15 @@ const DriverApp = (() => {
       UI.renderDashboard();
     },
 
+    setNavState(isOpen) {
+      if (!appEl) return;
+      appEl.classList.toggle('nav-open', isOpen);
+      UI.syncMenuToggle();
+    },
+
     toggleNav() {
-      document.body.classList.toggle('nav-closed');
+      if (!appEl) return;
+      UI.setNavState(!appEl.classList.contains('nav-open'));
     },
 
     showNotification(message, type = 'info') {
@@ -843,11 +859,15 @@ const DriverApp = (() => {
         UI.setActiveSection('notifications');
       });
 
-      // Menu toggle (mobile)
       const menuToggle = document.getElementById('menuToggle');
       if (menuToggle) {
         menuToggle.addEventListener('click', () => {
-          appEl?.classList.toggle('nav-open');
+          if (window.innerWidth <= 900) {
+            UI.toggleNav();
+            return;
+          }
+          appEl?.classList.toggle('nav-closed');
+          UI.syncMenuToggle();
         });
       }
 
@@ -868,7 +888,7 @@ const DriverApp = (() => {
           !evt.target.closest('.driver-topbar') &&
           !evt.target.closest('.bottom-nav-item')
         ) {
-          appEl?.classList.remove('nav-open');
+          UI.setNavState(false);
         }
       });
 
@@ -885,6 +905,8 @@ const DriverApp = (() => {
       if (saved) {
         Object.assign(state, saved);
       }
+      UI.setNavState(false);
+      UI.syncMenuToggle();
       UI.setActiveSection('dashboard');
       UI.renderProfile();
       UI.renderSettings();

@@ -3264,11 +3264,7 @@ footer {
         transform: translateX(-100%);
     }
 
-    .driver-app.nav-closed .driver-sidebar {
-        transform: translateX(-100%);
-    }
-
-    .driver-app:not(.nav-closed) .driver-sidebar {
+    .driver-app.nav-open .driver-sidebar {
         transform: translateX(0);
     }
 
@@ -3276,4 +3272,3 @@ footer {
         padding-bottom: 72px;
     }
 }
-
