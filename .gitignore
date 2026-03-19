@@ -22,6 +22,7 @@ build/
 
 # Database / data files
 rides.json
+data/
 
 # IDE / editor files
 .vscode/

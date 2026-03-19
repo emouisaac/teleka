@@ -75,6 +75,31 @@
       </header>
 
       <div class="main-content" id="mainContent">
+        <section id="adminAuthPanel" class="section active">
+          <div class="section-header">
+            <h2>Admin Sign In</h2>
+            <p>Authenticated admin access is required for operational data and platform controls.</p>
+          </div>
+
+          <div class="panel">
+            <form class="settings-form" id="adminLoginForm">
+              <div class="form-grid">
+                <div class="form-row">
+                  <label>Email</label>
+                  <input id="adminEmail" type="email" required />
+                </div>
+                <div class="form-row">
+                  <label>Password</label>
+                  <input id="adminPassword" type="password" required />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button class="btn" type="submit">Sign In</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
         <section id="overview" class="section active">
           <div class="section-header">
             <h2>Real-time Overview</h2>
