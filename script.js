@@ -19,6 +19,8 @@ const appState = {
   profile: loadJson(STORAGE_KEYS.customerProfile, {}),
   eventSource: null,
   lastRideStatus: '',
+  notifications: [],
+  audioContext: null,
 };
 
 function loadJson(key, fallback) {
@@ -56,6 +58,47 @@ function formatUGX(amount) {
     maximumFractionDigits: 0,
   }).format(Number(amount) || 0);
 }
+
+const AudioAlerts = {
+  unlock() {
+    if (appState.audioContext) return appState.audioContext;
+    const AudioContextRef = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextRef) return null;
+    appState.audioContext = new AudioContextRef();
+    if (appState.audioContext.state === 'suspended') appState.audioContext.resume().catch(() => {});
+    return appState.audioContext;
+  },
+  pulse(frequency, startAt, duration, gainValue) {
+    const context = AudioAlerts.unlock();
+    if (!context) return;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, startAt);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + duration + 0.05);
+  },
+  playNotification() {
+    const context = AudioAlerts.unlock();
+    if (!context) return;
+    const startAt = context.currentTime + 0.02;
+    AudioAlerts.pulse(698, startAt, 0.14, 0.045);
+    AudioAlerts.pulse(880, startAt + 0.18, 0.18, 0.04);
+  },
+  playRideAccepted() {
+    const context = AudioAlerts.unlock();
+    if (!context) return;
+    const startAt = context.currentTime + 0.02;
+    AudioAlerts.pulse(784, startAt, 0.16, 0.05);
+    AudioAlerts.pulse(988, startAt + 0.2, 0.18, 0.05);
+    AudioAlerts.pulse(1174, startAt + 0.42, 0.24, 0.055);
+  },
+};
 
 function setCurrentDate() {
   const dateEl = document.getElementById('current-date');
@@ -206,12 +249,19 @@ async function syncCustomerSession(resetAuth = false) {
 }
 
 async function refreshCustomerState() {
+  const previousNotificationIds = new Set((appState.notifications || []).map((item) => item.id));
   const data = await api('/api/customer/state');
   const rides = data.rides || [];
   const activeRide = data.activeRide;
   if (activeRide && appState.lastRideStatus && appState.lastRideStatus !== activeRide.status && activeRide.status === 'accepted') {
+    AudioAlerts.playRideAccepted();
     showMessage(`Your ride was accepted by ${activeRide.driverName}. Driver contact: ${activeRide.driverPhone || 'Unavailable'}`);
   }
+  const latestNotification = (data.notifications || [])[0];
+  if (appState.notifications.length && latestNotification && !previousNotificationIds.has(latestNotification.id) && activeRide?.status !== 'accepted') {
+    AudioAlerts.playNotification();
+  }
+  appState.notifications = data.notifications || [];
   appState.lastRideStatus = activeRide ? activeRide.status : '';
   document.getElementById('upcoming-ride-status').textContent = data.activeRide
     ? `${data.activeRide.status.toUpperCase()}: ${data.activeRide.pickup} to ${data.activeRide.dropoff}`
@@ -399,6 +449,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initProfileForm();
   initFooterToggles();
   addServiceIcons();
+  document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
+  document.addEventListener('keydown', AudioAlerts.unlock, { once: true });
   document.querySelector('.settings-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     showMessage('Settings saved on this device.');

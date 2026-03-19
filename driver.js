@@ -2,15 +2,18 @@ const DriverApp = (() => {
   const STORAGE_KEYS = {
     driverAuth: 'telekaDriverAuth',
     driverProfile: 'telekaDriverProfile',
+    driverSettings: 'telekaDriverSettings',
   };
 
   const appEl = document.querySelector('.driver-app');
   const state = {
     auth: loadJson(STORAGE_KEYS.driverAuth, { driverId: '', token: '' }),
     profile: loadJson(STORAGE_KEYS.driverProfile, {}),
+    settings: loadJson(STORAGE_KEYS.driverSettings, { notifications: true, sound: true, autoAccept: false }),
     data: null,
     chart: null,
     eventSource: null,
+    audioContext: null,
   };
 
   function loadJson(key, fallback) {
@@ -65,6 +68,69 @@ const DriverApp = (() => {
     },
   };
 
+  const AudioAlerts = {
+    unlock() {
+      if (state.audioContext) return state.audioContext;
+      const AudioContextRef = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextRef) return null;
+      state.audioContext = new AudioContextRef();
+      if (state.audioContext.state === 'suspended') state.audioContext.resume().catch(() => {});
+      return state.audioContext;
+    },
+    pulse(frequency, startAt, duration, gainValue) {
+      const context = AudioAlerts.unlock();
+      if (!context) return;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.05);
+    },
+    playRideRequest() {
+      if (!state.settings.notifications || !state.settings.sound) return;
+      const context = AudioAlerts.unlock();
+      if (!context) return;
+      const startAt = context.currentTime + 0.02;
+      AudioAlerts.pulse(880, startAt, 0.24, 0.08);
+      AudioAlerts.pulse(660, startAt + 0.3, 0.24, 0.08);
+      AudioAlerts.pulse(880, startAt + 0.6, 0.32, 0.09);
+    },
+    playNotification() {
+      if (!state.settings.notifications || !state.settings.sound) return;
+      const context = AudioAlerts.unlock();
+      if (!context) return;
+      const startAt = context.currentTime + 0.02;
+      AudioAlerts.pulse(740, startAt, 0.14, 0.05);
+      AudioAlerts.pulse(988, startAt + 0.16, 0.18, 0.04);
+    },
+  };
+
+  function persistSettings() {
+    saveJson(STORAGE_KEYS.driverSettings, state.settings);
+  }
+
+  function handleRealtimeAlerts(previousData, nextData) {
+    if (!previousData) return;
+    const previousRequestIds = new Set((previousData.availableRequests || []).map((ride) => ride.id));
+    const nextRequest = (nextData.availableRequests || [])[0];
+    if (nextData.driver?.online && nextRequest && !previousRequestIds.has(nextRequest.id)) {
+      AudioAlerts.playRideRequest();
+      utils.toast('New ride request received.');
+      return;
+    }
+    const previousNotificationIds = new Set((previousData.notifications || []).map((item) => item.id));
+    const latestNotification = (nextData.notifications || [])[0];
+    if (latestNotification && !previousNotificationIds.has(latestNotification.id)) {
+      AudioAlerts.playNotification();
+    }
+  }
+
   const UI = {
     syncMenuToggle() {
       const button = document.getElementById('menuToggle');
@@ -102,10 +168,16 @@ const DriverApp = (() => {
       }
     },
     toggleRegisterForm(forceOpen) {
+      const authShell = utils.qs('.driver-auth-shell');
+      const authHero = utils.qs('.driver-auth-hero');
+      const loginCard = utils.qs('.driver-auth-card--login');
       const registerCard = utils.qs('#driverRegisterCard');
       const toggleButton = utils.qs('#showRegisterForm');
-      if (!registerCard || !toggleButton) return;
+      if (!registerCard || !toggleButton || !authShell || !authHero || !loginCard) return;
       const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : registerCard.classList.contains('hidden');
+      authShell.classList.toggle('driver-auth-shell--register-only', shouldOpen);
+      authHero.classList.toggle('hidden', shouldOpen);
+      loginCard.classList.toggle('hidden', shouldOpen);
       registerCard.classList.toggle('hidden', !shouldOpen);
       toggleButton.setAttribute('aria-expanded', String(shouldOpen));
       toggleButton.textContent = shouldOpen ? 'Hide registration form' : 'No account? Register';
@@ -149,6 +221,9 @@ const DriverApp = (() => {
       utils.qs('#statUnreadNotifs').textContent = String(notifications.length);
       utils.qs('#notifCount').textContent = String(notifications.length);
       utils.qs('#notifCount').style.display = notifications.length ? 'inline-flex' : 'none';
+      utils.qs('#settingNotifications').checked = state.settings.notifications;
+      utils.qs('#settingSound').checked = state.settings.sound;
+      utils.qs('#settingAutoAccept').checked = state.settings.autoAccept;
 
       if (activeRide) {
         utils.qs('#statActiveRide').textContent = activeRide.status;
@@ -276,6 +351,7 @@ const DriverApp = (() => {
       Actions.ensureEvents();
     },
     async refresh() {
+      const previousData = state.data;
       state.data = await utils.api('/api/driver/state');
       state.profile = state.data.driver;
       state.auth.driverId = state.data.driver.id;
@@ -283,6 +359,7 @@ const DriverApp = (() => {
       saveJson(STORAGE_KEYS.driverProfile, state.profile);
       UI.setAuthenticated(true);
       UI.render();
+      handleRealtimeAlerts(previousData, state.data);
     },
     ensureEvents() {
       if (!state.auth.token || state.eventSource) return;
@@ -393,6 +470,7 @@ const DriverApp = (() => {
         Actions.login().catch((error) => utils.toast(error.message));
       });
       utils.qs('#showRegisterForm').addEventListener('click', () => UI.toggleRegisterForm());
+      utils.qs('#showLoginForm').addEventListener('click', () => UI.toggleRegisterForm(false));
       utils.qs('#driverRegisterForm').addEventListener('submit', (event) => {
         event.preventDefault();
         Actions.register().catch((error) => utils.toast(error.message));
@@ -410,7 +488,21 @@ const DriverApp = (() => {
       utils.qs('#logoutBtn').addEventListener('click', Actions.logout);
       utils.qs('#notifBtn').addEventListener('click', () => UI.setActiveSection('notifications'));
       utils.qs('#driverAvatar').addEventListener('click', () => UI.setActiveSection('profile'));
+      utils.qs('#settingNotifications').addEventListener('change', (event) => {
+        state.settings.notifications = event.target.checked;
+        persistSettings();
+      });
+      utils.qs('#settingSound').addEventListener('change', (event) => {
+        state.settings.sound = event.target.checked;
+        persistSettings();
+      });
+      utils.qs('#settingAutoAccept').addEventListener('change', (event) => {
+        state.settings.autoAccept = event.target.checked;
+        persistSettings();
+      });
       document.getElementById('menuToggle')?.addEventListener('click', UI.toggleNav);
+      document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
+      document.addEventListener('keydown', AudioAlerts.unlock, { once: true });
       document.addEventListener('click', (event) => {
         if (window.innerWidth <= 900 && !event.target.closest('.driver-sidebar') && !event.target.closest('.driver-topbar') && !event.target.closest('.bottom-nav-item')) {
           UI.setNavState(false);

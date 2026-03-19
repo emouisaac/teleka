@@ -209,6 +209,28 @@
 
           <div class="panel">
             <div class="panel-header">
+              <h3>Password Reset Requests</h3>
+              <span class="panel-subtitle">Review driver WhatsApp reset requests and send follow-up details.</span>
+            </div>
+            <div class="table-responsive">
+              <table class="table" aria-label="Driver password reset requests">
+                <thead>
+                  <tr>
+                    <th>Driver</th>
+                    <th>Registered Phone</th>
+                    <th>WhatsApp</th>
+                    <th>Status</th>
+                    <th>Requested</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="driverResetRequestsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
               <h3>Approved Drivers</h3>
               <span class="panel-subtitle">Drivers who can log in, go online, and receive rides.</span>
             </div>
@@ -223,6 +245,7 @@
                     <th>Verification</th>
                     <th>Current Ride</th>
                     <th>Earnings</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="driversTableBody"></tbody>

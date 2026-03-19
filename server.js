@@ -56,6 +56,7 @@ const baseState = () => ({
   drivers: [],
   rides: [],
   notifications: [],
+  passwordResetRequests: [],
   meta: { startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 });
 
@@ -73,6 +74,7 @@ function loadState() {
       drivers: parsed.drivers || [],
       rides: parsed.rides || [],
       notifications: parsed.notifications || [],
+      passwordResetRequests: parsed.passwordResetRequests || [],
       meta: { ...baseState().meta, ...(parsed.meta || {}) },
     };
   } catch {
@@ -179,6 +181,7 @@ function adminState() {
     customers: recent(state.customers).map(safeCustomer),
     drivers: recent(state.drivers).map(safeDriver),
     driverApplications: recent(state.drivers.filter((driver) => driver.approvalStatus !== 'approved')).map(safeDriver),
+    passwordResetRequests: recent(state.passwordResetRequests || []),
     rides,
     notifications: filterNotifications('admin').slice(0, 50),
     summary: {
@@ -317,6 +320,35 @@ function loginDriver(body) {
   return { driver: safeDriver(driver), token: issueToken('driver', driver.id) };
 }
 
+function createPasswordResetRequest(body) {
+  const whatsappNumber = text(body.whatsappNumber);
+  if (!whatsappNumber) {
+    throw new Error('Registered WhatsApp number is required');
+  }
+  const driver = findDriverByPhone(whatsappNumber);
+  if (!driver) {
+    throw new Error('No driver account found for that registered WhatsApp number');
+  }
+  const request = {
+    id: id('reset'),
+    driverId: driver.id,
+    driverName: driver.name,
+    registeredPhone: driver.phone,
+    whatsappNumber,
+    status: 'pending',
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  state.passwordResetRequests.unshift(request);
+  saveState();
+  notification({
+    targetType: 'admin',
+    type: 'warning',
+    message: `Password reset requested by ${driver.name} (${whatsappNumber})`,
+  });
+  return request;
+}
+
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -430,6 +462,11 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/drivers/login' && req.method === 'POST') {
     try { return sendJson(res, 200, { ok: true, data: loginDriver(await parseJsonBody(req)) }), true; }
     catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
+  }
+
+  if (pathname === '/api/drivers/password-reset-request' && req.method === 'POST') {
+    try { return sendJson(res, 201, { ok: true, data: createPasswordResetRequest(await parseJsonBody(req)) }), broadcastState(), true; }
+    catch (error) { return sendJson(res, 400, { ok: false, message: error.message }), true; }
   }
 
   if (pathname === '/api/admin/state' && req.method === 'GET') {
@@ -547,6 +584,46 @@ async function handleApi(req, res, url) {
     notification({ targetType: 'admin', message: `Driver rejected: ${driver.name}` });
     broadcastState();
     return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
+  }
+
+  const resetDriverPassword = routeMatches(pathname, '/api/admin/drivers/:driverId/reset-password');
+  if (resetDriverPassword && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const body = await parseJsonBody(req);
+    const driver = findDriver(resetDriverPassword.driverId);
+    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
+    const newPassword = text(body.password);
+    if (newPassword.length < 6) {
+      return sendJson(res, 400, { ok: false, message: 'New password must be at least 6 characters' }), true;
+    }
+    driver.passwordHash = hash(newPassword);
+    driver.updatedAt = now();
+    state.passwordResetRequests = (state.passwordResetRequests || []).map((request) => {
+      if (request.driverId !== driver.id || request.status !== 'pending') return request;
+      return { ...request, status: 'reset', updatedAt: now(), adminMessage: text(body.adminMessage) };
+    });
+    saveState();
+    notification({ targetType: 'driver', targetId: driver.id, message: 'Your driver password was reset by admin. Use the new password to log in.' });
+    notification({ targetType: 'admin', message: `Driver password reset: ${driver.name}` });
+    broadcastState();
+    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
+  }
+
+  const markResetWhatsapp = routeMatches(pathname, '/api/admin/password-reset-requests/:requestId/whatsapp');
+  if (markResetWhatsapp && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const body = await parseJsonBody(req);
+    const request = (state.passwordResetRequests || []).find((item) => item.id === markResetWhatsapp.requestId);
+    if (!request) return sendJson(res, 404, { ok: false, message: 'Password reset request not found' }), true;
+    request.status = body.status === 'sent' ? 'sent' : request.status;
+    request.updatedAt = now();
+    request.adminMessage = text(body.adminMessage, request.adminMessage || '');
+    saveState();
+    notification({ targetType: 'admin', message: `WhatsApp follow-up sent for ${request.driverName}` });
+    broadcastState();
+    return sendJson(res, 200, { ok: true, data: request }), true;
   }
 
   const accept = routeMatches(pathname, '/api/rides/:rideId/accept');

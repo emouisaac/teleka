@@ -12,6 +12,14 @@
       <div class="section active">
         <h1>Ride Chat</h1>
         <p id="chatSummary">Loading ride conversation...</p>
+        <form id="resetRequestForm" class="profile-form hidden">
+          <label>Registered WhatsApp Number</label>
+          <input id="resetWhatsappNumber" type="tel" placeholder="+256..." required />
+          <div class="actions-row">
+            <button type="submit" class="btn">Submit Reset Request</button>
+            <a id="resetBackLink" href="driver.html" class="btn">Back</a>
+          </div>
+        </form>
         <div class="map-card">
           <div id="chatMessages" class="notifications-list">
             <div class="notification-empty">

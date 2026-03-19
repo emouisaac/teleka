@@ -2746,6 +2746,11 @@ footer {
     align-items: start;
 }
 
+.driver-auth-shell--register-only {
+    grid-template-columns: minmax(320px, 720px);
+    justify-content: center;
+}
+
 .driver-auth-hero {
     border-radius: 22px;
     padding: 1.5rem;
@@ -2846,6 +2851,15 @@ footer {
 }
 
 .driver-auth-toggle:hover {
+    text-decoration: underline;
+}
+
+.driver-auth-inline-link {
+    color: #215a98;
+    font-weight: 700;
+}
+
+.driver-auth-inline-link:hover {
     text-decoration: underline;
 }
 

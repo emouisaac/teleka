@@ -4,6 +4,8 @@ const TelekaAdmin = (() => {
     auth: loadJson(STORAGE_KEY, { email: '', token: '' }),
     data: null,
     eventSource: null,
+    promptedResetIds: [],
+    audioContext: null,
   };
 
   function loadJson(key, fallback) {
@@ -51,6 +53,63 @@ const TelekaAdmin = (() => {
       });
     },
   };
+
+  const AudioAlerts = {
+    unlock() {
+      if (state.audioContext) return state.audioContext;
+      const AudioContextRef = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextRef) return null;
+      state.audioContext = new AudioContextRef();
+      if (state.audioContext.state === 'suspended') state.audioContext.resume().catch(() => {});
+      return state.audioContext;
+    },
+    pulse(frequency, startAt, duration, gainValue) {
+      const context = AudioAlerts.unlock();
+      if (!context) return;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'triangle';
+      oscillator.frequency.setValueAtTime(frequency, startAt);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.05);
+    },
+    playRideRequest() {
+      const context = AudioAlerts.unlock();
+      if (!context) return;
+      const startAt = context.currentTime + 0.02;
+      AudioAlerts.pulse(784, startAt, 0.18, 0.06);
+      AudioAlerts.pulse(988, startAt + 0.22, 0.18, 0.06);
+      AudioAlerts.pulse(1174, startAt + 0.44, 0.26, 0.07);
+    },
+    playNotification() {
+      const context = AudioAlerts.unlock();
+      if (!context) return;
+      const startAt = context.currentTime + 0.02;
+      AudioAlerts.pulse(622, startAt, 0.12, 0.045);
+      AudioAlerts.pulse(831, startAt + 0.16, 0.16, 0.04);
+    },
+  };
+
+  function handleRealtimeAlerts(previousData, nextData) {
+    if (!previousData) return;
+    const previousPendingRideIds = new Set((previousData.rides || []).filter((ride) => ride.status === 'pending').map((ride) => ride.id));
+    const nextPendingRide = (nextData.rides || []).find((ride) => ride.status === 'pending' && !previousPendingRideIds.has(ride.id));
+    if (nextPendingRide) {
+      AudioAlerts.playRideRequest();
+      DOM.toast(`New ride request ${nextPendingRide.id} received.`);
+      return;
+    }
+    const previousNotificationIds = new Set((previousData.notifications || []).map((item) => item.id));
+    const latestNotification = (nextData.notifications || [])[0];
+    if (latestNotification && !previousNotificationIds.has(latestNotification.id)) {
+      AudioAlerts.playNotification();
+    }
+  }
 
   const UI = {
     toggleSidebar(forceClose = false) {
@@ -114,7 +173,10 @@ const TelekaAdmin = (() => {
         <td>${driver.documents?.verified ? 'verified' : (driver.approvalStatus || 'pending')}</td>
         <td>${driver.currentRideId || '-'}</td>
         <td>${DOM.money(driver.earningsTotal || 0)}</td>
-      `, 7, 'No drivers registered yet.');
+        <td>${driver.approvalStatus === 'approved'
+          ? `<button class="btn small" data-action="reset-driver-password" data-id="${driver.id}">Reset Password</button>`
+          : '-'}</td>
+      `, 8, 'No drivers registered yet.');
 
       renderTable('#driverApplicationsBody', data.driverApplications || [], (driver) => `
         <td>${driver.name}</td>
@@ -127,6 +189,18 @@ const TelekaAdmin = (() => {
              <button class="btn small secondary" data-action="reject-driver" data-id="${driver.id}">Reject</button>`
           : (driver.approvalNotes || '-')}</td>
       `, 6, 'No pending driver applications.');
+
+      renderTable('#driverResetRequestsBody', data.passwordResetRequests || [], (request) => `
+        <td>${request.driverName}</td>
+        <td>${request.registeredPhone}</td>
+        <td>${request.whatsappNumber}</td>
+        <td>${request.status}</td>
+        <td>${new Date(request.createdAt).toLocaleString()}</td>
+        <td>${request.status === 'pending'
+          ? `<button class="btn small" data-action="send-reset-whatsapp" data-id="${request.id}">Send via WhatsApp</button>
+             <button class="btn small secondary" data-action="reset-driver-password" data-id="${request.driverId}">Reset Password</button>`
+          : (request.adminMessage || '-')}</td>
+      `, 6, 'No password reset requests.');
 
       renderTable('#ridesTableBody', data.rides, (ride) => `
         <td>${ride.id}</td>
@@ -162,6 +236,15 @@ const TelekaAdmin = (() => {
       DOM.qs('#settingPerMin').value = data.settings.perMin;
       DOM.qs('#settingSurge').value = data.settings.surge;
       DOM.qs('#settingCancelFee').value = data.settings.cancelFee;
+
+      (data.passwordResetRequests || [])
+        .filter((request) => request.status === 'pending' && !state.promptedResetIds.includes(request.id))
+        .forEach((request) => {
+          state.promptedResetIds.push(request.id);
+          if (window.confirm(`Password reset requested by ${request.driverName} on ${request.whatsappNumber}. Send a WhatsApp response now?`)) {
+            Actions.sendResetViaWhatsApp(request.id).catch((error) => DOM.toast(error.message));
+          }
+        });
     },
   };
 
@@ -205,8 +288,10 @@ const TelekaAdmin = (() => {
       Actions.ensureEvents();
     },
     async refresh() {
+      const previousData = state.data;
       state.data = await DOM.api('/api/admin/state');
       UI.render();
+      handleRealtimeAlerts(previousData, state.data);
     },
     ensureEvents() {
       if (!state.auth.token || state.eventSource) return;
@@ -235,6 +320,30 @@ const TelekaAdmin = (() => {
       await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/reject`, { method: 'POST', body: JSON.stringify({ notes }) });
       await Actions.refresh();
       DOM.toast('Driver rejected.');
+    },
+    async resetDriverPassword(driverId) {
+      const password = window.prompt('Enter the new temporary password for this driver');
+      if (!password) return;
+      await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/reset-password`, { method: 'POST', body: JSON.stringify({ password, adminMessage: 'Password reset by admin' }) });
+      await Actions.refresh();
+      DOM.toast('Driver password reset.');
+    },
+    async sendResetViaWhatsApp(requestId) {
+      const request = (state.data?.passwordResetRequests || []).find((item) => item.id === requestId);
+      if (!request) return;
+      const message = window.prompt(
+        'WhatsApp message to send',
+        `Hello ${request.driverName}, your password reset request has been received. Reply here once you are ready to receive your temporary password.`
+      );
+      if (!message) return;
+      const whatsappNumber = request.whatsappNumber.replace(/[^\d]/g, '');
+      await DOM.api(`/api/admin/password-reset-requests/${encodeURIComponent(requestId)}/whatsapp`, {
+        method: 'POST',
+        body: JSON.stringify({ status: 'sent', adminMessage: message }),
+      });
+      window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+      await Actions.refresh();
+      DOM.toast('WhatsApp handoff prepared.');
     },
     async sendNotification() {
       const target = DOM.qs('#notificationTarget').value;
@@ -286,7 +395,13 @@ const TelekaAdmin = (() => {
         if (approve) Actions.approveDriver(approve.dataset.id).catch((error) => DOM.toast(error.message));
         const reject = event.target.closest('[data-action="reject-driver"]');
         if (reject) Actions.rejectDriver(reject.dataset.id).catch((error) => DOM.toast(error.message));
+        const resetPassword = event.target.closest('[data-action="reset-driver-password"]');
+        if (resetPassword) Actions.resetDriverPassword(resetPassword.dataset.id).catch((error) => DOM.toast(error.message));
+        const sendWhatsApp = event.target.closest('[data-action="send-reset-whatsapp"]');
+        if (sendWhatsApp) Actions.sendResetViaWhatsApp(sendWhatsApp.dataset.id).catch((error) => DOM.toast(error.message));
       });
+      document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
+      document.addEventListener('keydown', AudioAlerts.unlock, { once: true });
       document.addEventListener('click', (event) => {
         if (window.innerWidth <= 1024 && !event.target.closest('.sidebar') && !event.target.closest('#mobileSidebarToggle')) {
           UI.toggleSidebar(true);

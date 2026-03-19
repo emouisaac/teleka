@@ -1,5 +1,6 @@
 const params = new URLSearchParams(window.location.search);
 const role = params.get('role') || 'customer';
+const mode = params.get('mode') || 'chat';
 let rideId = params.get('rideId') || '';
 
 const authStorageKey = role === 'driver' ? 'telekaDriverAuth' : 'telekaCustomerAuth';
@@ -8,10 +9,12 @@ const auth = loadJson(authStorageKey, { token: '' });
 const chatMessages = document.getElementById('chatMessages');
 const chatSummary = document.getElementById('chatSummary');
 const chatBackLink = document.getElementById('chatBackLink');
+const resetForm = document.getElementById('resetRequestForm');
+const chatForm = document.getElementById('chatForm');
 
-if (chatBackLink) {
-  chatBackLink.href = backLink;
-}
+if (chatBackLink) chatBackLink.href = backLink;
+const resetBackLink = document.getElementById('resetBackLink');
+if (resetBackLink) resetBackLink.href = backLink;
 
 function loadJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
@@ -30,6 +33,15 @@ function api(url, options = {}) {
     if (!response.ok || !payload.ok) throw new Error(payload.message || `Request failed: ${response.status}`);
     return payload.data;
   });
+}
+
+function setResetMode() {
+  document.title = 'Teleka Taxi - Password Reset Request';
+  document.querySelector('h1').textContent = 'Password Reset Request';
+  chatSummary.textContent = 'Enter your registered WhatsApp number so the admin can receive and follow up on your password reset request.';
+  resetForm?.classList.remove('hidden');
+  chatForm?.classList.add('hidden');
+  document.querySelector('.map-card')?.classList.add('hidden');
 }
 
 async function ensureRideId() {
@@ -79,7 +91,28 @@ async function refreshChat() {
   renderChat(data);
 }
 
-document.getElementById('chatForm')?.addEventListener('submit', async (event) => {
+resetForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await fetch('/api/drivers/password-reset-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        whatsappNumber: document.getElementById('resetWhatsappNumber').value.trim(),
+      }),
+    }).then(async (response) => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) throw new Error(payload.message || `Request failed: ${response.status}`);
+      return payload.data;
+    });
+    chatSummary.textContent = 'Reset request submitted. The admin has been notified and can follow up with you on WhatsApp.';
+    resetForm.reset();
+  } catch (error) {
+    window.alert(error.message);
+  }
+});
+
+chatForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
   const input = document.getElementById('chatInput');
   const currentRideId = await ensureRideId();
@@ -95,7 +128,9 @@ document.getElementById('chatForm')?.addEventListener('submit', async (event) =>
   await refreshChat();
 });
 
-if (!auth.token) {
+if (mode === 'reset') {
+  setResetMode();
+} else if (!auth.token) {
   chatSummary.textContent = 'You must be logged in to access ride chat.';
 } else {
   refreshChat().catch((error) => {
