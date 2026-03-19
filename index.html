@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <link rel="icon" type="image/png" href="ims/ticon.png">
+    <link rel="icon" type="image/png" href="ims/t2icon.png">
 </head>
 <body>
    <nav class="navbar">
@@ -263,6 +263,24 @@
                             <p>Call details and chat access appear as soon as a driver is assigned.</p>
                         </div>
                     </div>
+
+                    <div class="map-card">
+                        <h3>Driver Conversation</h3>
+                        <p id="customer-chat-summary">Chat becomes active when a driver accepts your ride.</p>
+                        <div id="customer-chat-preview" class="notifications-list">
+                            <div class="notification-empty">
+                                <p>No messages yet.</p>
+                            </div>
+                        </div>
+                        <form id="customer-chat-form" class="profile-form">
+                            <label for="customer-chat-input">Reply to Driver</label>
+                            <textarea id="customer-chat-input" rows="4" placeholder="Type your message to the driver..." required></textarea>
+                            <div class="actions-row">
+                                <button id="customer-chat-send" type="submit" class="btn">Send Message</button>
+                                <a id="customer-chat-link" href="chat.html?role=customer" class="btn">Open Chat</a>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
                 <h1>Ride History</h1>
@@ -311,7 +329,7 @@
                 <h1>Ride Chat</h1>
                 <p>Open your live chat with the assigned driver when your ride has been accepted.</p>
                 <div class="actions-row">
-                    <a id="customer-chat-link" href="chat.html?role=customer" class="btn">Open Chat</a>
+                    <a id="customer-chat-link-secondary" href="chat.html?role=customer" class="btn">Open Chat</a>
                 </div>
             </div>
             <div id="settings" class="section">

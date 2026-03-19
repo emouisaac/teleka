@@ -1,12 +1,19 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 
 const baseDir = path.resolve(__dirname);
-const dataDir = path.join(baseDir, 'data');
+const appDataDir = process.env.TELEKA_DATA_DIR
+  || (process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Teleka')
+    : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'teleka'));
+const legacyDataDir = path.join(baseDir, 'data');
+const dataDir = appDataDir;
 const dataFile = path.join(dataDir, 'teleka-store.json');
+const legacyDataFile = path.join(legacyDataDir, 'teleka-store.json');
 
 function loadEnv() {
   const out = {};
@@ -63,7 +70,15 @@ const baseState = () => ({
 let state = loadState();
 const sseClients = new Set();
 
+function ensurePersistentStore() {
+  if (fs.existsSync(dataFile)) return;
+  if (!fs.existsSync(legacyDataFile)) return;
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.copyFileSync(legacyDataFile, dataFile);
+}
+
 function loadState() {
+  ensurePersistentStore();
   try {
     const parsed = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     return {
@@ -95,9 +110,15 @@ function num(value, fallback = 0) { const n = Number(value); return Number.isFin
 function money(value) { return Math.round(num(value, 0)); }
 function hash(value) { return crypto.createHash('sha256').update(String(value)).digest('hex'); }
 function secret() { return crypto.randomBytes(24).toString('hex'); }
+function normalizePhone(value) { return text(value).replace(/\s+/g, ''); }
+function normalizeEmail(value) { return text(value).toLowerCase(); }
+function normalizePlate(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
 function findCustomer(customerId) { return state.customers.find((item) => item.id === customerId); }
 function findDriver(driverId) { return state.drivers.find((item) => item.id === driverId); }
-function findDriverByPhone(phone) { return state.drivers.find((item) => item.phone === phone); }
+function findCustomerByPhone(phone) { return state.customers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
+function findCustomerByEmail(email) { return state.customers.find((item) => normalizeEmail(item.email) && normalizeEmail(item.email) === normalizeEmail(email)); }
+function findDriverByPhone(phone) { return state.drivers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
+function findDriverByPlate(plate) { return state.drivers.find((item) => normalizePlate(item.plate) && normalizePlate(item.plate) === normalizePlate(plate)); }
 function findRide(rideId) { return state.rides.find((item) => item.id === rideId); }
 function safeCustomer(customer) { if (!customer) return null; const { accessKeyHash, ...safe } = customer; return safe; }
 function safeDriver(driver) { if (!driver) return null; const { accessKeyHash, passwordHash, ...safe } = driver; return safe; }
@@ -242,6 +263,17 @@ function createCustomerSession(body) {
     return { customer: safeCustomer(existing), accessKey: text(body.accessKey), token: issueToken('customer', existing.id) };
   }
   const accessKey = secret();
+  const matchedCustomer = findCustomerByPhone(body.phone) || findCustomerByEmail(body.email);
+  if (matchedCustomer) {
+    matchedCustomer.name = text(body.name, matchedCustomer.name);
+    matchedCustomer.email = text(body.email, matchedCustomer.email);
+    matchedCustomer.phone = text(body.phone, matchedCustomer.phone);
+    matchedCustomer.accessKeyHash = hash(accessKey);
+    matchedCustomer.updatedAt = now();
+    saveState();
+    notification({ targetType: 'admin', message: `Customer profile reused: ${matchedCustomer.name}` });
+    return { customer: safeCustomer(matchedCustomer), accessKey, token: issueToken('customer', matchedCustomer.id) };
+  }
   const customer = {
     id: id('cust'),
     name: text(body.name, 'Customer'),
@@ -258,20 +290,25 @@ function createCustomerSession(body) {
 }
 
 function registerDriver(body) {
-  const phone = text(body.phone);
+  const phone = normalizePhone(body.phone);
+  const plate = normalizePlate(body.plate);
   if (!phone) throw new Error('Phone number is required');
+  if (!plate) throw new Error('Vehicle plate is required');
   if (!text(body.password) || text(body.password).length < 6) {
     throw new Error('Driver password must be at least 6 characters');
   }
   if (findDriverByPhone(phone)) {
     throw new Error('A driver account with this phone number already exists');
   }
+  if (findDriverByPlate(plate)) {
+    throw new Error('A driver account with this vehicle plate already exists');
+  }
   const driver = {
     id: id('drv'),
     name: text(body.name, 'Driver'),
     phone,
     vehicle: text(body.vehicle),
-    plate: text(body.plate),
+    plate,
     avatar: text(body.avatar),
     passwordHash: hash(body.password),
     accessKeyHash: hash(secret()),
@@ -303,7 +340,7 @@ function registerDriver(body) {
 }
 
 function loginDriver(body) {
-  const phone = text(body.phone);
+  const phone = normalizePhone(body.phone);
   const password = text(body.password);
   const driver = findDriverByPhone(phone);
   if (!driver || driver.passwordHash !== hash(password)) {
@@ -321,7 +358,7 @@ function loginDriver(body) {
 }
 
 function createPasswordResetRequest(body) {
-  const whatsappNumber = text(body.whatsappNumber);
+  const whatsappNumber = normalizePhone(body.whatsappNumber);
   if (!whatsappNumber) {
     throw new Error('Registered WhatsApp number is required');
   }
@@ -539,10 +576,20 @@ async function handleApi(req, res, url) {
     if (!auth || auth.sub !== profile.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
     const driver = findDriver(auth.sub);
     const body = await parseJsonBody(req);
+    const nextPhone = normalizePhone(body.phone || driver.phone);
+    const nextPlate = normalizePlate(body.plate || driver.plate);
+    const phoneOwner = findDriverByPhone(nextPhone);
+    const plateOwner = findDriverByPlate(nextPlate);
+    if (phoneOwner && phoneOwner.id !== driver.id) {
+      return sendJson(res, 409, { ok: false, message: 'Another driver already uses that phone number' }), true;
+    }
+    if (plateOwner && plateOwner.id !== driver.id) {
+      return sendJson(res, 409, { ok: false, message: 'Another driver already uses that vehicle plate' }), true;
+    }
     driver.name = text(body.name, driver.name);
-    driver.phone = text(body.phone, driver.phone);
+    driver.phone = nextPhone;
     driver.vehicle = text(body.vehicle, driver.vehicle);
-    driver.plate = text(body.plate, driver.plate);
+    driver.plate = nextPlate;
     driver.updatedAt = now();
     saveState();
     notification({ targetType: 'admin', message: `Driver profile updated: ${driver.name}` });

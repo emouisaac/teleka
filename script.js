@@ -19,6 +19,7 @@ const appState = {
   profile: loadJson(STORAGE_KEYS.customerProfile, {}),
   eventSource: null,
   lastRideStatus: '',
+  activeRideId: '',
   notifications: [],
   audioContext: null,
 };
@@ -33,6 +34,15 @@ function saveJson(key, value) {
 
 function showMessage(message) {
   window.alert(message);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function api(url, options = {}, token = appState.auth.token) {
@@ -221,6 +231,50 @@ function fillProfileForm() {
   document.getElementById('customer-phone').value = appState.profile.phone || '';
 }
 
+function renderCustomerChat(activeRide) {
+  const summary = document.getElementById('customer-chat-summary');
+  const list = document.getElementById('customer-chat-preview');
+  const input = document.getElementById('customer-chat-input');
+  const sendButton = document.getElementById('customer-chat-send');
+  const links = [
+    document.getElementById('customer-chat-link'),
+    document.getElementById('customer-chat-link-secondary'),
+  ].filter(Boolean);
+  if (!summary || !list || !input || !sendButton) return;
+
+  appState.activeRideId = activeRide?.id || '';
+  links.forEach((link) => {
+    link.href = activeRide ? `chat.html?role=customer&rideId=${encodeURIComponent(activeRide.id)}` : 'chat.html?role=customer';
+    link.classList.toggle('disabled', !activeRide);
+  });
+
+  if (!activeRide) {
+    summary.textContent = 'Chat becomes active when a driver accepts your ride.';
+    list.innerHTML = '<div class="notification-empty"><p>No active ride chat yet.</p></div>';
+    input.disabled = true;
+    sendButton.disabled = true;
+    return;
+  }
+
+  summary.textContent = `Ride ${activeRide.id}: ${activeRide.driverName || 'Driver'} ${activeRide.driverPhone ? `(${activeRide.driverPhone})` : ''}`;
+  const messages = activeRide.chatMessages || [];
+  if (!messages.length) {
+    list.innerHTML = '<div class="notification-empty"><p>No messages yet. You can now chat with your driver.</p></div>';
+  } else {
+    list.innerHTML = messages.map((message) => `
+      <div class="notification-card ${message.senderRole === 'customer' ? 'info' : 'warning'}">
+        <div class="notification-content">
+          <p><strong>${escapeHtml(message.senderName)}</strong>: ${escapeHtml(message.message)}</p>
+          <span class="notification-time">${new Date(message.createdAt).toLocaleString()}</span>
+        </div>
+      </div>
+    `).join('');
+    list.scrollTop = list.scrollHeight;
+  }
+  input.disabled = false;
+  sendButton.disabled = false;
+}
+
 async function syncCustomerSession(resetAuth = false) {
   if (resetAuth) {
     appState.auth = { customerId: '', accessKey: '', token: '' };
@@ -269,11 +323,7 @@ async function refreshCustomerState() {
   document.getElementById('active-driver-contact').textContent = activeRide?.driverPhone
     ? `Driver ${activeRide.driverName}: ${activeRide.driverPhone}`
     : 'Driver contact will appear after acceptance.';
-  const chatLink = document.getElementById('customer-chat-link');
-  if (chatLink) {
-    chatLink.href = activeRide ? `chat.html?role=customer&rideId=${encodeURIComponent(activeRide.id)}` : 'chat.html?role=customer';
-    chatLink.classList.toggle('disabled', !activeRide);
-  }
+  renderCustomerChat(activeRide);
   document.getElementById('total-rides-count').textContent = String(rides.length);
   document.getElementById('account-balance').textContent = formatUGX(
     rides.filter((ride) => ride.status === 'completed').reduce((sum, ride) => sum + (ride.fare || 0), 0)
@@ -318,6 +368,29 @@ function initProfileForm() {
     try {
       await syncCustomerSession();
       showMessage('Profile updated.');
+    } catch (error) {
+      showMessage(error.message);
+    }
+  });
+}
+
+function initCustomerChatForm() {
+  document.getElementById('customer-chat-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = document.getElementById('customer-chat-input');
+    const message = input?.value.trim() || '';
+    if (!appState.activeRideId) {
+      showMessage('No active ride available for chat.');
+      return;
+    }
+    if (!message) return;
+    try {
+      await api(`/api/rides/${encodeURIComponent(appState.activeRideId)}/chat`, {
+        method: 'POST',
+        body: JSON.stringify({ message }),
+      });
+      input.value = '';
+      await refreshCustomerState();
     } catch (error) {
       showMessage(error.message);
     }
@@ -447,6 +520,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initDarkMode();
   initGoogleSignIn();
   initProfileForm();
+  initCustomerChatForm();
+  renderCustomerChat(null);
   initFooterToggles();
   addServiceIcons();
   document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
