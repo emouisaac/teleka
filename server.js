@@ -12,13 +12,13 @@ const roamingDataDir = process.env.APPDATA
   : (process.platform === 'win32'
     ? path.join(os.homedir(), 'AppData', 'Roaming', 'Teleka')
     : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'teleka'));
-const configuredDataDir = process.env.TELEKA_DATA_DIR || defaultDataDir;
+const configuredDataDir = process.env.TELEKA_DATA_DIR || roamingDataDir;
 const dataDir = configuredDataDir;
 const dataFile = path.join(dataDir, 'teleka-store.json');
 const mirrorDataFiles = Array.from(new Set([
   dataFile,
-  path.join(defaultDataDir, 'teleka-store.json'),
   path.join(roamingDataDir, 'teleka-store.json'),
+  path.join(defaultDataDir, 'teleka-store.json'),
 ]));
 
 function loadEnv() {
