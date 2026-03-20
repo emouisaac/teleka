@@ -352,6 +352,17 @@ async function refreshCustomerState() {
   document.getElementById('active-driver-contact').textContent = activeRide?.driverPhone
     ? `Driver ${activeRide.driverName}: ${activeRide.driverPhone}`
     : 'Driver contact will appear after acceptance.';
+  const mediaShell = document.getElementById('active-driver-media');
+  const avatar = document.getElementById('active-driver-avatar');
+  const car = document.getElementById('active-driver-car');
+  if (mediaShell && avatar && car) {
+    const showMedia = Boolean(activeRide?.driverAvatar || activeRide?.driverCarPhoto);
+    mediaShell.classList.toggle('hidden', !showMedia);
+    if (activeRide?.driverAvatar) avatar.src = activeRide.driverAvatar;
+    if (activeRide?.driverCarPhoto) car.src = activeRide.driverCarPhoto;
+    avatar.parentElement?.classList.toggle('hidden', !activeRide?.driverAvatar);
+    car.parentElement?.classList.toggle('hidden', !activeRide?.driverCarPhoto);
+  }
   renderCustomerChat(activeRide);
   document.getElementById('total-rides-count').textContent = String(rides.length);
   document.getElementById('account-balance').textContent = formatUGX(

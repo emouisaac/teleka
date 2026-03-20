@@ -18,6 +18,7 @@ const DriverApp = (() => {
     requestToneInterval: null,
     locationWatchId: null,
     lastLocationSentAt: 0,
+    registerFaceDataUrl: '',
   };
 
   function loadJson(key, fallback) {
@@ -55,6 +56,20 @@ const DriverApp = (() => {
         toast.classList.remove('visible');
         setTimeout(() => toast.remove(), 300);
       }, 2400);
+    },
+    async readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error(`Failed to read ${file?.name || 'file'}`));
+        reader.readAsDataURL(file);
+      });
+    },
+    renderUploadList(container, files) {
+      if (!container) return;
+      container.innerHTML = files.length
+        ? files.map((file) => `<div class="upload-preview-item">${file.name}</div>`).join('')
+        : '<div class="upload-preview-empty">No files selected.</div>';
     },
     api(url, options = {}, token = state.auth.token) {
       return fetch(url, {
@@ -194,6 +209,13 @@ const DriverApp = (() => {
     saveJson(STORAGE_KEYS.driverSettings, state.settings);
   }
 
+  function stopFaceCamera() {
+    const video = utils.qs('#registerFaceVideo');
+    const stream = video?.srcObject;
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    if (video) video.srcObject = null;
+  }
+
   function handleRealtimeAlerts(previousData, nextData) {
     if (!previousData) return;
     const previousRequestIds = new Set((previousData.availableRequests || []).map((ride) => ride.id));
@@ -311,6 +333,17 @@ const DriverApp = (() => {
       utils.qs('#profilePhone').value = driver.phone || '';
       utils.qs('#profileVehicle').value = driver.vehicle || '';
       utils.qs('#profilePlate').value = driver.plate || '';
+      const profilePhotoPreview = utils.qs('#profilePhotoPreview');
+      const profileCarPreview = utils.qs('#profileCarPreview');
+      if (profilePhotoPreview) {
+        profilePhotoPreview.src = driver.avatar || '';
+        profilePhotoPreview.classList.toggle('hidden', !driver.avatar);
+      }
+      if (profileCarPreview) {
+        profileCarPreview.src = driver.documents?.carPhotoDataUrl || '';
+        profileCarPreview.classList.toggle('hidden', !driver.documents?.carPhotoDataUrl);
+      }
+      utils.renderUploadList(utils.qs('#profileDocsPreview'), (driver.documents?.files || []).map((file) => ({ name: file.name || 'Document' })));
 
       const online = Boolean(driver.online);
       utils.qs('#driverStatus .status-text').textContent = online ? 'Online' : 'Offline';
@@ -526,8 +559,13 @@ const DriverApp = (() => {
       utils.toast('Driver login successful.');
     },
     async register() {
-      const photoInput = utils.qs('#registerPhoto');
+      const carPhotoInput = utils.qs('#registerCarPhoto');
       const docsInput = utils.qs('#registerDocs');
+      const carPhotoDataUrl = carPhotoInput?.files?.[0] ? await utils.readFileAsDataUrl(carPhotoInput.files[0]) : '';
+      const documentFiles = docsInput?.files
+        ? await Promise.all(Array.from(docsInput.files).map(async (file) => ({ name: file.name, type: file.type, dataUrl: await utils.readFileAsDataUrl(file) })))
+        : [];
+      if (!state.registerFaceDataUrl) throw new Error('Capture a clear face photo before submitting.');
       await utils.api('/api/drivers/register', {
         method: 'POST',
         body: JSON.stringify({
@@ -539,15 +577,31 @@ const DriverApp = (() => {
           licenseNumber: utils.qs('#registerLicenseNumber').value.trim(),
           nationalIdNumber: utils.qs('#registerNationalIdNumber').value.trim(),
           insuranceNumber: utils.qs('#registerInsuranceNumber').value.trim(),
-          photoName: photoInput?.files?.[0]?.name || '',
+          avatar: state.registerFaceDataUrl,
+          photoName: 'face-camera-capture.jpg',
+          carPhotoName: carPhotoInput?.files?.[0]?.name || '',
+          carPhotoDataUrl,
           documentNames: docsInput?.files ? Array.from(docsInput.files).map((file) => file.name) : [],
+          documentFiles,
         }),
       }, '');
       utils.toast('Application submitted. Wait for admin approval before logging in.');
       utils.qs('#driverRegisterForm').reset();
+      state.registerFaceDataUrl = '';
+      stopFaceCamera();
+      utils.qs('#registerFaceVideo').classList.add('hidden');
+      utils.qs('#registerFacePreview').classList.add('hidden');
+      utils.qs('#captureFacePhoto').classList.add('hidden');
+      utils.qs('#retakeFacePhoto').classList.add('hidden');
+      utils.qs('#startFaceCamera').classList.remove('hidden');
+      utils.qs('#registerCarPreview').classList.add('hidden');
+      utils.renderUploadList(utils.qs('#registerDocsPreview'), []);
       UI.toggleRegisterForm(false);
     },
     async saveProfile() {
+      const photoInput = utils.qs('#profilePhoto');
+      const carPhotoInput = utils.qs('#profileCarPhoto');
+      const docsInput = utils.qs('#profileDocs');
       state.profile = {
         ...state.profile,
         name: utils.qs('#profileName').value.trim(),
@@ -556,7 +610,18 @@ const DriverApp = (() => {
         plate: utils.qs('#profilePlate').value.trim(),
       };
       saveJson(STORAGE_KEYS.driverProfile, state.profile);
-      await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/profile`, { method: 'POST', body: JSON.stringify(state.profile) });
+      await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/profile`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...state.profile,
+          avatar: photoInput?.files?.[0] ? await utils.readFileAsDataUrl(photoInput.files[0]) : '',
+          carPhotoName: carPhotoInput?.files?.[0]?.name || '',
+          carPhotoDataUrl: carPhotoInput?.files?.[0] ? await utils.readFileAsDataUrl(carPhotoInput.files[0]) : '',
+          documentFiles: docsInput?.files
+            ? await Promise.all(Array.from(docsInput.files).map(async (file) => ({ name: file.name, type: file.type, dataUrl: await utils.readFileAsDataUrl(file) })))
+            : [],
+        }),
+      });
       await Actions.refresh();
       utils.toast('Profile updated.');
     },
@@ -608,6 +673,63 @@ const DriverApp = (() => {
       });
       utils.qs('#showRegisterForm').addEventListener('click', () => UI.toggleRegisterForm());
       utils.qs('#showLoginForm').addEventListener('click', () => UI.toggleRegisterForm(false));
+      utils.qs('#startFaceCamera').addEventListener('click', async () => {
+        const video = utils.qs('#registerFaceVideo');
+        const preview = utils.qs('#registerFacePreview');
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        stopFaceCamera();
+        video.srcObject = stream;
+        video.classList.remove('hidden');
+        preview.classList.add('hidden');
+        utils.qs('#captureFacePhoto').classList.remove('hidden');
+        utils.qs('#retakeFacePhoto').classList.add('hidden');
+      });
+      utils.qs('#captureFacePhoto').addEventListener('click', () => {
+        const video = utils.qs('#registerFaceVideo');
+        const preview = utils.qs('#registerFacePreview');
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        state.registerFaceDataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        preview.src = state.registerFaceDataUrl;
+        preview.classList.remove('hidden');
+        video.classList.add('hidden');
+        utils.qs('#captureFacePhoto').classList.add('hidden');
+        utils.qs('#retakeFacePhoto').classList.remove('hidden');
+        stopFaceCamera();
+      });
+      utils.qs('#retakeFacePhoto').addEventListener('click', () => {
+        state.registerFaceDataUrl = '';
+        utils.qs('#startFaceCamera').click();
+      });
+      utils.qs('#registerCarPhoto').addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        const preview = utils.qs('#registerCarPreview');
+        if (!file) return preview.classList.add('hidden');
+        preview.src = await utils.readFileAsDataUrl(file);
+        preview.classList.remove('hidden');
+      });
+      utils.qs('#registerDocs').addEventListener('change', (event) => {
+        utils.renderUploadList(utils.qs('#registerDocsPreview'), Array.from(event.target.files || []).map((file) => ({ name: file.name })));
+      });
+      utils.qs('#profilePhoto').addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        const preview = utils.qs('#profilePhotoPreview');
+        if (!file) return;
+        preview.src = await utils.readFileAsDataUrl(file);
+        preview.classList.remove('hidden');
+      });
+      utils.qs('#profileCarPhoto').addEventListener('change', async (event) => {
+        const file = event.target.files?.[0];
+        const preview = utils.qs('#profileCarPreview');
+        if (!file) return;
+        preview.src = await utils.readFileAsDataUrl(file);
+        preview.classList.remove('hidden');
+      });
+      utils.qs('#profileDocs').addEventListener('change', (event) => {
+        utils.renderUploadList(utils.qs('#profileDocsPreview'), Array.from(event.target.files || []).map((file) => ({ name: file.name })));
+      });
       utils.qs('#driverRegisterForm').addEventListener('submit', (event) => {
         event.preventDefault();
         Actions.register().catch((error) => utils.toast(error.message));
@@ -670,6 +792,7 @@ const DriverApp = (() => {
         } catch {
           stopRideRequestRingtone();
           stopLocationWatch();
+          stopFaceCamera();
           localStorage.removeItem(STORAGE_KEYS.driverAuth);
           state.auth = { driverId: '', token: '' };
           UI.setAuthenticated(false);

@@ -203,7 +203,7 @@ const TelekaAdmin = (() => {
         <td>${driver.currentRideId || '-'}</td>
         <td>${DOM.money(driver.earningsTotal || 0)}</td>
         <td>${driver.approvalStatus === 'approved'
-          ? `<button class="btn small" data-action="reset-driver-password" data-id="${driver.id}">Reset Password</button>`
+          ? `<button class="btn small" data-action="view-driver-docs" data-id="${driver.id}">View Docs</button> <button class="btn small" data-action="reset-driver-password" data-id="${driver.id}">Reset Password</button>`
           : '-'}</td>
       `, 8, 'No drivers registered yet.');
 
@@ -214,7 +214,8 @@ const TelekaAdmin = (() => {
         <td>${formatDocuments(driver.documents)}</td>
         <td>${driver.approvalStatus || 'pending'}</td>
         <td>${driver.approvalStatus === 'pending'
-          ? `<button class="btn small" data-action="approve-driver" data-id="${driver.id}">Approve</button>
+          ? `<button class="btn small" data-action="view-driver-docs" data-id="${driver.id}">View Docs</button>
+             <button class="btn small" data-action="approve-driver" data-id="${driver.id}">Approve</button>
              <button class="btn small secondary" data-action="reject-driver" data-id="${driver.id}">Reject</button>`
           : (driver.approvalNotes || '-')}</td>
       `, 6, 'No pending driver applications.');
@@ -299,6 +300,7 @@ const TelekaAdmin = (() => {
       documents.nationalIdNumber && `National ID: ${documents.nationalIdNumber}`,
       documents.insuranceNumber && `Insurance: ${documents.insuranceNumber}`,
       documents.photoName && `Photo: ${documents.photoName}`,
+      documents.carPhotoName && `Car: ${documents.carPhotoName}`,
       Array.isArray(documents.documentNames) && documents.documentNames.length ? `Files: ${documents.documentNames.join(', ')}` : '',
     ].filter(Boolean);
     return items.length ? items.join(' | ') : 'No documents';
@@ -355,6 +357,45 @@ const TelekaAdmin = (() => {
       });
       await Actions.refresh();
       DOM.toast(`Ride ${rideId} assigned to ${selectedDriver.name}.`);
+    },
+    viewDriverDocs(driverId) {
+      const driver = [...(state.data?.driverApplications || []), ...(state.data?.drivers || [])].find((item) => item.id === driverId);
+      if (!driver) return;
+      const docs = driver.documents || {};
+      const files = Array.isArray(docs.files) ? docs.files : [];
+      DOM.qs('#driverDocsTitle').textContent = `${driver.name} Documents`;
+      DOM.qs('#driverDocsModalBody').innerHTML = `
+        <div class="modal-grid">
+          <div class="modal-block">
+            <h4>Face Photo</h4>
+            ${driver.avatar ? `<img class="doc-preview-image" src="${driver.avatar}" alt="${driver.name} face photo">` : '<p class="muted">No face photo uploaded.</p>'}
+          </div>
+          <div class="modal-block">
+            <h4>Car Photo</h4>
+            ${docs.carPhotoDataUrl ? `<img class="doc-preview-image" src="${docs.carPhotoDataUrl}" alt="${driver.name} car photo">` : '<p class="muted">No car photo uploaded.</p>'}
+          </div>
+        </div>
+        <div class="modal-grid">
+          <div class="modal-block">
+            <h4>Identity Details</h4>
+            <ul class="modal-list">
+              <li>License: ${docs.licenseNumber || '-'}</li>
+              <li>National ID: ${docs.nationalIdNumber || '-'}</li>
+              <li>Insurance: ${docs.insuranceNumber || '-'}</li>
+            </ul>
+          </div>
+          <div class="modal-block">
+            <h4>Uploaded Files</h4>
+            <div class="doc-preview-list">
+              ${files.length ? files.map((file) => file.type === 'application/pdf'
+                ? `<a class="btn small" href="${file.dataUrl}" target="_blank" rel="noreferrer">${file.name}</a>`
+                : `<a href="${file.dataUrl}" target="_blank" rel="noreferrer"><img class="doc-preview-image doc-preview-image--small" src="${file.dataUrl}" alt="${file.name}"></a>`).join('') : '<p class="muted">No supporting files uploaded.</p>'}
+            </div>
+          </div>
+        </div>
+      `;
+      DOM.qs('#driverDocsModal').classList.remove('hidden');
+      DOM.qs('#driverDocsModal').setAttribute('aria-hidden', 'false');
     },
     async approveDriver(driverId) {
       await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/approve`, { method: 'POST', body: JSON.stringify({ notes: 'Documents verified by admin' }) });
@@ -483,6 +524,8 @@ const TelekaAdmin = (() => {
         if (action) Actions.cancelRide(action.dataset.id).catch((error) => DOM.toast(error.message));
         const assign = event.target.closest('[data-action="assign-driver"]');
         if (assign) Actions.assignDriver(assign.dataset.id).catch((error) => DOM.toast(error.message));
+        const viewDocs = event.target.closest('[data-action="view-driver-docs"]');
+        if (viewDocs) Actions.viewDriverDocs(viewDocs.dataset.id);
         const approve = event.target.closest('[data-action="approve-driver"]');
         if (approve) Actions.approveDriver(approve.dataset.id).catch((error) => DOM.toast(error.message));
         const reject = event.target.closest('[data-action="reject-driver"]');
@@ -491,6 +534,10 @@ const TelekaAdmin = (() => {
         if (resetPassword) Actions.resetDriverPassword(resetPassword.dataset.id).catch((error) => DOM.toast(error.message));
         const sendWhatsApp = event.target.closest('[data-action="send-reset-whatsapp"]');
         if (sendWhatsApp) Actions.sendResetViaWhatsApp(sendWhatsApp.dataset.id).catch((error) => DOM.toast(error.message));
+      });
+      DOM.qs('#closeDriverDocsModal')?.addEventListener('click', () => {
+        DOM.qs('#driverDocsModal')?.classList.add('hidden');
+        DOM.qs('#driverDocsModal')?.setAttribute('aria-hidden', 'true');
       });
       document.addEventListener('pointerdown', () => {
         AudioAlerts.unlock();

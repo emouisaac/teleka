@@ -160,10 +160,23 @@
                   <input id="registerNationalIdNumber" type="text" required />
                   <label>Insurance Number</label>
                   <input id="registerInsuranceNumber" type="text" required />
-                  <label>Profile Photo</label>
-                  <input id="registerPhoto" type="file" accept="image/*" />
+                  <label>Face Photo</label>
+                  <div class="capture-field">
+                    <video id="registerFaceVideo" class="capture-video hidden" autoplay playsinline muted></video>
+                    <img id="registerFacePreview" class="capture-preview hidden" alt="Driver face preview" />
+                    <div class="actions-row">
+                      <button type="button" class="btn outline" id="startFaceCamera">Open Camera</button>
+                      <button type="button" class="btn primary hidden" id="captureFacePhoto">Capture Face</button>
+                      <button type="button" class="btn outline hidden" id="retakeFacePhoto">Retake</button>
+                    </div>
+                    <p class="muted">Use the front camera and take a clear face photo. Gallery photos are not used here.</p>
+                  </div>
+                  <label>Car Photo</label>
+                  <input id="registerCarPhoto" type="file" accept="image/*" capture="environment" />
+                  <img id="registerCarPreview" class="capture-preview hidden" alt="Car photo preview" />
                   <label>Supporting Documents</label>
-                  <input id="registerDocs" type="file" accept="application/pdf,image/*" multiple />
+                  <input id="registerDocs" type="file" accept="application/pdf,image/*" capture="environment" multiple />
+                  <div id="registerDocsPreview" class="upload-preview-list"></div>
                 </div>
                 <div class="actions-row">
                   <button type="submit" class="btn primary">Submit Application</button>
@@ -449,9 +462,15 @@
 
             <label>Upload photo</label>
             <input id="profilePhoto" type="file" accept="image/*" />
+            <img id="profilePhotoPreview" class="capture-preview hidden" alt="Profile photo preview" />
+
+            <label>Car photo</label>
+            <input id="profileCarPhoto" type="file" accept="image/*" capture="environment" />
+            <img id="profileCarPreview" class="capture-preview hidden" alt="Profile car photo preview" />
 
             <label>Upload documents</label>
-            <input id="profileDocs" type="file" accept="application/pdf,image/*" multiple />
+            <input id="profileDocs" type="file" accept="application/pdf,image/*" capture="environment" multiple />
+            <div id="profileDocsPreview" class="upload-preview-list"></div>
           </div>
 
           <div class="actions-row">

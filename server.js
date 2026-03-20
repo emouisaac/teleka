@@ -147,6 +147,23 @@ function secret() { return crypto.randomBytes(24).toString('hex'); }
 function normalizePhone(value) { return text(value).replace(/\s+/g, ''); }
 function normalizeEmail(value) { return text(value).toLowerCase(); }
 function normalizePlate(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
+function sanitizeUploadDataUrl(value, allowedPrefixes = ['data:image/', 'data:application/pdf']) {
+  const raw = text(value);
+  if (!raw) return '';
+  if (!allowedPrefixes.some((prefix) => raw.startsWith(prefix))) return '';
+  return raw.length <= 8_000_000 ? raw : '';
+}
+function sanitizeDocumentFiles(files) {
+  if (!Array.isArray(files)) return [];
+  return files
+    .slice(0, 8)
+    .map((file) => ({
+      name: text(file?.name, 'Document'),
+      type: text(file?.type),
+      dataUrl: sanitizeUploadDataUrl(file?.dataUrl),
+    }))
+    .filter((file) => file.dataUrl);
+}
 function clampCoord(value, min, max) {
   const n = Number(value);
   return Number.isFinite(n) && n >= min && n <= max ? Number(n.toFixed(6)) : null;
@@ -270,6 +287,8 @@ function publicRide(ride) {
     driverName: driver ? driver.name : 'Unassigned',
     driverPhone: driver ? driver.phone : '',
     driverVehicle: driver ? driver.vehicle : '',
+    driverAvatar: driver ? driver.avatar || '' : '',
+    driverCarPhoto: driver?.documents?.carPhotoDataUrl || '',
     targetedDrivers: Array.isArray(ride.driverCandidates) ? ride.driverCandidates.map((candidate) => {
       const candidateDriver = findDriver(candidate.driverId);
       return {
@@ -399,7 +418,7 @@ function registerDriver(body) {
     phone,
     vehicle: text(body.vehicle),
     plate,
-    avatar: text(body.avatar),
+    avatar: sanitizeUploadDataUrl(body.avatar, ['data:image/']),
     passwordHash: hash(body.password),
     accessKeyHash: hash(secret()),
     online: false,
@@ -418,6 +437,9 @@ function registerDriver(body) {
       insuranceNumber: text(body.insuranceNumber),
       photoName: text(body.photoName),
       documentNames: Array.isArray(body.documentNames) ? body.documentNames.map((item) => text(item)).filter(Boolean) : [],
+      carPhotoName: text(body.carPhotoName),
+      carPhotoDataUrl: sanitizeUploadDataUrl(body.carPhotoDataUrl, ['data:image/']),
+      files: sanitizeDocumentFiles(body.documentFiles),
       verified: false,
       verifiedAt: '',
     },
@@ -762,6 +784,14 @@ async function handleApi(req, res, url) {
     driver.phone = nextPhone;
     driver.vehicle = text(body.vehicle, driver.vehicle);
     driver.plate = nextPlate;
+    const avatar = sanitizeUploadDataUrl(body.avatar, ['data:image/']);
+    if (avatar) driver.avatar = avatar;
+    driver.documents = {
+      ...(driver.documents || {}),
+      carPhotoName: text(body.carPhotoName, driver.documents?.carPhotoName || ''),
+      carPhotoDataUrl: sanitizeUploadDataUrl(body.carPhotoDataUrl, ['data:image/']) || driver.documents?.carPhotoDataUrl || '',
+      files: sanitizeDocumentFiles(body.documentFiles).length ? sanitizeDocumentFiles(body.documentFiles) : (driver.documents?.files || []),
+    };
     driver.updatedAt = now();
     saveState();
     notification({ targetType: 'admin', message: `Driver profile updated: ${driver.name}` });
