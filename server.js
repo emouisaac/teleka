@@ -37,6 +37,7 @@ const persistentVolumeRoot = process.env.TELEKA_VOLUME_DIR
   || process.env.KOYEB_VOLUME_DIR
   || '';
 const databasePath = resolveDatabasePath();
+const userBackupFile = path.join(persistentVolumeRoot || projectDataDir, 'teleka-users.json');
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || '';
 const AUTH_SECRET = process.env.AUTH_SECRET || env.AUTH_SECRET || '';
@@ -158,6 +159,15 @@ function loadState() {
       saveState();
       return state;
     }
+    const userBackup = loadUserBackup();
+    if (userBackup) {
+      const restored = baseState();
+      restored.customers = Array.isArray(userBackup.customers) ? userBackup.customers : [];
+      restored.drivers = Array.isArray(userBackup.drivers) ? userBackup.drivers : [];
+      state = restored;
+      saveState();
+      return state;
+    }
     return baseState();
   } catch (error) {
     console.warn('Failed to load state from database:', error.message || error);
@@ -190,6 +200,43 @@ function normalizeState(parsed = {}) {
   };
 }
 
+function loadUserBackup() {
+  if (!fs.existsSync(userBackupFile)) return null;
+  try {
+    const content = fs.readFileSync(userBackupFile, 'utf8');
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  } catch (error) {
+    console.warn('Failed to read user backup:', error.message || error);
+  }
+  return null;
+}
+
+function saveUserBackup() {
+  const backup = {
+    meta: { updatedAt: now() },
+    customers: state.customers || [],
+    drivers: state.drivers || [],
+  };
+  try {
+    fs.mkdirSync(path.dirname(userBackupFile), { recursive: true });
+    fs.writeFileSync(userBackupFile, JSON.stringify(backup, null, 2), 'utf8');
+  } catch (error) {
+    console.warn('Failed to write user backup:', error.message || error);
+  }
+}
+
+function restoreUserBackup() {
+  const backup = loadUserBackup();
+  if (!backup) return false;
+  state.customers = Array.isArray(backup.customers) ? backup.customers : [];
+  state.drivers = Array.isArray(backup.drivers) ? backup.drivers : [];
+  saveState();
+  return true;
+}
+
 function persistStateSnapshot(nextState, { createArchive = false } = {}) {
   const payload = JSON.stringify(normalizeState(nextState), null, 2);
   const updatedAt = new Date().toISOString();
@@ -214,6 +261,7 @@ function persistStateSnapshot(nextState, { createArchive = false } = {}) {
     try { db.exec('ROLLBACK'); } catch {}
     throw error;
   }
+  saveUserBackup();
 }
 
 function now() { return new Date().toISOString(); }
@@ -685,15 +733,21 @@ function createPasswordResetRequest(body) {
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
+    const maxBodySize = 8 * 1024 * 1024; // 8 MB, needed for image uploads from mobile
     req.on('data', (chunk) => {
       body += chunk.toString();
-      if (body.length > 1e6) {
+      if (body.length > maxBodySize) {
         req.destroy();
-        reject(new Error('Request body too large'));
+        reject(new Error('Request body too large (max 8MB)'));
       }
     });
     req.on('end', () => {
-      try { resolve(body ? JSON.parse(body) : {}); } catch (error) { reject(error); }
+      if (!body) return resolve({});
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
     });
     req.on('error', reject);
   });

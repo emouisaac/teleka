@@ -596,9 +596,24 @@ const DriverApp = (() => {
     async register() {
       const carPhotoInput = utils.qs('#registerCarPhoto');
       const docsInput = utils.qs('#registerDocs');
-      const carPhotoDataUrl = carPhotoInput?.files?.[0] ? await utils.readFileAsDataUrl(carPhotoInput.files[0]) : '';
-      const documentFiles = docsInput?.files
-        ? await Promise.all(Array.from(docsInput.files).map(async (file) => ({ name: file.name, type: file.type, dataUrl: await utils.readFileAsDataUrl(file) })))
+    let carPhotoDataUrl = '';
+    if (carPhotoInput?.files?.[0]) {
+      const carPhotoFile = carPhotoInput.files[0];
+      if (carPhotoFile.size > 3 * 1024 * 1024) {
+        throw new Error('Car photo exceeds 3MB. Please select a smaller file.');
+      }
+      carPhotoDataUrl = await utils.readFileAsDataUrl(carPhotoFile);
+    }
+    const documentFiles = docsInput?.files
+      ? await Promise.all(Array.from(docsInput.files)
+        .filter((file) => {
+          if (file.size > 4 * 1024 * 1024) {
+            utils.toast(`Skipping document ${file.name}: file too large (limit 4MB).`);
+            return false;
+          }
+          return true;
+        })
+        .map(async (file) => ({ name: file.name, type: file.type, dataUrl: await utils.readFileAsDataUrl(file) })))
         : [];
       if (!state.registerFaceDataUrl) throw new Error('Capture a clear face photo before submitting.');
       await utils.api('/api/drivers/register', {
@@ -748,11 +763,24 @@ const DriverApp = (() => {
         const file = event.target.files?.[0];
         const preview = utils.qs('#registerCarPreview');
         if (!file) return preview.classList.add('hidden');
+        if (file.size > 3 * 1024 * 1024) {
+          utils.toast('Car photo too large. Please use an image smaller than 3MB.');
+          event.target.value = '';
+          return preview.classList.add('hidden');
+        }
         preview.src = await utils.readFileAsDataUrl(file);
         preview.classList.remove('hidden');
       });
       utils.qs('#registerDocs').addEventListener('change', (event) => {
-        utils.renderUploadList(utils.qs('#registerDocsPreview'), Array.from(event.target.files || []).map((file) => ({ name: file.name })));
+        const files = Array.from(event.target.files || []);
+        const validFiles = files.filter((file) => {
+          if (file.size > 4 * 1024 * 1024) {
+            utils.toast(`File ${file.name} is too large, use under 4MB`);
+            return false;
+          }
+          return true;
+        });
+        utils.renderUploadList(utils.qs('#registerDocsPreview'), validFiles.map((file) => ({ name: file.name })));
       });
       utils.qs('#profilePhoto').addEventListener('change', async (event) => {
         const file = event.target.files?.[0];
