@@ -45,6 +45,10 @@
           <i class="fas fa-sliders-h"></i>
           <span>Settings</span>
         </li>
+        <li class="sidebar-item" id="adminSidebarLogout" role="menuitem" tabindex="0">
+          <i class="fas fa-sign-out-alt"></i>
+          <span>Logout</span>
+        </li>
       </ul>
 
       <div class="sidebar-footer">
@@ -153,6 +157,17 @@
                 </thead>
                 <tbody id="overviewRidesBody"></tbody>
               </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h3>Backup Recovery</h3>
+              <span class="panel-subtitle">Admin-only export and restore for operational data.</span>
+            </div>
+            <div class="actions-row">
+              <button class="btn" id="exportBackupBtn" type="button">Export Backup</button>
+              <button class="btn secondary" id="restoreBackupBtn" type="button">Restore Backup</button>
             </div>
           </div>
         </section>

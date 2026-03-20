@@ -415,11 +415,52 @@ const TelekaAdmin = (() => {
       await Actions.refresh();
       DOM.toast('Pricing settings saved.');
     },
+    async exportBackup() {
+      const response = await fetch('/api/admin/backups/export', {
+        headers: {
+          ...(state.auth.token ? { Authorization: `Bearer ${state.auth.token}` } : {}),
+        },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || `Request failed: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = `teleka-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+      DOM.toast('Backup exported.');
+    },
+    async restoreBackup() {
+      if (!window.confirm('Restore the platform from the saved backup? This will replace current live data.')) return;
+      await DOM.api('/api/admin/backups/restore', { method: 'POST', body: '{}' });
+      await Actions.refresh();
+      DOM.toast('Backup restored.');
+    },
+    logout() {
+      state.eventSource?.close();
+      state.eventSource = null;
+      localStorage.removeItem(STORAGE_KEY);
+      state.auth = { email: state.auth.email || '', token: '' };
+      state.data = null;
+      UI.setAuthenticated(false);
+      UI.setActiveSection('adminAuthPanel');
+      DOM.toast('Signed out.');
+    },
   };
 
   const Events = {
     attach() {
-      DOM.qsa('.sidebar-item').forEach((item) => item.addEventListener('click', () => UI.setActiveSection(item.dataset.section)));
+      DOM.qsa('.sidebar-item').forEach((item) => item.addEventListener('click', () => {
+        if (!item.dataset.section) return;
+        UI.setActiveSection(item.dataset.section);
+      }));
+      DOM.qs('#adminSidebarLogout')?.addEventListener('click', Actions.logout);
       DOM.qs('#toggleSidebar')?.addEventListener('click', () => UI.toggleSidebar());
       DOM.qs('#mobileSidebarToggle')?.addEventListener('click', () => UI.toggleSidebar());
       DOM.qs('#notifToggle')?.addEventListener('click', () => UI.setActiveSection('notifications'));
@@ -435,6 +476,8 @@ const TelekaAdmin = (() => {
         event.preventDefault();
         Actions.saveSettings().catch((error) => DOM.toast(error.message));
       });
+      DOM.qs('#exportBackupBtn')?.addEventListener('click', () => Actions.exportBackup().catch((error) => DOM.toast(error.message)));
+      DOM.qs('#restoreBackupBtn')?.addEventListener('click', () => Actions.restoreBackup().catch((error) => DOM.toast(error.message)));
       document.body.addEventListener('click', (event) => {
         const action = event.target.closest('[data-action="cancel-ride"]');
         if (action) Actions.cancelRide(action.dataset.id).catch((error) => DOM.toast(error.message));

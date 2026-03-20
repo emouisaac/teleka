@@ -1031,6 +1031,53 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, data: state.settings }), true;
   }
 
+  if (pathname === '/api/admin/backups/export' && req.method === 'GET') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const exportFile = fs.existsSync(backupDataFile) ? backupDataFile : dataFile;
+    try {
+      const payload = fs.readFileSync(exportFile);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="teleka-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json"`,
+      });
+      res.end(payload);
+      return true;
+    } catch {
+      return sendJson(res, 500, { ok: false, message: 'Failed to export backup' }), true;
+    }
+  }
+
+  if (pathname === '/api/admin/backups/restore' && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    if (!fs.existsSync(backupDataFile)) {
+      return sendJson(res, 404, { ok: false, message: 'No backup file found to restore' }), true;
+    }
+    try {
+      const parsed = JSON.parse(fs.readFileSync(backupDataFile, 'utf8'));
+      const snapshotFile = path.join(dataDir, `teleka-store.pre-restore-${Date.now()}.json`);
+      if (fs.existsSync(dataFile)) fs.copyFileSync(dataFile, snapshotFile);
+      state = {
+        ...baseState(),
+        ...parsed,
+        settings: { ...baseState().settings, ...(parsed.settings || {}) },
+        customers: parsed.customers || [],
+        drivers: parsed.drivers || [],
+        rides: parsed.rides || [],
+        notifications: parsed.notifications || [],
+        passwordResetRequests: parsed.passwordResetRequests || [],
+        meta: { ...baseState().meta, ...(parsed.meta || {}) },
+      };
+      saveState();
+      notification({ targetType: 'admin', message: 'Platform data restored from backup.', type: 'warning' });
+      broadcastState();
+      return sendJson(res, 200, { ok: true, data: { restored: true } }), true;
+    } catch {
+      return sendJson(res, 500, { ok: false, message: 'Failed to restore backup' }), true;
+    }
+  }
+
   const chatRoute = routeMatches(pathname, '/api/rides/:rideId/chat');
   if (chatRoute && req.method === 'GET') {
     const auth = requireAuth(req, url);
