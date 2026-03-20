@@ -187,7 +187,7 @@ function setAuthState(user) {
   googleUser = user;
   const authLink = document.getElementById('auth-action');
   if (!authLink) return;
-  authLink.textContent = user ? 'Logout' : 'Login';
+  authLink.textContent = user ? ((user.name || '').trim().split(/\s+/)[0] || 'Account') : 'Login';
 }
 
 function initGoogleSignIn() {
@@ -199,6 +199,7 @@ function initGoogleSignIn() {
       try {
         const payload = JSON.parse(atob(response.credential.split('.')[1]));
         appState.profile = {
+          googleId: payload.sub || appState.profile.googleId || '',
           name: payload.name || appState.profile.name || '',
           email: payload.email || appState.profile.email || '',
           phone: appState.profile.phone || '',
@@ -238,6 +239,7 @@ window.handleAuthClick = handleAuthClick;
 
 function profileFromForm() {
   return {
+    googleId: appState.profile.googleId || '',
     name: document.getElementById('customer-name')?.value.trim() || '',
     email: document.getElementById('customer-email')?.value.trim() || '',
     phone: document.getElementById('customer-phone')?.value.trim() || '',

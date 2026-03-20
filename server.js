@@ -162,6 +162,7 @@ function secret() { return crypto.randomBytes(24).toString('hex'); }
 function normalizePhone(value) { return text(value).replace(/\s+/g, ''); }
 function normalizeEmail(value) { return text(value).toLowerCase(); }
 function normalizePlate(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
+function normalizeDocumentId(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
 function sanitizeUploadDataUrl(value, allowedPrefixes = ['data:image/', 'data:application/pdf']) {
   const raw = text(value);
   if (!raw) return '';
@@ -187,10 +188,16 @@ function normalizeLatitude(value) { return clampCoord(value, -90, 90); }
 function normalizeLongitude(value) { return clampCoord(value, -180, 180); }
 function findCustomer(customerId) { return state.customers.find((item) => item.id === customerId); }
 function findDriver(driverId) { return state.drivers.find((item) => item.id === driverId); }
+function findCustomerByGoogleId(googleId) { return state.customers.find((item) => text(item.googleId) && text(item.googleId) === text(googleId)); }
 function findCustomerByPhone(phone) { return state.customers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
 function findCustomerByEmail(email) { return state.customers.find((item) => normalizeEmail(item.email) && normalizeEmail(item.email) === normalizeEmail(email)); }
 function findDriverByPhone(phone) { return state.drivers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
 function findDriverByPlate(plate) { return state.drivers.find((item) => normalizePlate(item.plate) && normalizePlate(item.plate) === normalizePlate(plate)); }
+function findDriverByDocument(field, value, excludeDriverId = '') {
+  const normalized = normalizeDocumentId(value);
+  if (!normalized) return null;
+  return state.drivers.find((item) => item.id !== excludeDriverId && normalizeDocumentId(item.documents?.[field]) === normalized);
+}
 function findRide(rideId) { return state.rides.find((item) => item.id === rideId); }
 function safeCustomer(customer) { if (!customer) return null; const { accessKeyHash, ...safe } = customer; return safe; }
 function safeDriver(driver) { if (!driver) return null; const { accessKeyHash, passwordHash, ...safe } = driver; return safe; }
@@ -415,11 +422,19 @@ function driverState(driverId) {
 }
 
 function createCustomerSession(body, currentCustomerId = '') {
+  const googleId = text(body.googleId);
+  const nextEmail = normalizeEmail(body.email);
+  const nextPhone = normalizePhone(body.phone);
   const currentCustomer = currentCustomerId ? findCustomer(currentCustomerId) : null;
   if (currentCustomer) {
+    const emailOwner = nextEmail ? findCustomerByEmail(nextEmail) : null;
+    const phoneOwner = nextPhone ? findCustomerByPhone(nextPhone) : null;
+    if (emailOwner && emailOwner.id !== currentCustomer.id) throw new Error('A customer account with this email already exists');
+    if (phoneOwner && phoneOwner.id !== currentCustomer.id) throw new Error('A customer account with this phone number already exists');
+    if (googleId) currentCustomer.googleId = googleId;
     currentCustomer.name = text(body.name, currentCustomer.name);
-    currentCustomer.email = normalizeEmail(body.email || currentCustomer.email);
-    currentCustomer.phone = normalizePhone(body.phone || currentCustomer.phone);
+    currentCustomer.email = nextEmail || currentCustomer.email;
+    currentCustomer.phone = nextPhone || currentCustomer.phone;
     currentCustomer.preferences = {
       darkMode: Boolean(currentCustomer.preferences?.darkMode),
     };
@@ -427,11 +442,15 @@ function createCustomerSession(body, currentCustomerId = '') {
     saveState();
     return { customer: safeCustomer(currentCustomer), token: issueToken('customer', currentCustomer.id) };
   }
-  const matchedCustomer = findCustomerByPhone(body.phone) || findCustomerByEmail(body.email);
+  const matchedCustomer = googleId
+    ? (findCustomerByGoogleId(googleId)
+      || state.customers.find((item) => !text(item.googleId) && normalizeEmail(item.email) && normalizeEmail(item.email) === normalizeEmail(body.email)))
+    : null;
   if (matchedCustomer) {
+    matchedCustomer.googleId = googleId || matchedCustomer.googleId || '';
     matchedCustomer.name = text(body.name, matchedCustomer.name);
-    matchedCustomer.email = normalizeEmail(body.email || matchedCustomer.email);
-    matchedCustomer.phone = normalizePhone(body.phone || matchedCustomer.phone);
+    matchedCustomer.email = nextEmail || matchedCustomer.email;
+    matchedCustomer.phone = nextPhone || matchedCustomer.phone;
     matchedCustomer.preferences = {
       darkMode: Boolean(matchedCustomer.preferences?.darkMode),
     };
@@ -440,11 +459,16 @@ function createCustomerSession(body, currentCustomerId = '') {
     notification({ targetType: 'admin', message: `Customer profile reused: ${matchedCustomer.name}` });
     return { customer: safeCustomer(matchedCustomer), token: issueToken('customer', matchedCustomer.id) };
   }
+  const emailOwner = nextEmail ? findCustomerByEmail(nextEmail) : null;
+  const phoneOwner = nextPhone ? findCustomerByPhone(nextPhone) : null;
+  if (emailOwner) throw new Error('A customer account with this email already exists');
+  if (phoneOwner) throw new Error('A customer account with this phone number already exists');
   const customer = {
     id: id('cust'),
     name: text(body.name, 'Customer'),
-    email: normalizeEmail(body.email),
-    phone: normalizePhone(body.phone),
+    email: nextEmail,
+    phone: nextPhone,
+    googleId,
     accessKeyHash: hash(secret()),
     preferences: { darkMode: false },
     createdAt: now(),
@@ -459,6 +483,9 @@ function createCustomerSession(body, currentCustomerId = '') {
 function registerDriver(body) {
   const phone = normalizePhone(body.phone);
   const plate = normalizePlate(body.plate);
+  const licenseNumber = normalizeDocumentId(body.licenseNumber);
+  const nationalIdNumber = normalizeDocumentId(body.nationalIdNumber);
+  const insuranceNumber = normalizeDocumentId(body.insuranceNumber);
   if (!phone) throw new Error('Phone number is required');
   if (!plate) throw new Error('Vehicle plate is required');
   if (!text(body.password) || text(body.password).length < 6) {
@@ -469,6 +496,15 @@ function registerDriver(body) {
   }
   if (findDriverByPlate(plate)) {
     throw new Error('A driver account with this vehicle plate already exists');
+  }
+  if (licenseNumber && findDriverByDocument('licenseNumber', licenseNumber)) {
+    throw new Error('A driver account with this license number already exists');
+  }
+  if (nationalIdNumber && findDriverByDocument('nationalIdNumber', nationalIdNumber)) {
+    throw new Error('A driver account with this national ID already exists');
+  }
+  if (insuranceNumber && findDriverByDocument('insuranceNumber', insuranceNumber)) {
+    throw new Error('A driver account with this insurance number already exists');
   }
   const driver = {
     id: id('drv'),
@@ -491,9 +527,9 @@ function registerDriver(body) {
     preferences: { notifications: true, sound: true, autoAccept: false },
     location: { lat: null, lng: null, updatedAt: '' },
     documents: {
-      licenseNumber: text(body.licenseNumber),
-      nationalIdNumber: text(body.nationalIdNumber),
-      insuranceNumber: text(body.insuranceNumber),
+      licenseNumber,
+      nationalIdNumber,
+      insuranceNumber,
       photoName: text(body.photoName),
       documentNames: Array.isArray(body.documentNames) ? body.documentNames.map((item) => text(item)).filter(Boolean) : [],
       carPhotoName: text(body.carPhotoName),
