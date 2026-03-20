@@ -897,24 +897,50 @@ async function handleApi(req, res, url) {
       chatMessages: [],
     };
     const targetedDrivers = retargetRide(ride);
+
+    // Auto-assign first nearby available driver, avoid manual admin assignment delay.
+    if (targetedDrivers.length > 0) {
+      const assigned = targetedDrivers[0];
+      const driver = findDriver(assigned.driver.id);
+      if (driver && driver.approvalStatus === 'approved') {
+        ride.driverId = driver.id;
+        ride.status = 'accepted';
+        ride.timeline = { ...ride.timeline, acceptedAt: now() };
+        driver.currentRideId = ride.id;
+        driver.updatedAt = now();
+        notification({
+          targetType: 'driver',
+          targetId: driver.id,
+          message: `You have been assigned ride ${ride.id} from ${ride.pickup} to ${ride.dropoff}. Start immediately.`,
+        });
+        notification({
+          targetType: 'customer',
+          targetId: customer.id,
+          message: `Your ride ${ride.id} is assigned to ${driver.name}. Driver is on the way.`,
+        });
+      }
+    }
+
     state.rides.unshift(ride);
     saveState();
-    targetedDrivers.forEach((candidate) => {
-      notification({
-        targetType: 'driver',
-        targetId: candidate.driver.id,
-        message: candidate.distanceKm === null
-          ? `New ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff}.`
-          : `New nearby ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
+    if (!ride.driverId) {
+      targetedDrivers.forEach((candidate) => {
+        notification({
+          targetType: 'driver',
+          targetId: candidate.driver.id,
+          message: candidate.distanceKm === null
+            ? `New ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff}.`
+            : `New nearby ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
+        });
       });
-    });
-    notification({
-      targetType: 'customer',
-      targetId: customer.id,
-      message: targetedDrivers.length
-        ? `Ride ${ride.id} sent to ${targetedDrivers.length} nearby drivers. Waiting for acceptance.`
-        : `Ride ${ride.id} created. No drivers within 5 km are online yet.`,
-    });
+      notification({
+        targetType: 'customer',
+        targetId: customer.id,
+        message: targetedDrivers.length
+          ? `Ride ${ride.id} sent to ${targetedDrivers.length} nearby drivers. Waiting for acceptance.`
+          : `Ride ${ride.id} created. No drivers within 5 km are online yet.`,
+      });
+    }
     notification({ targetType: 'admin', message: `New ride request ${ride.id} from ${customer.name}` });
     sendRideRequestEmail(ride).catch(() => {});
     broadcastState();

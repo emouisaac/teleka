@@ -269,9 +269,9 @@ const DriverApp = (() => {
     if (becameActiveRide) {
       stopRideRequestRingtone();
       focusActiveRide(nextActiveRide);
-      AudioAlerts.playNotification();
+      AudioAlerts.playRideRequest();
       showSystemNotification(
-        'Active Ride Ready',
+        'Active Ride Started',
         `${nextActiveRide.customerName || 'Customer'}: ${nextActiveRide.pickup} to ${nextActiveRide.dropoff}`,
         { tag: `driver-active-ride-${nextActiveRide.id}`, requireInteraction: true }
       );
