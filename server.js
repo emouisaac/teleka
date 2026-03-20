@@ -15,8 +15,8 @@ const roamingDataDir = process.env.APPDATA
 const configuredDataDir = process.env.TELEKA_DATA_DIR || roamingDataDir;
 const dataDir = configuredDataDir;
 const dataFile = path.join(dataDir, 'teleka-store.json');
-const mirrorDataFiles = Array.from(new Set([
-  dataFile,
+const backupDataFile = path.join(dataDir, 'teleka-store.backup.json');
+const migrationSourceFiles = Array.from(new Set([
   path.join(roamingDataDir, 'teleka-store.json'),
   path.join(defaultDataDir, 'teleka-store.json'),
 ]));
@@ -89,8 +89,8 @@ function parseStateFile(filePath) {
   }
 }
 
-function loadLatestPersistedState() {
-  return mirrorDataFiles
+function loadLatestPersistedState(files) {
+  return files
     .filter((filePath) => fs.existsSync(filePath))
     .map(parseStateFile)
     .filter(Boolean)
@@ -99,17 +99,19 @@ function loadLatestPersistedState() {
 
 function ensurePersistentStore() {
   if (fs.existsSync(dataFile)) return;
-  const latestStore = loadLatestPersistedState();
+  const latestStore = loadLatestPersistedState(migrationSourceFiles.filter((filePath) => filePath !== dataFile));
   if (!latestStore) return;
   fs.mkdirSync(path.dirname(dataFile), { recursive: true });
   fs.copyFileSync(latestStore.filePath, dataFile);
+  try { fs.copyFileSync(latestStore.filePath, backupDataFile); } catch {}
 }
 
 function loadState() {
   ensurePersistentStore();
   try {
-    const latestStore = loadLatestPersistedState();
-    const parsed = latestStore?.parsed || JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    const primaryStore = parseStateFile(dataFile);
+    const backupStore = parseStateFile(backupDataFile);
+    const parsed = primaryStore?.parsed || backupStore?.parsed || baseState();
     return {
       ...baseState(),
       ...parsed,
@@ -129,11 +131,9 @@ function loadState() {
 function saveState() {
   state.meta.updatedAt = new Date().toISOString();
   const serialized = JSON.stringify(state, null, 2);
-  mirrorDataFiles.forEach((filePath) => {
-    try {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, serialized);
-    } catch {}
+  [dataFile, backupDataFile].forEach((filePath) => {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, serialized);
   });
 }
 
