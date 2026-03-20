@@ -101,29 +101,70 @@ const DriverApp = (() => {
       if (state.audioContext.state === 'suspended') state.audioContext.resume().catch(() => {});
       return state.audioContext;
     },
+    masterNode() {
+      const context = AudioAlerts.unlock();
+      if (!context) return null;
+      if (!state.audioMaster) {
+        const compressor = context.createDynamicsCompressor();
+        compressor.threshold.setValueAtTime(-18, context.currentTime);
+        compressor.knee.setValueAtTime(12, context.currentTime);
+        compressor.ratio.setValueAtTime(10, context.currentTime);
+        compressor.attack.setValueAtTime(0.003, context.currentTime);
+        compressor.release.setValueAtTime(0.24, context.currentTime);
+        const masterGain = context.createGain();
+        masterGain.gain.setValueAtTime(1.35, context.currentTime);
+        compressor.connect(masterGain);
+        masterGain.connect(context.destination);
+        state.audioMaster = { compressor, masterGain };
+      }
+      return state.audioMaster.compressor;
+    },
     pulse(frequency, startAt, duration, gainValue) {
       const context = AudioAlerts.unlock();
-      if (!context) return;
+      const target = AudioAlerts.masterNode();
+      if (!context || !target) return;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-      oscillator.type = 'sine';
+      oscillator.type = 'triangle';
       oscillator.frequency.setValueAtTime(frequency, startAt);
       gain.gain.setValueAtTime(0.0001, startAt);
       gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
       oscillator.connect(gain);
-      gain.connect(context.destination);
+      gain.connect(target);
+      oscillator.start(startAt);
+      oscillator.stop(startAt + duration + 0.05);
+    },
+    sweep(startFrequency, endFrequency, startAt, duration, gainValue) {
+      const context = AudioAlerts.unlock();
+      const target = AudioAlerts.masterNode();
+      if (!context || !target) return;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sawtooth';
+      oscillator.frequency.setValueAtTime(startFrequency, startAt);
+      oscillator.frequency.exponentialRampToValueAtTime(endFrequency, startAt + duration);
+      gain.gain.setValueAtTime(0.0001, startAt);
+      gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+      oscillator.connect(gain);
+      gain.connect(target);
       oscillator.start(startAt);
       oscillator.stop(startAt + duration + 0.05);
     },
     playRideRequest() {
+      if (!state.settings.notifications || !state.settings.sound) return;
       const context = AudioAlerts.unlock();
       if (!context) return;
       const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(932, startAt, 0.32, 0.16);
-      AudioAlerts.pulse(740, startAt + 0.38, 0.3, 0.15);
-      AudioAlerts.pulse(932, startAt + 0.78, 0.36, 0.17);
-      AudioAlerts.pulse(1174, startAt + 1.18, 0.3, 0.14);
+      AudioAlerts.sweep(640, 1180, startAt, 0.42, 0.34);
+      AudioAlerts.pulse(960, startAt + 0.08, 0.28, 0.22);
+      AudioAlerts.pulse(1280, startAt + 0.14, 0.22, 0.14);
+      AudioAlerts.sweep(720, 1320, startAt + 0.56, 0.42, 0.36);
+      AudioAlerts.pulse(1080, startAt + 0.64, 0.3, 0.24);
+      AudioAlerts.pulse(1440, startAt + 0.7, 0.22, 0.15);
+      AudioAlerts.pulse(880, startAt + 1.08, 0.2, 0.16);
+      AudioAlerts.pulse(1320, startAt + 1.24, 0.34, 0.2);
     },
     playNotification() {
       if (!state.settings.notifications || !state.settings.sound) return;
@@ -187,7 +228,14 @@ const DriverApp = (() => {
         return;
       }
       AudioAlerts.playRideRequest();
-    }, 4500);
+    }, 3200);
+  }
+
+  function focusIncomingRequest(request) {
+    if (!request) return;
+    state.activeRequestId = request.id;
+    UI.setActiveSection('requests');
+    UI.renderRequestModal(request, Boolean(state.data?.driver?.online));
   }
 
   function stopFaceCamera() {
@@ -203,6 +251,7 @@ const DriverApp = (() => {
     const nextRequest = (nextData.availableRequests || [])[0];
     if (nextData.driver?.online && nextRequest && !previousRequestIds.has(nextRequest.id)) {
       startRideRequestRingtone(nextRequest.id);
+      focusIncomingRequest(nextRequest);
       showSystemNotification(
         'New Ride Request',
         `${nextRequest.customerName || 'Customer'}: ${nextRequest.pickup} to ${nextRequest.dropoff}`,
@@ -294,10 +343,7 @@ const DriverApp = (() => {
       utils.qs('#modalRequestRoute').textContent = `${request.pickup} to ${request.dropoff}`;
       utils.qs('#modalRequestDistance').textContent = `${Number(request.distanceKm || 0).toFixed(1)} km`;
       utils.qs('#modalRequestStatus').textContent = 'Waiting for your decision';
-      if (state.activeRequestId !== request.id) {
-        UI.setActiveSection('requests');
-        startRideRequestRingtone(request.id);
-      }
+      if (state.activeRequestId !== request.id) startRideRequestRingtone(request.id);
     },
     render() {
       const data = state.data;
