@@ -234,8 +234,7 @@ const DriverApp = (() => {
   function focusIncomingRequest(request) {
     if (!request) return;
     state.activeRequestId = request.id;
-    UI.setActiveSection('requests');
-    UI.renderRequestModal(request, Boolean(state.data?.driver?.online));
+    UI.setActiveSection('activeRide');
   }
 
   function focusActiveRide(ride) {
@@ -256,13 +255,12 @@ const DriverApp = (() => {
     const nextRequest = (nextData.availableRequests || [])[0];
     if (nextData.driver?.online && nextRequest && !previousRequestIds.has(nextRequest.id)) {
       startRideRequestRingtone(nextRequest.id);
+      UI.setActiveSection('activeRide');
       focusIncomingRequest(nextRequest);
-      showSystemNotification(
-        'New Ride Request',
-        `${nextRequest.customerName || 'Customer'}: ${nextRequest.pickup} to ${nextRequest.dropoff}`,
-        { tag: `driver-ride-${nextRequest.id}`, requireInteraction: true }
-      );
+      const message = `${nextRequest.customerName || 'Customer'}: ${nextRequest.pickup} → ${nextRequest.dropoff}`;
+      showSystemNotification('New Ride Request', message, { tag: `driver-ride-${nextRequest.id}`, requireInteraction: true });
       utils.toast('New ride request received.');
+      alert(`New ride request\n${message}`);
       return;
     }
     const previousActiveRide = previousData.activeRide;
@@ -350,24 +348,7 @@ const DriverApp = (() => {
     currentActiveSection() {
       return utils.qs('.driver-section.active')?.id || '';
     },
-    renderRequestModal(request, online) {
-      const modal = utils.qs('#driverRequestModal');
-      if (!modal) return;
-      const shouldShow = Boolean(online && request);
-      modal.classList.toggle('hidden', !shouldShow);
-      modal.setAttribute('aria-hidden', String(!shouldShow));
-      if (!shouldShow) {
-        state.activeRequestId = '';
-        stopRideRequestRingtone();
-        return;
-      }
-      utils.qs('#modalRequestPassenger').textContent = request.customerName || 'Customer';
-      utils.qs('#modalRequestFare').textContent = utils.money(request.fare);
-      utils.qs('#modalRequestRoute').textContent = `${request.pickup} to ${request.dropoff}`;
-      utils.qs('#modalRequestDistance').textContent = `${Number(request.distanceKm || 0).toFixed(1)} km`;
-      utils.qs('#modalRequestStatus').textContent = 'Waiting for your decision';
-      if (state.activeRequestId !== request.id) startRideRequestRingtone(request.id);
-    },
+
     render() {
       const data = state.data;
       if (!data) return;
@@ -456,7 +437,6 @@ const DriverApp = (() => {
         utils.qs('#incomingRequest').classList.add('hidden');
         utils.qs('#requestEmpty p').textContent = online ? 'No ride requests right now. Stay online to receive new requests.' : 'Go online to receive ride requests.';
       }
-      UI.renderRequestModal(firstRequest, online);
       if (activeRide && UI.currentActiveSection() === 'dashboard') {
         focusActiveRide(activeRide);
       } else if (!activeRide && firstRequest && online && UI.currentActiveSection() === 'dashboard') {
@@ -799,8 +779,6 @@ const DriverApp = (() => {
       utils.qs('#actionViewRequests').addEventListener('click', () => UI.setActiveSection('requests'));
       utils.qs('#acceptRequest').addEventListener('click', () => Actions.acceptRequest().catch((error) => utils.toast(error.message)));
       utils.qs('#rejectRequest').addEventListener('click', () => Actions.rejectRequest().catch((error) => utils.toast(error.message)));
-      utils.qs('#modalAcceptRequest').addEventListener('click', () => Actions.acceptRequest().catch((error) => utils.toast(error.message)));
-      utils.qs('#modalRejectRequest').addEventListener('click', () => Actions.rejectRequest().catch((error) => utils.toast(error.message)));
       utils.qs('#rideAction').addEventListener('click', () => Actions.advanceRide().catch((error) => utils.toast(error.message)));
       utils.qs('#historyFilter').addEventListener('change', UI.render);
       utils.qs('#historySearch').addEventListener('input', UI.render);

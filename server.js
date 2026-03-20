@@ -123,7 +123,25 @@ function resolveDatabasePath() {
   }
   if (volumeRoot) return path.join(volumeRoot, 'teleka', 'teleka.sqlite');
   if (process.platform === 'win32') return path.join(roamingDataDir, 'teleka.sqlite');
+  // Use persistent fallback in Render-like environments if possible
+  const renderVolume = process.env.TELEKA_VOLUME_DIR || process.env.RENDER_DISK_PATH || process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  if (renderVolume) return path.join(renderVolume, 'teleka', 'teleka.sqlite');
   return path.join(projectDataDir, 'teleka.sqlite');
+}
+
+function loadLegacyState() {
+  const candidateFile = path.join(projectDataDir, 'teleka-store.json');
+  if (!fs.existsSync(candidateFile)) return null;
+  try {
+    const imported = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
+    if (imported && typeof imported === 'object') {
+      console.log('Loaded legacy state from teleka-store.json');
+      return normalizeState(imported);
+    }
+  } catch (error) {
+    console.warn('Failed to load legacy state:', error.message || error);
+  }
+  return null;
 }
 
 function loadState() {
@@ -131,8 +149,24 @@ function loadState() {
     const primaryStore = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
     const backupStore = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
     const parsed = primaryStore?.payload || backupStore?.payload || '';
-    return normalizeState(parsed ? JSON.parse(parsed) : baseState());
-  } catch {
+    if (parsed) {
+      return normalizeState(JSON.parse(parsed));
+    }
+    const legacyState = loadLegacyState();
+    if (legacyState) {
+      state = legacyState;
+      saveState();
+      return state;
+    }
+    return baseState();
+  } catch (error) {
+    console.warn('Failed to load state from database:', error.message || error);
+    const legacyState = loadLegacyState();
+    if (legacyState) {
+      state = legacyState;
+      saveState();
+      return state;
+    }
     return baseState();
   }
 }
