@@ -239,7 +239,9 @@ const TelekaAdmin = (() => {
         <td>${ride.dropoff}</td>
         <td>${ride.status}</td>
         <td>${DOM.money(ride.fare)}</td>
-        <td>${['completed', 'cancelled'].includes(ride.status) ? '-' : `<button class="btn small" data-action="cancel-ride" data-id="${ride.id}">Cancel</button>`}</td>
+        <td>${['completed', 'cancelled'].includes(ride.status)
+          ? '-'
+          : `${ride.status === 'pending' && !ride.driverId ? `<button class="btn small" data-action="assign-driver" data-id="${ride.id}">Assign Driver</button> ` : ''}<button class="btn small" data-action="cancel-ride" data-id="${ride.id}">Cancel</button>`}</td>
       `, 8, 'No rides found.');
 
       DOM.qs('#earningsRevenue').textContent = DOM.money(data.summary.revenue);
@@ -338,6 +340,22 @@ const TelekaAdmin = (() => {
       await Actions.refresh();
       DOM.toast(`Ride ${rideId} cancelled.`);
     },
+    async assignDriver(rideId) {
+      const availableDrivers = (state.data?.drivers || []).filter((driver) => driver.approvalStatus === 'approved' && driver.online && !driver.currentRideId);
+      if (!availableDrivers.length) throw new Error('No available online drivers to assign');
+      const options = availableDrivers.map((driver, index) => `${index + 1}. ${driver.name} | ${driver.phone || '-'} | ${driver.vehicle || '-'}${driver.plate ? ` | ${driver.plate}` : ''}`).join('\n');
+      const answer = window.prompt(`Assign driver to ride ${rideId}. Enter the number:\n${options}`, '1');
+      if (!answer) return;
+      const selectedIndex = Number(answer) - 1;
+      const selectedDriver = availableDrivers[selectedIndex];
+      if (!selectedDriver) throw new Error('Invalid driver selection');
+      await DOM.api(`/api/admin/rides/${encodeURIComponent(rideId)}/assign-driver`, {
+        method: 'POST',
+        body: JSON.stringify({ driverId: selectedDriver.id }),
+      });
+      await Actions.refresh();
+      DOM.toast(`Ride ${rideId} assigned to ${selectedDriver.name}.`);
+    },
     async approveDriver(driverId) {
       await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/approve`, { method: 'POST', body: JSON.stringify({ notes: 'Documents verified by admin' }) });
       await Actions.refresh();
@@ -420,6 +438,8 @@ const TelekaAdmin = (() => {
       document.body.addEventListener('click', (event) => {
         const action = event.target.closest('[data-action="cancel-ride"]');
         if (action) Actions.cancelRide(action.dataset.id).catch((error) => DOM.toast(error.message));
+        const assign = event.target.closest('[data-action="assign-driver"]');
+        if (assign) Actions.assignDriver(assign.dataset.id).catch((error) => DOM.toast(error.message));
         const approve = event.target.closest('[data-action="approve-driver"]');
         if (approve) Actions.approveDriver(approve.dataset.id).catch((error) => DOM.toast(error.message));
         const reject = event.target.closest('[data-action="reject-driver"]');

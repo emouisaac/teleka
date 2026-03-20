@@ -240,12 +240,16 @@ function getDriverDistanceToRide(driver, ride) {
 
 function selectRideCandidates(ride, { excludeDriverIds = [] } = {}) {
   const excluded = new Set(excludeDriverIds.filter(Boolean));
-  return state.drivers
+  const rankedDrivers = state.drivers
     .filter((driver) => driver.online && driver.approvalStatus === 'approved' && !driver.currentRideId && !excluded.has(driver.id))
-    .map((driver) => ({ driver, distanceKm: getDriverDistanceToRide(driver, ride) }))
+    .map((driver) => ({ driver, distanceKm: getDriverDistanceToRide(driver, ride) }));
+  const nearbyDrivers = rankedDrivers
     .filter((item) => item.distanceKm !== null && item.distanceKm >= 0 && item.distanceKm <= 5)
-    .sort((a, b) => a.distanceKm - b.distanceKm)
-    .slice(0, 3);
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+  const fallbackDrivers = rankedDrivers
+    .filter((item) => item.distanceKm === null)
+    .sort((a, b) => new Date(b.driver.updatedAt || b.driver.createdAt) - new Date(a.driver.updatedAt || a.driver.createdAt));
+  return [...nearbyDrivers, ...fallbackDrivers].slice(0, 3);
 }
 
 function retargetRide(ride) {
@@ -647,7 +651,9 @@ async function handleApi(req, res, url) {
       notification({
         targetType: 'driver',
         targetId: candidate.driver.id,
-        message: `New nearby ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
+        message: candidate.distanceKm === null
+          ? `New ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff}.`
+          : `New nearby ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
       });
     });
     notification({
@@ -686,11 +692,13 @@ async function handleApi(req, res, url) {
           const before = new Set(ride.notifiedDriverIds || []);
           const candidates = retargetRide(ride);
           if (candidates.some((candidate) => candidate.driver.id === driver.id) && !before.has(driver.id)) {
-            const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm || 0;
+            const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm;
             notification({
               targetType: 'driver',
               targetId: driver.id,
-              message: `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
+              message: distanceKm === null || distanceKm === undefined
+                ? `New ride request available: ${ride.pickup} to ${ride.dropoff}.`
+                : `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
             });
           }
         });
@@ -719,11 +727,13 @@ async function handleApi(req, res, url) {
         const before = new Set(ride.notifiedDriverIds || []);
         const candidates = retargetRide(ride);
         if (candidates.some((candidate) => candidate.driver.id === driver.id) && !before.has(driver.id)) {
-          const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm || 0;
+          const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm;
           notification({
             targetType: 'driver',
             targetId: driver.id,
-            message: `A nearby ride request is now assigned to you: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
+            message: distanceKm === null || distanceKm === undefined
+              ? `A ride request is now assigned to you: ${ride.pickup} to ${ride.dropoff}.`
+              : `A nearby ride request is now assigned to you: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
           });
         }
       });
@@ -819,6 +829,58 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
   }
 
+  const assignRide = routeMatches(pathname, '/api/admin/rides/:rideId/assign-driver');
+  if (assignRide && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'admin');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    const ride = findRide(assignRide.rideId);
+    if (!ride) return sendJson(res, 404, { ok: false, message: 'Ride not found' }), true;
+    if (ride.status !== 'pending' || ride.driverId) {
+      return sendJson(res, 409, { ok: false, message: 'Only pending unassigned rides can be manually assigned' }), true;
+    }
+    const body = await parseJsonBody(req);
+    const driver = findDriver(text(body.driverId));
+    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
+    if (driver.approvalStatus !== 'approved') {
+      return sendJson(res, 409, { ok: false, message: 'Driver is not approved' }), true;
+    }
+    if (!driver.online) {
+      return sendJson(res, 409, { ok: false, message: 'Driver must be online to receive an assigned ride' }), true;
+    }
+    if (driver.currentRideId) {
+      return sendJson(res, 409, { ok: false, message: 'Driver already has an active ride' }), true;
+    }
+    ride.driverId = driver.id;
+    ride.status = 'accepted';
+    ride.updatedAt = now();
+    ride.timeline = { ...(ride.timeline || {}), acceptedAt: now(), assignedByAdminAt: now() };
+    ride.chatMessages = Array.isArray(ride.chatMessages) ? ride.chatMessages : [];
+    driver.currentRideId = ride.id;
+    driver.updatedAt = now();
+    saveState();
+    (ride.notifiedDriverIds || []).filter((driverId) => driverId !== driver.id).forEach((driverId) => {
+      notification({
+        targetType: 'driver',
+        targetId: driverId,
+        message: `Ride ${ride.id} was assigned by dispatch and is no longer available.`,
+        type: 'warning',
+      });
+    });
+    notification({
+      targetType: 'driver',
+      targetId: driver.id,
+      message: `Dispatch assigned ride ${ride.id} to you. Proceed to ${ride.pickup}.`,
+    });
+    notification({
+      targetType: 'customer',
+      targetId: ride.customerId,
+      message: `${driver.name} was assigned by dispatch to your ride ${ride.id}. Call or chat via ${driver.phone}.`,
+    });
+    notification({ targetType: 'admin', message: `${driver.name} was assigned by admin to ride ${ride.id}.` });
+    broadcastState();
+    return sendJson(res, 200, { ok: true, data: publicRide(ride) }), true;
+  }
+
   const markResetWhatsapp = routeMatches(pathname, '/api/admin/password-reset-requests/:requestId/whatsapp');
   if (markResetWhatsapp && req.method === 'POST') {
     const auth = requireAuth(req, url, 'admin');
@@ -885,7 +947,9 @@ async function handleApi(req, res, url) {
         notification({
           targetType: 'driver',
           targetId: candidate.driver.id,
-          message: `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
+          message: candidate.distanceKm === null
+            ? `New ride request available: ${ride.pickup} to ${ride.dropoff}.`
+            : `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
         });
       });
     saveState();

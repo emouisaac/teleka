@@ -117,7 +117,6 @@ const DriverApp = (() => {
       oscillator.stop(startAt + duration + 0.05);
     },
     playRideRequest() {
-      if (!state.settings.notifications || !state.settings.sound) return;
       const context = AudioAlerts.unlock();
       if (!context) return;
       const startAt = context.currentTime + 0.02;
@@ -293,6 +292,7 @@ const DriverApp = (() => {
       utils.qs('#modalRequestDistance').textContent = `${Number(request.distanceKm || 0).toFixed(1)} km`;
       utils.qs('#modalRequestStatus').textContent = 'Waiting for your decision';
       if (state.activeRequestId !== request.id) {
+        UI.setActiveSection('requests');
         startRideRequestRingtone(request.id);
       }
     },
