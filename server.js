@@ -7,6 +7,7 @@ const { DatabaseSync } = require('node:sqlite');
 const nodemailer = require('nodemailer');
 
 const baseDir = path.resolve(__dirname);
+const projectDataDir = path.join(baseDir, 'data');
 const roamingDataDir = process.env.APPDATA
   ? path.join(process.env.APPDATA, 'Teleka')
   : (process.platform === 'win32'
@@ -29,7 +30,13 @@ function loadEnv() {
 const env = loadEnv();
 const port = Number(process.env.PORT || env.PORT || 3000);
 const configuredDbPath = process.env.TELEKA_DB_PATH || env.TELEKA_DB_PATH || '';
-const databasePath = configuredDbPath || path.join(roamingDataDir, 'teleka.sqlite');
+const persistentVolumeRoot = process.env.TELEKA_VOLUME_DIR
+  || process.env.RENDER_DISK_PATH
+  || process.env.RAILWAY_VOLUME_MOUNT_PATH
+  || process.env.FLY_VOLUME_DIR
+  || process.env.KOYEB_VOLUME_DIR
+  || '';
+const databasePath = resolveDatabasePath();
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || '';
 const AUTH_SECRET = process.env.AUTH_SECRET || env.AUTH_SECRET || '';
@@ -94,6 +101,29 @@ function openDatabase() {
     );
   `);
   return database;
+}
+
+function looksLikeWindowsAbsolutePath(value) {
+  return /^[A-Za-z]:\\/.test(String(value || ''));
+}
+
+function portableBaseName(filePath) {
+  return String(filePath || '').split(/[\\/]/).filter(Boolean).pop() || 'teleka.sqlite';
+}
+
+function resolveDatabasePath() {
+  const rawConfigured = text(configuredDbPath);
+  const volumeRoot = text(persistentVolumeRoot);
+  if (rawConfigured) {
+    if (process.platform !== 'win32' && looksLikeWindowsAbsolutePath(rawConfigured)) {
+      const fallbackBase = volumeRoot ? path.join(volumeRoot, 'teleka') : projectDataDir;
+      return path.join(fallbackBase, portableBaseName(rawConfigured));
+    }
+    return rawConfigured;
+  }
+  if (volumeRoot) return path.join(volumeRoot, 'teleka', 'teleka.sqlite');
+  if (process.platform === 'win32') return path.join(roamingDataDir, 'teleka.sqlite');
+  return path.join(projectDataDir, 'teleka.sqlite');
 }
 
 function loadState() {
@@ -1361,7 +1391,16 @@ function createServer() {
   });
 }
 
-if (!AUTH_SECRET) console.warn('WARNING: AUTH_SECRET is not configured. Set it in .env.');
+if (!AUTH_SECRET) console.warn('WARNING: AUTH_SECRET is not configured. Set it in .env or deployment environment.');
+if (!configuredDbPath && !persistentVolumeRoot && process.platform !== 'win32') {
+  console.warn('WARNING: No persistent volume configured. SQLite will be stored in the app workspace and may be lost on redeploy.');
+}
+if (configuredDbPath && process.platform !== 'win32' && looksLikeWindowsAbsolutePath(configuredDbPath)) {
+  console.warn(`WARNING: TELEKA_DB_PATH points to a Windows path on ${process.platform}. Falling back to ${databasePath}`);
+}
+if (persistentVolumeRoot) {
+  console.log(`Persistent volume detected: ${persistentVolumeRoot}`);
+}
 
 createServer().listen(port, '0.0.0.0', () => {
   console.log(`Static server running at http://localhost:${port}`);

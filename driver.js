@@ -238,6 +238,11 @@ const DriverApp = (() => {
     UI.renderRequestModal(request, Boolean(state.data?.driver?.online));
   }
 
+  function focusActiveRide(ride) {
+    if (!ride) return;
+    UI.setActiveSection('activeRide');
+  }
+
   function stopFaceCamera() {
     const video = utils.qs('#registerFaceVideo');
     const stream = video?.srcObject;
@@ -258,6 +263,21 @@ const DriverApp = (() => {
         { tag: `driver-ride-${nextRequest.id}`, requireInteraction: true }
       );
       utils.toast('New ride request received.');
+      return;
+    }
+    const previousActiveRide = previousData.activeRide;
+    const nextActiveRide = nextData.activeRide;
+    const becameActiveRide = nextActiveRide && (!previousActiveRide || previousActiveRide.id !== nextActiveRide.id || previousActiveRide.status !== nextActiveRide.status);
+    if (becameActiveRide) {
+      stopRideRequestRingtone();
+      focusActiveRide(nextActiveRide);
+      AudioAlerts.playNotification();
+      showSystemNotification(
+        'Active Ride Ready',
+        `${nextActiveRide.customerName || 'Customer'}: ${nextActiveRide.pickup} to ${nextActiveRide.dropoff}`,
+        { tag: `driver-active-ride-${nextActiveRide.id}`, requireInteraction: true }
+      );
+      utils.toast('Active ride opened.');
       return;
     }
     const previousNotificationIds = new Set((previousData.notifications || []).map((item) => item.id));
@@ -326,6 +346,9 @@ const DriverApp = (() => {
       utils.qsa(selectors.navLink).forEach((button) => button.classList.toggle('active', button.dataset.section === sectionId));
       utils.qsa(selectors.bottomNav).forEach((button) => button.classList.toggle('active', button.dataset.section === sectionId));
       if (window.innerWidth <= 900) UI.setNavState(false);
+    },
+    currentActiveSection() {
+      return utils.qs('.driver-section.active')?.id || '';
     },
     renderRequestModal(request, online) {
       const modal = utils.qs('#driverRequestModal');
@@ -434,6 +457,11 @@ const DriverApp = (() => {
         utils.qs('#requestEmpty p').textContent = online ? 'No ride requests right now. Stay online to receive new requests.' : 'Go online to receive ride requests.';
       }
       UI.renderRequestModal(firstRequest, online);
+      if (activeRide && UI.currentActiveSection() === 'dashboard') {
+        focusActiveRide(activeRide);
+      } else if (!activeRide && firstRequest && online && UI.currentActiveSection() === 'dashboard') {
+        focusIncomingRequest(firstRequest);
+      }
 
       utils.qs('#driverMap').classList.toggle('online', online);
       utils.qs('#driverMap .map-placeholder-text').textContent = activeRide ? `Assigned route: ${activeRide.pickup} to ${activeRide.dropoff}` : online ? 'You are visible to dispatch and riders.' : 'Go online to receive ride requests.';
