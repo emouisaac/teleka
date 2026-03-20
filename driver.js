@@ -625,6 +625,7 @@ const DriverApp = (() => {
       utils.qs('#profileForm').addEventListener('submit', (event) => { event.preventDefault(); Actions.saveProfile().catch((error) => utils.toast(error.message)); });
       utils.qs('#resetProfile').addEventListener('click', () => UI.render());
       utils.qs('#logoutBtn').addEventListener('click', Actions.logout);
+      utils.qs('#sidebarLogoutBtn').addEventListener('click', Actions.logout);
       utils.qs('#notifBtn').addEventListener('click', () => UI.setActiveSection('notifications'));
       utils.qs('#driverAvatar').addEventListener('click', () => UI.setActiveSection('profile'));
       utils.qs('#settingNotifications').addEventListener('change', (event) => {
