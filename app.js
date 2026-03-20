@@ -54,6 +54,26 @@ const TelekaAdmin = (() => {
     },
   };
 
+  function requestSystemNotificationPermission() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    Notification.requestPermission().catch(() => {});
+  }
+
+  function showSystemNotification(title, body, options = {}) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return null;
+    try {
+      return new Notification(title, {
+        body,
+        icon: 'ims/t2icon.png',
+        badge: 'ims/t2icon.png',
+        renotify: true,
+        ...options,
+      });
+    } catch {
+      return null;
+    }
+  }
+
   const AudioAlerts = {
     unlock() {
       if (state.audioContext) return state.audioContext;
@@ -82,16 +102,17 @@ const TelekaAdmin = (() => {
       const context = AudioAlerts.unlock();
       if (!context) return;
       const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(784, startAt, 0.18, 0.06);
-      AudioAlerts.pulse(988, startAt + 0.22, 0.18, 0.06);
-      AudioAlerts.pulse(1174, startAt + 0.44, 0.26, 0.07);
+      AudioAlerts.pulse(784, startAt, 0.22, 0.11);
+      AudioAlerts.pulse(988, startAt + 0.26, 0.22, 0.11);
+      AudioAlerts.pulse(1174, startAt + 0.54, 0.32, 0.12);
     },
     playNotification() {
       const context = AudioAlerts.unlock();
       if (!context) return;
       const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(622, startAt, 0.12, 0.045);
-      AudioAlerts.pulse(831, startAt + 0.16, 0.16, 0.04);
+      AudioAlerts.pulse(622, startAt, 0.18, 0.1);
+      AudioAlerts.pulse(831, startAt + 0.2, 0.22, 0.09);
+      AudioAlerts.pulse(988, startAt + 0.46, 0.18, 0.085);
     },
   };
 
@@ -101,6 +122,11 @@ const TelekaAdmin = (() => {
     const nextPendingRide = (nextData.rides || []).find((ride) => ride.status === 'pending' && !previousPendingRideIds.has(ride.id));
     if (nextPendingRide) {
       AudioAlerts.playRideRequest();
+      showSystemNotification(
+        'New Ride Request',
+        `${nextPendingRide.customerName} needs a ride from ${nextPendingRide.pickup} to ${nextPendingRide.dropoff}.`,
+        { tag: `admin-ride-${nextPendingRide.id}`, requireInteraction: true }
+      );
       DOM.toast(`New ride request ${nextPendingRide.id} received.`);
       return;
     }
@@ -108,6 +134,9 @@ const TelekaAdmin = (() => {
     const latestNotification = (nextData.notifications || [])[0];
     if (latestNotification && !previousNotificationIds.has(latestNotification.id)) {
       AudioAlerts.playNotification();
+      showSystemNotification('Teleka Admin Alert', latestNotification.message || 'You have a new admin alert.', {
+        tag: `admin-notification-${latestNotification.id}`,
+      });
     }
   }
 
@@ -400,8 +429,14 @@ const TelekaAdmin = (() => {
         const sendWhatsApp = event.target.closest('[data-action="send-reset-whatsapp"]');
         if (sendWhatsApp) Actions.sendResetViaWhatsApp(sendWhatsApp.dataset.id).catch((error) => DOM.toast(error.message));
       });
-      document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
-      document.addEventListener('keydown', AudioAlerts.unlock, { once: true });
+      document.addEventListener('pointerdown', () => {
+        AudioAlerts.unlock();
+        requestSystemNotificationPermission();
+      }, { once: true });
+      document.addEventListener('keydown', () => {
+        AudioAlerts.unlock();
+        requestSystemNotificationPermission();
+      }, { once: true });
       document.addEventListener('click', (event) => {
         if (window.innerWidth <= 1024 && !event.target.closest('.sidebar') && !event.target.closest('#mobileSidebarToggle')) {
           UI.toggleSidebar(true);

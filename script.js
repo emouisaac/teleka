@@ -69,6 +69,26 @@ function formatUGX(amount) {
   }).format(Number(amount) || 0);
 }
 
+function requestSystemNotificationPermission() {
+  if (!('Notification' in window) || Notification.permission !== 'default') return;
+  Notification.requestPermission().catch(() => {});
+}
+
+function showSystemNotification(title, body, options = {}) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return null;
+  try {
+    return new Notification(title, {
+      body,
+      icon: 'ims/t2icon.png',
+      badge: 'ims/t2icon.png',
+      renotify: true,
+      ...options,
+    });
+  } catch {
+    return null;
+  }
+}
+
 const AudioAlerts = {
   unlock() {
     if (appState.audioContext) return appState.audioContext;
@@ -97,16 +117,17 @@ const AudioAlerts = {
     const context = AudioAlerts.unlock();
     if (!context) return;
     const startAt = context.currentTime + 0.02;
-    AudioAlerts.pulse(698, startAt, 0.14, 0.045);
-    AudioAlerts.pulse(880, startAt + 0.18, 0.18, 0.04);
+    AudioAlerts.pulse(698, startAt, 0.18, 0.1);
+    AudioAlerts.pulse(880, startAt + 0.2, 0.24, 0.09);
+    AudioAlerts.pulse(1046, startAt + 0.46, 0.22, 0.085);
   },
   playRideAccepted() {
     const context = AudioAlerts.unlock();
     if (!context) return;
     const startAt = context.currentTime + 0.02;
-    AudioAlerts.pulse(784, startAt, 0.16, 0.05);
-    AudioAlerts.pulse(988, startAt + 0.2, 0.18, 0.05);
-    AudioAlerts.pulse(1174, startAt + 0.42, 0.24, 0.055);
+    AudioAlerts.pulse(784, startAt, 0.22, 0.11);
+    AudioAlerts.pulse(988, startAt + 0.26, 0.24, 0.11);
+    AudioAlerts.pulse(1174, startAt + 0.56, 0.34, 0.12);
   },
 };
 
@@ -309,11 +330,19 @@ async function refreshCustomerState() {
   const activeRide = data.activeRide;
   if (activeRide && appState.lastRideStatus && appState.lastRideStatus !== activeRide.status && activeRide.status === 'accepted') {
     AudioAlerts.playRideAccepted();
+    showSystemNotification(
+      'Driver Assigned',
+      `${activeRide.driverName || 'Your driver'} accepted your ride. ${activeRide.driverPhone || 'Contact details are ready.'}`,
+      { tag: `customer-ride-${activeRide.id}`, requireInteraction: true }
+    );
     showMessage(`Your ride was accepted by ${activeRide.driverName}. Driver contact: ${activeRide.driverPhone || 'Unavailable'}`);
   }
   const latestNotification = (data.notifications || [])[0];
   if (appState.notifications.length && latestNotification && !previousNotificationIds.has(latestNotification.id) && activeRide?.status !== 'accepted') {
     AudioAlerts.playNotification();
+    showSystemNotification('Teleka Update', latestNotification.message || 'You have a new update.', {
+      tag: `customer-notification-${latestNotification.id}`,
+    });
   }
   appState.notifications = data.notifications || [];
   appState.lastRideStatus = activeRide ? activeRide.status : '';
@@ -424,6 +453,8 @@ let directionsRenderer;
 let pickupMarker;
 let dropoffMarker;
 let rideRequestInitialized = false;
+let pickupCoords = null;
+let dropoffCoords = null;
 
 function estimateFare(distanceMeters, carType) {
   const km = distanceMeters / 1000;
@@ -468,8 +499,22 @@ function initRideRequest() {
     });
   };
 
-  pickupAutocomplete.addListener('place_changed', () => { const place = pickupAutocomplete.getPlace(); if (place.geometry?.location) { origin = place.geometry.location; redraw(); } });
-  dropoffAutocomplete.addListener('place_changed', () => { const place = dropoffAutocomplete.getPlace(); if (place.geometry?.location) { destination = place.geometry.location; redraw(); } });
+  pickupAutocomplete.addListener('place_changed', () => {
+    const place = pickupAutocomplete.getPlace();
+    if (place.geometry?.location) {
+      origin = place.geometry.location;
+      pickupCoords = { lat: origin.lat(), lng: origin.lng() };
+      redraw();
+    }
+  });
+  dropoffAutocomplete.addListener('place_changed', () => {
+    const place = dropoffAutocomplete.getPlace();
+    if (place.geometry?.location) {
+      destination = place.geometry.location;
+      dropoffCoords = { lat: destination.lat(), lng: destination.lng() };
+      redraw();
+    }
+  });
   document.getElementById('car-type')?.addEventListener('change', redraw);
 
   rideForm.addEventListener('submit', async (event) => {
@@ -487,6 +532,10 @@ function initRideRequest() {
           payment: document.getElementById('payment-method')?.value || 'cash',
           fare: estimateFare(distanceMeters, document.getElementById('car-type').value),
           distanceKm: Number((distanceMeters / 1000).toFixed(2)),
+          pickupLat: pickupCoords?.lat,
+          pickupLng: pickupCoords?.lng,
+          dropoffLat: dropoffCoords?.lat,
+          dropoffLng: dropoffCoords?.lng,
         }),
       });
       await refreshCustomerState();
@@ -499,6 +548,8 @@ function initRideRequest() {
       dropoffMarker = null;
       origin = null;
       destination = null;
+      pickupCoords = null;
+      dropoffCoords = null;
       distanceMeters = 0;
       document.getElementById('fare-amount').textContent = formatUGX(0);
       map.setCenter(DEFAULT_CENTER);
@@ -524,8 +575,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderCustomerChat(null);
   initFooterToggles();
   addServiceIcons();
-  document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
-  document.addEventListener('keydown', AudioAlerts.unlock, { once: true });
+  document.addEventListener('pointerdown', () => {
+    AudioAlerts.unlock();
+    requestSystemNotificationPermission();
+  }, { once: true });
+  document.addEventListener('keydown', () => {
+    AudioAlerts.unlock();
+    requestSystemNotificationPermission();
+  }, { once: true });
   document.querySelector('.settings-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     showMessage('Settings saved on this device.');

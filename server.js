@@ -6,14 +6,20 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 
 const baseDir = path.resolve(__dirname);
-const appDataDir = process.env.TELEKA_DATA_DIR
-  || (process.platform === 'win32'
-    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Teleka')
+const defaultDataDir = path.join(baseDir, 'data');
+const roamingDataDir = process.env.APPDATA
+  ? path.join(process.env.APPDATA, 'Teleka')
+  : (process.platform === 'win32'
+    ? path.join(os.homedir(), 'AppData', 'Roaming', 'Teleka')
     : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'teleka'));
-const legacyDataDir = path.join(baseDir, 'data');
-const dataDir = appDataDir;
+const configuredDataDir = process.env.TELEKA_DATA_DIR || defaultDataDir;
+const dataDir = configuredDataDir;
 const dataFile = path.join(dataDir, 'teleka-store.json');
-const legacyDataFile = path.join(legacyDataDir, 'teleka-store.json');
+const mirrorDataFiles = Array.from(new Set([
+  dataFile,
+  path.join(defaultDataDir, 'teleka-store.json'),
+  path.join(roamingDataDir, 'teleka-store.json'),
+]));
 
 function loadEnv() {
   const out = {};
@@ -70,17 +76,40 @@ const baseState = () => ({
 let state = loadState();
 const sseClients = new Set();
 
+function parseStateFile(filePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return {
+      parsed,
+      updatedAt: new Date(parsed?.meta?.updatedAt || parsed?.meta?.startedAt || fs.statSync(filePath).mtimeMs).getTime() || 0,
+      filePath,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function loadLatestPersistedState() {
+  return mirrorDataFiles
+    .filter((filePath) => fs.existsSync(filePath))
+    .map(parseStateFile)
+    .filter(Boolean)
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0] || null;
+}
+
 function ensurePersistentStore() {
   if (fs.existsSync(dataFile)) return;
-  if (!fs.existsSync(legacyDataFile)) return;
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.copyFileSync(legacyDataFile, dataFile);
+  const latestStore = loadLatestPersistedState();
+  if (!latestStore) return;
+  fs.mkdirSync(path.dirname(dataFile), { recursive: true });
+  fs.copyFileSync(latestStore.filePath, dataFile);
 }
 
 function loadState() {
   ensurePersistentStore();
   try {
-    const parsed = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
+    const latestStore = loadLatestPersistedState();
+    const parsed = latestStore?.parsed || JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     return {
       ...baseState(),
       ...parsed,
@@ -99,8 +128,13 @@ function loadState() {
 
 function saveState() {
   state.meta.updatedAt = new Date().toISOString();
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(dataFile, JSON.stringify(state, null, 2));
+  const serialized = JSON.stringify(state, null, 2);
+  mirrorDataFiles.forEach((filePath) => {
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, serialized);
+    } catch {}
+  });
 }
 
 function now() { return new Date().toISOString(); }
@@ -113,6 +147,12 @@ function secret() { return crypto.randomBytes(24).toString('hex'); }
 function normalizePhone(value) { return text(value).replace(/\s+/g, ''); }
 function normalizeEmail(value) { return text(value).toLowerCase(); }
 function normalizePlate(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
+function clampCoord(value, min, max) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= min && n <= max ? Number(n.toFixed(6)) : null;
+}
+function normalizeLatitude(value) { return clampCoord(value, -90, 90); }
+function normalizeLongitude(value) { return clampCoord(value, -180, 180); }
 function findCustomer(customerId) { return state.customers.find((item) => item.id === customerId); }
 function findDriver(driverId) { return state.drivers.find((item) => item.id === driverId); }
 function findCustomerByPhone(phone) { return state.customers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
@@ -180,6 +220,42 @@ function fare({ distanceKm = 0, durationMin = 0, carType = 'standard' }) {
   return money((state.settings.baseFare + distanceKm * state.settings.perKm + durationMin * state.settings.perMin) * state.settings.surge * mult);
 }
 
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const toRad = (degrees) => degrees * (Math.PI / 180);
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getDriverDistanceToRide(driver, ride) {
+  const driverLat = normalizeLatitude(driver?.location?.lat);
+  const driverLng = normalizeLongitude(driver?.location?.lng);
+  const pickupLat = normalizeLatitude(ride?.pickupLat);
+  const pickupLng = normalizeLongitude(ride?.pickupLng);
+  if (driverLat === null || driverLng === null || pickupLat === null || pickupLng === null) return null;
+  return Number(haversineKm(driverLat, driverLng, pickupLat, pickupLng).toFixed(2));
+}
+
+function selectRideCandidates(ride, { excludeDriverIds = [] } = {}) {
+  const excluded = new Set(excludeDriverIds.filter(Boolean));
+  return state.drivers
+    .filter((driver) => driver.online && driver.approvalStatus === 'approved' && !driver.currentRideId && !excluded.has(driver.id))
+    .map((driver) => ({ driver, distanceKm: getDriverDistanceToRide(driver, ride) }))
+    .filter((item) => item.distanceKm !== null && item.distanceKm >= 0 && item.distanceKm <= 5)
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, 3);
+}
+
+function retargetRide(ride) {
+  const candidates = selectRideCandidates(ride, { excludeDriverIds: ride.rejectedDriverIds || [] });
+  ride.notifiedDriverIds = candidates.map((item) => item.driver.id);
+  ride.driverCandidates = candidates.map((item) => ({ driverId: item.driver.id, distanceKm: item.distanceKm }));
+  ride.updatedAt = now();
+  return candidates;
+}
+
 function publicRide(ride) {
   const customer = findCustomer(ride.customerId);
   const driver = ride.driverId ? findDriver(ride.driverId) : null;
@@ -190,6 +266,14 @@ function publicRide(ride) {
     driverName: driver ? driver.name : 'Unassigned',
     driverPhone: driver ? driver.phone : '',
     driverVehicle: driver ? driver.vehicle : '',
+    targetedDrivers: Array.isArray(ride.driverCandidates) ? ride.driverCandidates.map((candidate) => {
+      const candidateDriver = findDriver(candidate.driverId);
+      return {
+        driverId: candidate.driverId,
+        driverName: candidateDriver?.name || 'Driver',
+        distanceKm: candidate.distanceKm,
+      };
+    }) : [],
     chatMessages: Array.isArray(ride.chatMessages) ? ride.chatMessages : [],
   };
 }
@@ -241,7 +325,9 @@ function driverState(driverId) {
   return {
     driver: safeDriver(driver),
     activeRide: rides.find((ride) => ['accepted', 'arrived', 'in-progress'].includes(ride.status)) || null,
-    availableRequests: recent(state.rides.filter((ride) => ride.status === 'pending' && !ride.driverId)).map(publicRide),
+    availableRequests: recent(
+      state.rides.filter((ride) => ride.status === 'pending' && !ride.driverId && (ride.notifiedDriverIds || []).includes(driverId))
+    ).map(publicRide),
     history: recent(rides.filter((ride) => ride.status !== 'pending')),
     notifications: filterNotifications('driver', driverId).slice(0, 50),
     settings: state.settings,
@@ -256,8 +342,8 @@ function createCustomerSession(body) {
       throw new Error('Customer authentication failed');
     }
     existing.name = text(body.name, existing.name);
-    existing.email = text(body.email, existing.email);
-    existing.phone = text(body.phone, existing.phone);
+    existing.email = normalizeEmail(body.email || existing.email);
+    existing.phone = normalizePhone(body.phone || existing.phone);
     existing.updatedAt = now();
     saveState();
     return { customer: safeCustomer(existing), accessKey: text(body.accessKey), token: issueToken('customer', existing.id) };
@@ -266,8 +352,8 @@ function createCustomerSession(body) {
   const matchedCustomer = findCustomerByPhone(body.phone) || findCustomerByEmail(body.email);
   if (matchedCustomer) {
     matchedCustomer.name = text(body.name, matchedCustomer.name);
-    matchedCustomer.email = text(body.email, matchedCustomer.email);
-    matchedCustomer.phone = text(body.phone, matchedCustomer.phone);
+    matchedCustomer.email = normalizeEmail(body.email || matchedCustomer.email);
+    matchedCustomer.phone = normalizePhone(body.phone || matchedCustomer.phone);
     matchedCustomer.accessKeyHash = hash(accessKey);
     matchedCustomer.updatedAt = now();
     saveState();
@@ -277,8 +363,8 @@ function createCustomerSession(body) {
   const customer = {
     id: id('cust'),
     name: text(body.name, 'Customer'),
-    email: text(body.email),
-    phone: text(body.phone),
+    email: normalizeEmail(body.email),
+    phone: normalizePhone(body.phone),
     accessKeyHash: hash(accessKey),
     createdAt: now(),
     updatedAt: now(),
@@ -321,6 +407,7 @@ function registerDriver(body) {
     earningsTotal: 0,
     rating: 5,
     ratingCount: 0,
+    location: { lat: null, lng: null, updatedAt: '' },
     documents: {
       licenseNumber: text(body.licenseNumber),
       nationalIdNumber: text(body.nationalIdNumber),
@@ -534,6 +621,10 @@ async function handleApi(req, res, url) {
       driverId: null,
       pickup: text(body.pickup, 'Pickup not set'),
       dropoff: text(body.dropoff, 'Dropoff not set'),
+      pickupLat: normalizeLatitude(body.pickupLat),
+      pickupLng: normalizeLongitude(body.pickupLng),
+      dropoffLat: normalizeLatitude(body.dropoffLat),
+      dropoffLng: normalizeLongitude(body.dropoffLng),
       date: text(body.date, now()),
       carType: text(body.carType, 'standard'),
       payment: text(body.payment, 'cash'),
@@ -544,12 +635,28 @@ async function handleApi(req, res, url) {
       createdAt: now(),
       updatedAt: now(),
       timeline: { requestedAt: now() },
+      notifiedDriverIds: [],
+      rejectedDriverIds: [],
+      driverCandidates: [],
       chatMessages: [],
     };
+    const targetedDrivers = retargetRide(ride);
     state.rides.unshift(ride);
     saveState();
-    notification({ targetType: 'drivers', message: `New ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff}` });
-    notification({ targetType: 'customer', targetId: customer.id, message: `Ride ${ride.id} created. Waiting for a driver.` });
+    targetedDrivers.forEach((candidate) => {
+      notification({
+        targetType: 'driver',
+        targetId: candidate.driver.id,
+        message: `New nearby ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
+      });
+    });
+    notification({
+      targetType: 'customer',
+      targetId: customer.id,
+      message: targetedDrivers.length
+        ? `Ride ${ride.id} sent to ${targetedDrivers.length} nearby drivers. Waiting for acceptance.`
+        : `Ride ${ride.id} created. No drivers within 5 km are online yet.`,
+    });
     notification({ targetType: 'admin', message: `New ride request ${ride.id} from ${customer.name}` });
     sendRideRequestEmail(ride).catch(() => {});
     broadcastState();
@@ -562,10 +669,65 @@ async function handleApi(req, res, url) {
     if (!auth || auth.sub !== availability.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
     const driver = findDriver(auth.sub);
     if (!driver || driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
-    driver.online = Boolean((await parseJsonBody(req)).online);
+    const body = await parseJsonBody(req);
+    driver.online = Boolean(body.online);
+    if (driver.online) {
+      const lat = normalizeLatitude(body.lat);
+      const lng = normalizeLongitude(body.lng);
+      if (lat !== null && lng !== null) {
+        driver.location = { lat, lng, updatedAt: now() };
+      }
+    }
     driver.updatedAt = now();
+    if (driver.online) {
+      state.rides
+        .filter((ride) => ride.status === 'pending' && !ride.driverId && !(ride.rejectedDriverIds || []).includes(driver.id))
+        .forEach((ride) => {
+          const before = new Set(ride.notifiedDriverIds || []);
+          const candidates = retargetRide(ride);
+          if (candidates.some((candidate) => candidate.driver.id === driver.id) && !before.has(driver.id)) {
+            const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm || 0;
+            notification({
+              targetType: 'driver',
+              targetId: driver.id,
+              message: `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
+            });
+          }
+        });
+    }
     saveState();
     notification({ targetType: 'admin', message: `${driver.name} is now ${driver.online ? 'online' : 'offline'}` });
+    broadcastState();
+    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
+  }
+
+  const driverLocation = routeMatches(pathname, '/api/drivers/:driverId/location');
+  if (driverLocation && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'driver');
+    if (!auth || auth.sub !== driverLocation.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
+    const driver = findDriver(auth.sub);
+    if (!driver || driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
+    const body = await parseJsonBody(req);
+    const lat = normalizeLatitude(body.lat);
+    const lng = normalizeLongitude(body.lng);
+    if (lat === null || lng === null) return sendJson(res, 400, { ok: false, message: 'Valid driver coordinates are required' }), true;
+    driver.location = { lat, lng, updatedAt: now() };
+    driver.updatedAt = now();
+    state.rides
+      .filter((ride) => ride.status === 'pending' && !ride.driverId && !(ride.rejectedDriverIds || []).includes(driver.id))
+      .forEach((ride) => {
+        const before = new Set(ride.notifiedDriverIds || []);
+        const candidates = retargetRide(ride);
+        if (candidates.some((candidate) => candidate.driver.id === driver.id) && !before.has(driver.id)) {
+          const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm || 0;
+          notification({
+            targetType: 'driver',
+            targetId: driver.id,
+            message: `A nearby ride request is now assigned to you: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
+          });
+        }
+      });
+    saveState();
     broadcastState();
     return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
   }
@@ -682,6 +844,9 @@ async function handleApi(req, res, url) {
     if (driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
     if (ride.status !== 'pending' || ride.driverId) return sendJson(res, 409, { ok: false, message: 'Ride is no longer available' }), true;
     if (!driver.online) return sendJson(res, 409, { ok: false, message: 'Driver must be online to accept rides' }), true;
+    if ((ride.notifiedDriverIds || []).length && !(ride.notifiedDriverIds || []).includes(driver.id)) {
+      return sendJson(res, 403, { ok: false, message: 'This ride request was not assigned to you' }), true;
+    }
     ride.driverId = driver.id;
     ride.status = 'accepted';
     ride.updatedAt = now();
@@ -690,6 +855,14 @@ async function handleApi(req, res, url) {
     driver.currentRideId = ride.id;
     driver.updatedAt = now();
     saveState();
+    (ride.notifiedDriverIds || []).filter((driverId) => driverId !== driver.id).forEach((driverId) => {
+      notification({
+        targetType: 'driver',
+        targetId: driverId,
+        message: `Ride ${ride.id} was accepted by another nearby driver and is no longer available.`,
+        type: 'warning',
+      });
+    });
     notification({ targetType: 'customer', targetId: ride.customerId, message: `${driver.name} accepted your ride ${ride.id}. Call or chat via ${driver.phone}.` });
     notification({ targetType: 'admin', message: `${driver.name} accepted ride ${ride.id}.` });
     broadcastState();
@@ -702,6 +875,20 @@ async function handleApi(req, res, url) {
     const driver = auth ? findDriver(auth.sub) : null;
     const ride = findRide(reject.rideId);
     if (!driver || !ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    if (ride.status !== 'pending' || ride.driverId) return sendJson(res, 409, { ok: false, message: 'Ride is no longer available' }), true;
+    ride.rejectedDriverIds = Array.from(new Set([...(ride.rejectedDriverIds || []), driver.id]));
+    const previousNotified = new Set(ride.notifiedDriverIds || []);
+    const nextCandidates = retargetRide(ride);
+    nextCandidates
+      .filter((candidate) => !previousNotified.has(candidate.driver.id))
+      .forEach((candidate) => {
+        notification({
+          targetType: 'driver',
+          targetId: candidate.driver.id,
+          message: `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
+        });
+      });
+    saveState();
     notification({ targetType: 'admin', message: `${driver.name} skipped ride ${ride.id}.` });
     broadcastState();
     return sendJson(res, 200, { ok: true }), true;

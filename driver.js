@@ -14,6 +14,10 @@ const DriverApp = (() => {
     chart: null,
     eventSource: null,
     audioContext: null,
+    activeRequestId: '',
+    requestToneInterval: null,
+    locationWatchId: null,
+    lastLocationSentAt: 0,
   };
 
   function loadJson(key, fallback) {
@@ -68,6 +72,26 @@ const DriverApp = (() => {
     },
   };
 
+  function requestSystemNotificationPermission() {
+    if (!('Notification' in window) || Notification.permission !== 'default') return;
+    Notification.requestPermission().catch(() => {});
+  }
+
+  function showSystemNotification(title, body, options = {}) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return null;
+    try {
+      return new Notification(title, {
+        body,
+        icon: 'ims/t2icon.png',
+        badge: 'ims/t2icon.png',
+        renotify: true,
+        ...options,
+      });
+    } catch {
+      return null;
+    }
+  }
+
   const AudioAlerts = {
     unlock() {
       if (state.audioContext) return state.audioContext;
@@ -97,19 +121,75 @@ const DriverApp = (() => {
       const context = AudioAlerts.unlock();
       if (!context) return;
       const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(880, startAt, 0.24, 0.08);
-      AudioAlerts.pulse(660, startAt + 0.3, 0.24, 0.08);
-      AudioAlerts.pulse(880, startAt + 0.6, 0.32, 0.09);
+      AudioAlerts.pulse(932, startAt, 0.32, 0.16);
+      AudioAlerts.pulse(740, startAt + 0.38, 0.3, 0.15);
+      AudioAlerts.pulse(932, startAt + 0.78, 0.36, 0.17);
+      AudioAlerts.pulse(1174, startAt + 1.18, 0.3, 0.14);
     },
     playNotification() {
       if (!state.settings.notifications || !state.settings.sound) return;
       const context = AudioAlerts.unlock();
       if (!context) return;
       const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(740, startAt, 0.14, 0.05);
-      AudioAlerts.pulse(988, startAt + 0.16, 0.18, 0.04);
+      AudioAlerts.pulse(740, startAt, 0.18, 0.1);
+      AudioAlerts.pulse(988, startAt + 0.2, 0.22, 0.09);
+      AudioAlerts.pulse(1174, startAt + 0.46, 0.18, 0.085);
     },
   };
+
+  function stopRideRequestRingtone() {
+    if (!state.requestToneInterval) return;
+    clearInterval(state.requestToneInterval);
+    state.requestToneInterval = null;
+  }
+
+  function stopLocationWatch() {
+    if (state.locationWatchId === null || !navigator.geolocation) return;
+    navigator.geolocation.clearWatch(state.locationWatchId);
+    state.locationWatchId = null;
+  }
+
+  async function publishDriverLocation(coords) {
+    if (!state.auth.driverId || !state.auth.token || !coords) return;
+    const nowMs = Date.now();
+    if (nowMs - state.lastLocationSentAt < 10000) return;
+    state.lastLocationSentAt = nowMs;
+    try {
+      await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/location`, {
+        method: 'POST',
+        body: JSON.stringify({
+          lat: coords.latitude,
+          lng: coords.longitude,
+        }),
+      });
+    } catch {}
+  }
+
+  function ensureLocationWatch() {
+    if (!navigator.geolocation || state.locationWatchId !== null || !state.data?.driver?.online) return;
+    state.locationWatchId = navigator.geolocation.watchPosition(
+      (position) => {
+        publishDriverLocation(position.coords).catch(() => {});
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+    );
+  }
+
+  function startRideRequestRingtone(requestId) {
+    if (!requestId || state.activeRequestId === requestId) return;
+    stopRideRequestRingtone();
+    state.activeRequestId = requestId;
+    AudioAlerts.playRideRequest();
+    if (navigator.vibrate) navigator.vibrate([300, 140, 300, 140, 420]);
+    state.requestToneInterval = window.setInterval(() => {
+      if (!state.data?.availableRequests?.some((ride) => ride.id === requestId)) {
+        stopRideRequestRingtone();
+        return;
+      }
+      AudioAlerts.playRideRequest();
+    }, 4500);
+  }
 
   function persistSettings() {
     saveJson(STORAGE_KEYS.driverSettings, state.settings);
@@ -120,7 +200,12 @@ const DriverApp = (() => {
     const previousRequestIds = new Set((previousData.availableRequests || []).map((ride) => ride.id));
     const nextRequest = (nextData.availableRequests || [])[0];
     if (nextData.driver?.online && nextRequest && !previousRequestIds.has(nextRequest.id)) {
-      AudioAlerts.playRideRequest();
+      startRideRequestRingtone(nextRequest.id);
+      showSystemNotification(
+        'New Ride Request',
+        `${nextRequest.customerName || 'Customer'}: ${nextRequest.pickup} to ${nextRequest.dropoff}`,
+        { tag: `driver-ride-${nextRequest.id}`, requireInteraction: true }
+      );
       utils.toast('New ride request received.');
       return;
     }
@@ -128,6 +213,9 @@ const DriverApp = (() => {
     const latestNotification = (nextData.notifications || [])[0];
     if (latestNotification && !previousNotificationIds.has(latestNotification.id)) {
       AudioAlerts.playNotification();
+      showSystemNotification('Teleka Driver Alert', latestNotification.message || 'You have a new update.', {
+        tag: `driver-notification-${latestNotification.id}`,
+      });
     }
   }
 
@@ -187,6 +275,26 @@ const DriverApp = (() => {
       utils.qsa(selectors.navLink).forEach((button) => button.classList.toggle('active', button.dataset.section === sectionId));
       utils.qsa(selectors.bottomNav).forEach((button) => button.classList.toggle('active', button.dataset.section === sectionId));
       if (window.innerWidth <= 900) UI.setNavState(false);
+    },
+    renderRequestModal(request, online) {
+      const modal = utils.qs('#driverRequestModal');
+      if (!modal) return;
+      const shouldShow = Boolean(online && request);
+      modal.classList.toggle('hidden', !shouldShow);
+      modal.setAttribute('aria-hidden', String(!shouldShow));
+      if (!shouldShow) {
+        state.activeRequestId = '';
+        stopRideRequestRingtone();
+        return;
+      }
+      utils.qs('#modalRequestPassenger').textContent = request.customerName || 'Customer';
+      utils.qs('#modalRequestFare').textContent = utils.money(request.fare);
+      utils.qs('#modalRequestRoute').textContent = `${request.pickup} to ${request.dropoff}`;
+      utils.qs('#modalRequestDistance').textContent = `${Number(request.distanceKm || 0).toFixed(1)} km`;
+      utils.qs('#modalRequestStatus').textContent = 'Waiting for your decision';
+      if (state.activeRequestId !== request.id) {
+        startRideRequestRingtone(request.id);
+      }
     },
     render() {
       const data = state.data;
@@ -265,6 +373,7 @@ const DriverApp = (() => {
         utils.qs('#incomingRequest').classList.add('hidden');
         utils.qs('#requestEmpty p').textContent = online ? 'No ride requests right now. Stay online to receive new requests.' : 'Go online to receive ride requests.';
       }
+      UI.renderRequestModal(firstRequest, online);
 
       utils.qs('#driverMap').classList.toggle('online', online);
       utils.qs('#driverMap .map-placeholder-text').textContent = activeRide ? `Assigned route: ${activeRide.pickup} to ${activeRide.dropoff}` : online ? 'You are visible to dispatch and riders.' : 'Go online to receive ride requests.';
@@ -340,6 +449,8 @@ const DriverApp = (() => {
         row.innerHTML = `<div class="notification-content"><p>${item.message}</p><span class="notification-time">${new Date(item.createdAt).toLocaleTimeString()}</span></div>`;
         notificationsList.appendChild(row);
       });
+      if (online) ensureLocationWatch();
+      else stopLocationWatch();
     },
   };
 
@@ -373,7 +484,29 @@ const DriverApp = (() => {
       state.eventSource = stream;
     },
     async toggleOnline(online) {
-      await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/availability`, { method: 'POST', body: JSON.stringify({ online }) });
+      const sendAvailability = async (coords = null) => utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/availability`, {
+        method: 'POST',
+        body: JSON.stringify({
+          online,
+          lat: coords?.latitude,
+          lng: coords?.longitude,
+        }),
+      });
+      if (online && navigator.geolocation) {
+        try {
+          const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            maximumAge: 15000,
+            timeout: 10000,
+          }));
+          await sendAvailability(position.coords);
+        } catch {
+          await sendAvailability();
+        }
+      } else {
+        await sendAvailability();
+        if (!online) stopLocationWatch();
+      }
       await Actions.refresh();
       utils.toast(`You are now ${online ? 'online' : 'offline'}.`);
     },
@@ -428,16 +561,18 @@ const DriverApp = (() => {
       utils.toast('Profile updated.');
     },
     async acceptRequest() {
-      const request = state.data?.availableRequests?.[0];
+      const request = (state.data?.availableRequests || []).find((ride) => ride.id === state.activeRequestId) || state.data?.availableRequests?.[0];
       if (!request) return;
+      stopRideRequestRingtone();
       await utils.api(`/api/rides/${encodeURIComponent(request.id)}/accept`, { method: 'POST', body: '{}' });
       await Actions.refresh();
       UI.setActiveSection('activeRide');
       utils.toast('Ride accepted.');
     },
     async rejectRequest() {
-      const request = state.data?.availableRequests?.[0];
+      const request = (state.data?.availableRequests || []).find((ride) => ride.id === state.activeRequestId) || state.data?.availableRequests?.[0];
       if (!request) return;
+      stopRideRequestRingtone();
       await utils.api(`/api/rides/${encodeURIComponent(request.id)}/reject`, { method: 'POST', body: '{}' });
       await Actions.refresh();
       utils.toast('Ride skipped.');
@@ -452,6 +587,8 @@ const DriverApp = (() => {
       utils.toast(`Ride updated: ${next}.`);
     },
     logout() {
+      stopRideRequestRingtone();
+      stopLocationWatch();
       state.eventSource?.close();
       state.eventSource = null;
       localStorage.removeItem(STORAGE_KEYS.driverAuth);
@@ -479,6 +616,8 @@ const DriverApp = (() => {
       utils.qs('#actionViewRequests').addEventListener('click', () => UI.setActiveSection('requests'));
       utils.qs('#acceptRequest').addEventListener('click', () => Actions.acceptRequest().catch((error) => utils.toast(error.message)));
       utils.qs('#rejectRequest').addEventListener('click', () => Actions.rejectRequest().catch((error) => utils.toast(error.message)));
+      utils.qs('#modalAcceptRequest').addEventListener('click', () => Actions.acceptRequest().catch((error) => utils.toast(error.message)));
+      utils.qs('#modalRejectRequest').addEventListener('click', () => Actions.rejectRequest().catch((error) => utils.toast(error.message)));
       utils.qs('#rideAction').addEventListener('click', () => Actions.advanceRide().catch((error) => utils.toast(error.message)));
       utils.qs('#historyFilter').addEventListener('change', UI.render);
       utils.qs('#historySearch').addEventListener('input', UI.render);
@@ -501,8 +640,14 @@ const DriverApp = (() => {
         persistSettings();
       });
       document.getElementById('menuToggle')?.addEventListener('click', UI.toggleNav);
-      document.addEventListener('pointerdown', AudioAlerts.unlock, { once: true });
-      document.addEventListener('keydown', AudioAlerts.unlock, { once: true });
+      document.addEventListener('pointerdown', () => {
+        AudioAlerts.unlock();
+        requestSystemNotificationPermission();
+      }, { once: true });
+      document.addEventListener('keydown', () => {
+        AudioAlerts.unlock();
+        requestSystemNotificationPermission();
+      }, { once: true });
       document.addEventListener('click', (event) => {
         if (window.innerWidth <= 900 && !event.target.closest('.driver-sidebar') && !event.target.closest('.driver-topbar') && !event.target.closest('.bottom-nav-item')) {
           UI.setNavState(false);
@@ -522,6 +667,8 @@ const DriverApp = (() => {
         try {
           await Actions.ensureSession();
         } catch {
+          stopRideRequestRingtone();
+          stopLocationWatch();
           localStorage.removeItem(STORAGE_KEYS.driverAuth);
           state.auth = { driverId: '', token: '' };
           UI.setAuthenticated(false);
