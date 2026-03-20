@@ -1,15 +1,9 @@
 const DriverApp = (() => {
-  const STORAGE_KEYS = {
-    driverAuth: 'telekaDriverAuth',
-    driverProfile: 'telekaDriverProfile',
-    driverSettings: 'telekaDriverSettings',
-  };
-
   const appEl = document.querySelector('.driver-app');
   const state = {
-    auth: loadJson(STORAGE_KEYS.driverAuth, { driverId: '', token: '' }),
-    profile: loadJson(STORAGE_KEYS.driverProfile, {}),
-    settings: loadJson(STORAGE_KEYS.driverSettings, { notifications: true, sound: true, autoAccept: false }),
+    auth: { driverId: '' },
+    profile: {},
+    settings: { notifications: true, sound: true, autoAccept: false },
     data: null,
     chart: null,
     eventSource: null,
@@ -20,14 +14,6 @@ const DriverApp = (() => {
     lastLocationSentAt: 0,
     registerFaceDataUrl: '',
   };
-
-  function loadJson(key, fallback) {
-    try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
-  }
-
-  function saveJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-  }
 
   const selectors = {
     section: '.driver-section',
@@ -71,11 +57,10 @@ const DriverApp = (() => {
         ? files.map((file) => `<div class="upload-preview-item">${file.name}</div>`).join('')
         : '<div class="upload-preview-empty">No files selected.</div>';
     },
-    api(url, options = {}, token = state.auth.token) {
+    api(url, options = {}) {
       return fetch(url, {
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(options.headers || {}),
         },
         ...options,
@@ -164,7 +149,7 @@ const DriverApp = (() => {
   }
 
   async function publishDriverLocation(coords) {
-    if (!state.auth.driverId || !state.auth.token || !coords) return;
+    if (!state.auth.driverId || !coords) return;
     const nowMs = Date.now();
     if (nowMs - state.lastLocationSentAt < 10000) return;
     state.lastLocationSentAt = nowMs;
@@ -203,10 +188,6 @@ const DriverApp = (() => {
       }
       AudioAlerts.playRideRequest();
     }, 4500);
-  }
-
-  function persistSettings() {
-    saveJson(STORAGE_KEYS.driverSettings, state.settings);
   }
 
   function stopFaceCamera() {
@@ -489,8 +470,7 @@ const DriverApp = (() => {
 
   const Actions = {
     async ensureSession(reset = false) {
-      if (reset) state.auth = { driverId: '', token: '' };
-      if (!state.auth.token) throw new Error('No stored driver session');
+      if (reset) state.auth = { driverId: '' };
       await Actions.refresh();
       Actions.ensureEvents();
     },
@@ -499,15 +479,18 @@ const DriverApp = (() => {
       state.data = await utils.api('/api/driver/state');
       state.profile = state.data.driver;
       state.auth.driverId = state.data.driver.id;
-      saveJson(STORAGE_KEYS.driverAuth, state.auth);
-      saveJson(STORAGE_KEYS.driverProfile, state.profile);
+      state.settings = {
+        notifications: Boolean(state.data.driver?.preferences?.notifications ?? true),
+        sound: Boolean(state.data.driver?.preferences?.sound ?? true),
+        autoAccept: Boolean(state.data.driver?.preferences?.autoAccept),
+      };
       UI.setAuthenticated(true);
       UI.render();
       handleRealtimeAlerts(previousData, state.data);
     },
     ensureEvents() {
-      if (!state.auth.token || state.eventSource) return;
-      const stream = new EventSource(`/api/events?token=${encodeURIComponent(state.auth.token)}`);
+      if (state.eventSource) return;
+      const stream = new EventSource('/api/events');
       stream.addEventListener('state-update', () => Actions.refresh().catch(console.warn));
       stream.onerror = () => {
         stream.close();
@@ -549,11 +532,9 @@ const DriverApp = (() => {
       const data = await utils.api('/api/drivers/login', {
         method: 'POST',
         body: JSON.stringify({ phone, password }),
-      }, '');
-      state.auth = { driverId: data.driver.id, token: data.token };
+      });
+      state.auth = { driverId: data.driver.id };
       state.profile = data.driver;
-      saveJson(STORAGE_KEYS.driverAuth, state.auth);
-      saveJson(STORAGE_KEYS.driverProfile, state.profile);
       await Actions.refresh();
       Actions.ensureEvents();
       utils.toast('Driver login successful.');
@@ -609,7 +590,6 @@ const DriverApp = (() => {
         vehicle: utils.qs('#profileVehicle').value.trim(),
         plate: utils.qs('#profilePlate').value.trim(),
       };
-      saveJson(STORAGE_KEYS.driverProfile, state.profile);
       await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/profile`, {
         method: 'POST',
         body: JSON.stringify({
@@ -624,6 +604,14 @@ const DriverApp = (() => {
       });
       await Actions.refresh();
       utils.toast('Profile updated.');
+    },
+    async savePreferences() {
+      if (!state.auth.driverId) return;
+      await utils.api(`/api/drivers/${encodeURIComponent(state.auth.driverId)}/preferences`, {
+        method: 'POST',
+        body: JSON.stringify(state.settings),
+      });
+      await Actions.refresh();
     },
     async acceptRequest() {
       const request = (state.data?.availableRequests || []).find((ride) => ride.id === state.activeRequestId) || state.data?.availableRequests?.[0];
@@ -651,13 +639,12 @@ const DriverApp = (() => {
       await Actions.refresh();
       utils.toast(`Ride updated: ${next}.`);
     },
-    logout() {
+    async logout() {
       stopRideRequestRingtone();
       stopLocationWatch();
       state.eventSource?.close();
       state.eventSource = null;
-      localStorage.removeItem(STORAGE_KEYS.driverAuth);
-      localStorage.removeItem(STORAGE_KEYS.driverProfile);
+      try { await utils.api('/api/auth/driver/logout', { method: 'POST', body: '{}' }); } catch {}
       window.location.reload();
     },
   };
@@ -752,15 +739,15 @@ const DriverApp = (() => {
       utils.qs('#driverAvatar').addEventListener('click', () => UI.setActiveSection('profile'));
       utils.qs('#settingNotifications').addEventListener('change', (event) => {
         state.settings.notifications = event.target.checked;
-        persistSettings();
+        Actions.savePreferences().catch((error) => utils.toast(error.message));
       });
       utils.qs('#settingSound').addEventListener('change', (event) => {
         state.settings.sound = event.target.checked;
-        persistSettings();
+        Actions.savePreferences().catch((error) => utils.toast(error.message));
       });
       utils.qs('#settingAutoAccept').addEventListener('change', (event) => {
         state.settings.autoAccept = event.target.checked;
-        persistSettings();
+        Actions.savePreferences().catch((error) => utils.toast(error.message));
       });
       document.getElementById('menuToggle')?.addEventListener('click', UI.toggleNav);
       document.addEventListener('pointerdown', () => {
@@ -786,17 +773,14 @@ const DriverApp = (() => {
       UI.setAuthenticated(false);
       UI.toggleRegisterForm(false);
       Events.attach();
-      if (state.auth.token) {
-        try {
-          await Actions.ensureSession();
-        } catch {
-          stopRideRequestRingtone();
-          stopLocationWatch();
-          stopFaceCamera();
-          localStorage.removeItem(STORAGE_KEYS.driverAuth);
-          state.auth = { driverId: '', token: '' };
-          UI.setAuthenticated(false);
-        }
+      try {
+        await Actions.ensureSession();
+      } catch {
+        stopRideRequestRingtone();
+        stopLocationWatch();
+        stopFaceCamera();
+        state.auth = { driverId: '' };
+        UI.setAuthenticated(false);
       }
     },
   };

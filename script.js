@@ -8,29 +8,15 @@ if (navbarToggle && navbarMenu) {
   });
 }
 
-const STORAGE_KEYS = {
-  customerAuth: 'telekaCustomerAuth',
-  customerProfile: 'telekaCustomerProfile',
-  darkMode: 'darkMode',
-};
-
 const appState = {
-  auth: loadJson(STORAGE_KEYS.customerAuth, { customerId: '', accessKey: '', token: '' }),
-  profile: loadJson(STORAGE_KEYS.customerProfile, {}),
+  auth: { customerId: '' },
+  profile: {},
   eventSource: null,
   lastRideStatus: '',
   activeRideId: '',
   notifications: [],
   audioContext: null,
 };
-
-function loadJson(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
-}
-
-function saveJson(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
 
 function showMessage(message) {
   window.alert(message);
@@ -45,11 +31,10 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function api(url, options = {}, token = appState.auth.token) {
+function api(url, options = {}) {
   return fetch(url, {
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -142,18 +127,25 @@ function setCurrentDate() {
   });
 }
 
+function applyDarkMode(enabled) {
+  document.body.classList.toggle('dark-mode', enabled);
+  const toggle = document.querySelector('#dark-mode-toggle');
+  if (toggle) toggle.checked = enabled;
+}
+
 function initDarkMode() {
   const toggle = document.querySelector('#dark-mode-toggle');
-  const stored = localStorage.getItem(STORAGE_KEYS.darkMode);
-  const enabled = stored !== null
-    ? stored === 'true'
-    : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  document.body.classList.toggle('dark-mode', enabled);
+  const enabled = Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  applyDarkMode(enabled);
   if (!toggle) return;
-  toggle.checked = enabled;
   toggle.addEventListener('change', () => {
-    document.body.classList.toggle('dark-mode', toggle.checked);
-    localStorage.setItem(STORAGE_KEYS.darkMode, String(toggle.checked));
+    applyDarkMode(toggle.checked);
+    if (appState.auth.customerId) {
+      api('/api/customer/preferences', {
+        method: 'POST',
+        body: JSON.stringify({ darkMode: toggle.checked }),
+      }).catch(console.warn);
+    }
   });
 }
 
@@ -211,7 +203,6 @@ function initGoogleSignIn() {
           email: payload.email || appState.profile.email || '',
           phone: appState.profile.phone || '',
         };
-        saveJson(STORAGE_KEYS.customerProfile, appState.profile);
         fillProfileForm();
         setAuthState({ name: appState.profile.name });
         syncCustomerSession().catch(console.warn);
@@ -223,12 +214,19 @@ function initGoogleSignIn() {
   googleReady = true;
 }
 
-function handleAuthClick(event) {
+async function handleAuthClick(event) {
   event.preventDefault();
   if (googleUser) {
     google.accounts?.id?.disableAutoSelect?.();
+    try {
+      await api('/api/auth/customer/logout', { method: 'POST', body: '{}' });
+    } catch {}
+    appState.auth = { customerId: '' };
+    appState.profile = {};
+    appState.notifications = [];
     setAuthState(null);
     showMessage('Logged out successfully.');
+    fillProfileForm();
     return;
   }
   if (!googleReady) initGoogleSignIn();
@@ -298,29 +296,18 @@ function renderCustomerChat(activeRide) {
 
 async function syncCustomerSession(resetAuth = false) {
   if (resetAuth) {
-    appState.auth = { customerId: '', accessKey: '', token: '' };
+    appState.auth = { customerId: '' };
   }
   const body = {
-    customerId: appState.auth.customerId || undefined,
-    accessKey: appState.auth.accessKey || undefined,
     ...profileFromForm(),
   };
-  try {
-    const data = await api('/api/auth/customer/session', { method: 'POST', body: JSON.stringify(body) }, '');
-    appState.auth = { customerId: data.customer.id, accessKey: data.accessKey, token: data.token };
-    appState.profile = data.customer;
-    saveJson(STORAGE_KEYS.customerAuth, appState.auth);
-    saveJson(STORAGE_KEYS.customerProfile, appState.profile);
-    fillProfileForm();
-    await refreshCustomerState();
-    ensureEvents();
-    return data.customer;
-  } catch (error) {
-    if (!resetAuth && /authentication failed/i.test(error.message)) {
-      return syncCustomerSession(true);
-    }
-    throw error;
-  }
+  const data = await api('/api/auth/customer/session', { method: 'POST', body: JSON.stringify(body) });
+  appState.auth = { customerId: data.customer.id };
+  appState.profile = data.customer;
+  fillProfileForm();
+  await refreshCustomerState();
+  ensureEvents();
+  return data.customer;
 }
 
 async function refreshCustomerState() {
@@ -345,6 +332,12 @@ async function refreshCustomerState() {
     });
   }
   appState.notifications = data.notifications || [];
+  appState.auth.customerId = data.customer?.id || '';
+  appState.profile = data.customer || appState.profile;
+  setAuthState(data.customer ? { name: data.customer.name || 'Customer' } : null);
+  if (typeof data.customer?.preferences?.darkMode === 'boolean') {
+    applyDarkMode(data.customer.preferences.darkMode);
+  }
   appState.lastRideStatus = activeRide ? activeRide.status : '';
   document.getElementById('upcoming-ride-status').textContent = data.activeRide
     ? `${data.activeRide.status.toUpperCase()}: ${data.activeRide.pickup} to ${data.activeRide.dropoff}`
@@ -388,8 +381,8 @@ async function refreshCustomerState() {
 }
 
 function ensureEvents() {
-  if (!appState.auth.token || appState.eventSource) return;
-  const stream = new EventSource(`/api/events?token=${encodeURIComponent(appState.auth.token)}`);
+  if (appState.eventSource) return;
+  const stream = new EventSource('/api/events');
   stream.addEventListener('state-update', () => refreshCustomerState().catch(console.warn));
   stream.onerror = () => {
     stream.close();
@@ -404,7 +397,6 @@ function initProfileForm() {
   document.getElementById('customer-profile-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     appState.profile = profileFromForm();
-    saveJson(STORAGE_KEYS.customerProfile, appState.profile);
     try {
       await syncCustomerSession();
       showMessage('Profile updated.');
@@ -598,7 +590,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     event.preventDefault();
     showMessage('Settings saved on this device.');
   });
-  if (appState.auth.customerId || appState.profile.name || appState.profile.email || appState.profile.phone) {
-    try { await syncCustomerSession(); } catch (error) { console.warn(error.message); }
+  try {
+    await refreshCustomerState();
+    ensureEvents();
+  } catch (error) {
+    console.warn(error.message);
   }
 });

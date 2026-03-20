@@ -3,9 +3,7 @@ const role = params.get('role') || 'customer';
 const mode = params.get('mode') || 'chat';
 let rideId = params.get('rideId') || '';
 
-const authStorageKey = role === 'driver' ? 'telekaDriverAuth' : 'telekaCustomerAuth';
 const backLink = role === 'driver' ? 'driver.html' : 'index.html';
-const auth = loadJson(authStorageKey, { token: '' });
 const chatMessages = document.getElementById('chatMessages');
 const chatSummary = document.getElementById('chatSummary');
 const chatBackLink = document.getElementById('chatBackLink');
@@ -16,15 +14,10 @@ if (chatBackLink) chatBackLink.href = backLink;
 const resetBackLink = document.getElementById('resetBackLink');
 if (resetBackLink) resetBackLink.href = backLink;
 
-function loadJson(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
-}
-
 function api(url, options = {}) {
   return fetch(url, {
     headers: {
       'Content-Type': 'application/json',
-      ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -130,12 +123,13 @@ chatForm?.addEventListener('submit', async (event) => {
 
 if (mode === 'reset') {
   setResetMode();
-} else if (!auth.token) {
-  chatSummary.textContent = 'You must be logged in to access ride chat.';
 } else {
-  refreshChat().catch((error) => {
-    chatSummary.textContent = error.message;
-  });
-  const stream = new EventSource(`/api/events?token=${encodeURIComponent(auth.token)}`);
-  stream.addEventListener('state-update', () => refreshChat().catch(() => {}));
+  refreshChat()
+    .then(() => {
+      const stream = new EventSource('/api/events');
+      stream.addEventListener('state-update', () => refreshChat().catch(() => {}));
+    })
+    .catch((error) => {
+      chatSummary.textContent = error.message;
+    });
 }

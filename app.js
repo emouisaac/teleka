@@ -1,20 +1,11 @@
 const TelekaAdmin = (() => {
-  const STORAGE_KEY = 'telekaAdminAuth';
   const state = {
-    auth: loadJson(STORAGE_KEY, { email: '', token: '' }),
+    auth: { email: '' },
     data: null,
     eventSource: null,
     promptedResetIds: [],
     audioContext: null,
   };
-
-  function loadJson(key, fallback) {
-    try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
-  }
-
-  function saveJson(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-  }
 
   const DOM = {
     qs(selector, root = document) { return root.querySelector(selector); },
@@ -38,11 +29,10 @@ const TelekaAdmin = (() => {
         setTimeout(() => toast.remove(), 300);
       }, 2400);
     },
-    api(url, options = {}, token = state.auth.token) {
+    api(url, options = {}) {
       return fetch(url, {
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(options.headers || {}),
         },
         ...options,
@@ -313,9 +303,8 @@ const TelekaAdmin = (() => {
       const data = await DOM.api('/api/auth/admin/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
-      }, '');
-      state.auth = { email: data.admin.email, token: data.token };
-      saveJson(STORAGE_KEY, state.auth);
+      });
+      state.auth = { email: data.admin.email };
       UI.setAuthenticated(true);
       await Actions.refresh();
       Actions.ensureEvents();
@@ -327,8 +316,8 @@ const TelekaAdmin = (() => {
       handleRealtimeAlerts(previousData, state.data);
     },
     ensureEvents() {
-      if (!state.auth.token || state.eventSource) return;
-      const stream = new EventSource(`/api/events?token=${encodeURIComponent(state.auth.token)}`);
+      if (state.eventSource) return;
+      const stream = new EventSource('/api/events');
       stream.addEventListener('state-update', () => Actions.refresh().catch(console.warn));
       stream.onerror = () => {
         stream.close();
@@ -458,9 +447,6 @@ const TelekaAdmin = (() => {
     },
     async exportBackup() {
       const response = await fetch('/api/admin/backups/export', {
-        headers: {
-          ...(state.auth.token ? { Authorization: `Bearer ${state.auth.token}` } : {}),
-        },
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -483,11 +469,11 @@ const TelekaAdmin = (() => {
       await Actions.refresh();
       DOM.toast('Backup restored.');
     },
-    logout() {
+    async logout() {
       state.eventSource?.close();
       state.eventSource = null;
-      localStorage.removeItem(STORAGE_KEY);
-      state.auth = { email: state.auth.email || '', token: '' };
+      try { await DOM.api('/api/auth/admin/logout', { method: 'POST', body: '{}' }); } catch {}
+      state.auth = { email: state.auth.email || '' };
       state.data = null;
       UI.setAuthenticated(false);
       UI.setActiveSection('adminAuthPanel');
@@ -560,16 +546,13 @@ const TelekaAdmin = (() => {
       Events.attach();
       UI.setAuthenticated(false);
       if (state.auth.email) DOM.qs('#adminEmail').value = state.auth.email;
-      if (state.auth.token) {
-        try {
-          UI.setAuthenticated(true);
-          await Actions.refresh();
-          Actions.ensureEvents();
-        } catch {
-          localStorage.removeItem(STORAGE_KEY);
-          state.auth = { email: '', token: '' };
-          UI.setAuthenticated(false);
-        }
+      try {
+        UI.setAuthenticated(true);
+        await Actions.refresh();
+        Actions.ensureEvents();
+      } catch {
+        state.auth = { email: '' };
+        UI.setAuthenticated(false);
       }
     },
   };

@@ -3,23 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { DatabaseSync } = require('node:sqlite');
 const nodemailer = require('nodemailer');
 
 const baseDir = path.resolve(__dirname);
-const defaultDataDir = path.join(baseDir, 'data');
 const roamingDataDir = process.env.APPDATA
   ? path.join(process.env.APPDATA, 'Teleka')
   : (process.platform === 'win32'
     ? path.join(os.homedir(), 'AppData', 'Roaming', 'Teleka')
     : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'teleka'));
-const configuredDataDir = process.env.TELEKA_DATA_DIR || roamingDataDir;
-const dataDir = configuredDataDir;
-const dataFile = path.join(dataDir, 'teleka-store.json');
-const backupDataFile = path.join(dataDir, 'teleka-store.backup.json');
-const migrationSourceFiles = Array.from(new Set([
-  path.join(roamingDataDir, 'teleka-store.json'),
-  path.join(defaultDataDir, 'teleka-store.json'),
-]));
 
 function loadEnv() {
   const out = {};
@@ -36,6 +28,8 @@ function loadEnv() {
 
 const env = loadEnv();
 const port = Number(process.env.PORT || env.PORT || 3000);
+const configuredDbPath = process.env.TELEKA_DB_PATH || env.TELEKA_DB_PATH || '';
+const databasePath = configuredDbPath || path.join(roamingDataDir, 'teleka.sqlite');
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || '';
 const AUTH_SECRET = process.env.AUTH_SECRET || env.AUTH_SECRET || '';
@@ -73,56 +67,41 @@ const baseState = () => ({
   meta: { startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
 });
 
+const db = openDatabase();
 let state = loadState();
 const sseClients = new Set();
 
-function parseStateFile(filePath) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return {
-      parsed,
-      updatedAt: new Date(parsed?.meta?.updatedAt || parsed?.meta?.startedAt || fs.statSync(filePath).mtimeMs).getTime() || 0,
-      filePath,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function loadLatestPersistedState(files) {
-  return files
-    .filter((filePath) => fs.existsSync(filePath))
-    .map(parseStateFile)
-    .filter(Boolean)
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0] || null;
-}
-
-function ensurePersistentStore() {
-  if (fs.existsSync(dataFile)) return;
-  const latestStore = loadLatestPersistedState(migrationSourceFiles.filter((filePath) => filePath !== dataFile));
-  if (!latestStore) return;
-  fs.mkdirSync(path.dirname(dataFile), { recursive: true });
-  fs.copyFileSync(latestStore.filePath, dataFile);
-  try { fs.copyFileSync(latestStore.filePath, backupDataFile); } catch {}
+function openDatabase() {
+  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+  const database = new DatabaseSync(databasePath);
+  database.exec(`
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS state_documents (
+      id TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS state_backups (
+      id TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS state_archives (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+  return database;
 }
 
 function loadState() {
-  ensurePersistentStore();
   try {
-    const primaryStore = parseStateFile(dataFile);
-    const backupStore = parseStateFile(backupDataFile);
-    const parsed = primaryStore?.parsed || backupStore?.parsed || baseState();
-    return {
-      ...baseState(),
-      ...parsed,
-      settings: { ...baseState().settings, ...(parsed.settings || {}) },
-      customers: parsed.customers || [],
-      drivers: parsed.drivers || [],
-      rides: parsed.rides || [],
-      notifications: parsed.notifications || [],
-      passwordResetRequests: parsed.passwordResetRequests || [],
-      meta: { ...baseState().meta, ...(parsed.meta || {}) },
-    };
+    const primaryStore = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
+    const backupStore = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
+    const parsed = primaryStore?.payload || backupStore?.payload || '';
+    return normalizeState(parsed ? JSON.parse(parsed) : baseState());
   } catch {
     return baseState();
   }
@@ -130,11 +109,47 @@ function loadState() {
 
 function saveState() {
   state.meta.updatedAt = new Date().toISOString();
-  const serialized = JSON.stringify(state, null, 2);
-  [dataFile, backupDataFile].forEach((filePath) => {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, serialized);
-  });
+  persistStateSnapshot(state);
+}
+
+function normalizeState(parsed = {}) {
+  return {
+    ...baseState(),
+    ...parsed,
+    settings: { ...baseState().settings, ...(parsed.settings || {}) },
+    customers: Array.isArray(parsed.customers) ? parsed.customers : [],
+    drivers: Array.isArray(parsed.drivers) ? parsed.drivers : [],
+    rides: Array.isArray(parsed.rides) ? parsed.rides : [],
+    notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+    passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
+    meta: { ...baseState().meta, ...(parsed.meta || {}) },
+  };
+}
+
+function persistStateSnapshot(nextState, { createArchive = false } = {}) {
+  const payload = JSON.stringify(normalizeState(nextState), null, 2);
+  const updatedAt = new Date().toISOString();
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    db.prepare(`
+      INSERT INTO state_documents (id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `).run('root', payload, updatedAt);
+    db.prepare(`
+      INSERT INTO state_backups (id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `).run('latest', payload, updatedAt);
+    if (createArchive) {
+      db.prepare('INSERT INTO state_archives (id, kind, payload, created_at) VALUES (?, ?, ?, ?)')
+        .run(id('archive'), 'migration', payload, updatedAt);
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    try { db.exec('ROLLBACK'); } catch {}
+    throw error;
+  }
 }
 
 function now() { return new Date().toISOString(); }
@@ -180,6 +195,40 @@ function findRide(rideId) { return state.rides.find((item) => item.id === rideId
 function safeCustomer(customer) { if (!customer) return null; const { accessKeyHash, ...safe } = customer; return safe; }
 function safeDriver(driver) { if (!driver) return null; const { accessKeyHash, passwordHash, ...safe } = driver; return safe; }
 function recent(items) { return items.slice().sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)); }
+function cookieNameForRole(role) {
+  if (role === 'admin') return 'teleka_admin_token';
+  if (role === 'driver') return 'teleka_driver_token';
+  if (role === 'customer') return 'teleka_customer_token';
+  return '';
+}
+function parseCookies(req) {
+  const raw = String(req.headers.cookie || '');
+  return raw.split(';').reduce((cookies, part) => {
+    const [name, ...rest] = part.split('=');
+    const key = name?.trim();
+    if (!key) return cookies;
+    cookies[key] = decodeURIComponent(rest.join('=').trim());
+    return cookies;
+  }, {});
+}
+function appendSetCookie(res, value) {
+  const current = res.getHeader('Set-Cookie');
+  if (!current) {
+    res.setHeader('Set-Cookie', value);
+    return;
+  }
+  res.setHeader('Set-Cookie', Array.isArray(current) ? [...current, value] : [current, value]);
+}
+function setAuthCookie(res, role, token) {
+  const cookieName = cookieNameForRole(role);
+  if (!cookieName || !token) return;
+  appendSetCookie(res, `${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`);
+}
+function clearAuthCookie(res, role) {
+  const cookieName = cookieNameForRole(role);
+  if (!cookieName) return;
+  appendSetCookie(res, `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
 
 function signToken(payload) {
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -202,14 +251,21 @@ function issueToken(role, sub) {
   return signToken({ role, sub, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 });
 }
 
-function getToken(req, url) {
+function getToken(req, url, role = '') {
   const auth = req.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  return url.searchParams.get('token') || '';
+  const tokenFromQuery = url.searchParams.get('token');
+  if (tokenFromQuery) return tokenFromQuery;
+  const cookies = parseCookies(req);
+  if (role) {
+    const roleCookie = cookies[cookieNameForRole(role)];
+    if (roleCookie) return roleCookie;
+  }
+  return cookies.teleka_admin_token || cookies.teleka_driver_token || cookies.teleka_customer_token || '';
 }
 
 function requireAuth(req, url, role) {
-  const auth = verifyToken(getToken(req, url));
+  const auth = verifyToken(getToken(req, url, role));
   if (!auth || (role && auth.role !== role)) return null;
   return auth;
 }
@@ -358,44 +414,46 @@ function driverState(driverId) {
   };
 }
 
-function createCustomerSession(body) {
-  const existing = text(body.customerId) ? findCustomer(text(body.customerId)) : null;
-  if (existing) {
-    if (!text(body.accessKey) || existing.accessKeyHash !== hash(body.accessKey)) {
-      throw new Error('Customer authentication failed');
-    }
-    existing.name = text(body.name, existing.name);
-    existing.email = normalizeEmail(body.email || existing.email);
-    existing.phone = normalizePhone(body.phone || existing.phone);
-    existing.updatedAt = now();
+function createCustomerSession(body, currentCustomerId = '') {
+  const currentCustomer = currentCustomerId ? findCustomer(currentCustomerId) : null;
+  if (currentCustomer) {
+    currentCustomer.name = text(body.name, currentCustomer.name);
+    currentCustomer.email = normalizeEmail(body.email || currentCustomer.email);
+    currentCustomer.phone = normalizePhone(body.phone || currentCustomer.phone);
+    currentCustomer.preferences = {
+      darkMode: Boolean(currentCustomer.preferences?.darkMode),
+    };
+    currentCustomer.updatedAt = now();
     saveState();
-    return { customer: safeCustomer(existing), accessKey: text(body.accessKey), token: issueToken('customer', existing.id) };
+    return { customer: safeCustomer(currentCustomer), token: issueToken('customer', currentCustomer.id) };
   }
-  const accessKey = secret();
   const matchedCustomer = findCustomerByPhone(body.phone) || findCustomerByEmail(body.email);
   if (matchedCustomer) {
     matchedCustomer.name = text(body.name, matchedCustomer.name);
     matchedCustomer.email = normalizeEmail(body.email || matchedCustomer.email);
     matchedCustomer.phone = normalizePhone(body.phone || matchedCustomer.phone);
-    matchedCustomer.accessKeyHash = hash(accessKey);
+    matchedCustomer.preferences = {
+      darkMode: Boolean(matchedCustomer.preferences?.darkMode),
+    };
     matchedCustomer.updatedAt = now();
     saveState();
     notification({ targetType: 'admin', message: `Customer profile reused: ${matchedCustomer.name}` });
-    return { customer: safeCustomer(matchedCustomer), accessKey, token: issueToken('customer', matchedCustomer.id) };
+    return { customer: safeCustomer(matchedCustomer), token: issueToken('customer', matchedCustomer.id) };
   }
   const customer = {
     id: id('cust'),
     name: text(body.name, 'Customer'),
     email: normalizeEmail(body.email),
     phone: normalizePhone(body.phone),
-    accessKeyHash: hash(accessKey),
+    accessKeyHash: hash(secret()),
+    preferences: { darkMode: false },
     createdAt: now(),
     updatedAt: now(),
   };
   state.customers.unshift(customer);
   saveState();
   notification({ targetType: 'admin', message: `Customer profile created: ${customer.name}` });
-  return { customer: safeCustomer(customer), accessKey, token: issueToken('customer', customer.id) };
+  return { customer: safeCustomer(customer), token: issueToken('customer', customer.id) };
 }
 
 function registerDriver(body) {
@@ -430,6 +488,7 @@ function registerDriver(body) {
     earningsTotal: 0,
     rating: 5,
     ratingCount: 0,
+    preferences: { notifications: true, sound: true, autoAccept: false },
     location: { lat: null, lng: null, updatedAt: '' },
     documents: {
       licenseNumber: text(body.licenseNumber),
@@ -468,6 +527,30 @@ function loginDriver(body) {
   driver.updatedAt = now();
   saveState();
   return { driver: safeDriver(driver), token: issueToken('driver', driver.id) };
+}
+
+function updateCustomerPreferences(customerId, body) {
+  const customer = findCustomer(customerId);
+  if (!customer) throw new Error('Customer not found');
+  customer.preferences = {
+    darkMode: typeof body.darkMode === 'boolean' ? body.darkMode : Boolean(customer.preferences?.darkMode),
+  };
+  customer.updatedAt = now();
+  saveState();
+  return safeCustomer(customer);
+}
+
+function updateDriverPreferences(driverId, body) {
+  const driver = findDriver(driverId);
+  if (!driver) throw new Error('Driver not found');
+  driver.preferences = {
+    notifications: typeof body.notifications === 'boolean' ? body.notifications : Boolean(driver.preferences?.notifications ?? true),
+    sound: typeof body.sound === 'boolean' ? body.sound : Boolean(driver.preferences?.sound ?? true),
+    autoAccept: typeof body.autoAccept === 'boolean' ? body.autoAccept : Boolean(driver.preferences?.autoAccept),
+  };
+  driver.updatedAt = now();
+  saveState();
+  return safeDriver(driver);
 }
 
 function createPasswordResetRequest(body) {
@@ -596,12 +679,29 @@ async function handleApi(req, res, url) {
     if (!AUTH_SECRET || !ADMIN_EMAIL || text(body.email).toLowerCase() !== ADMIN_EMAIL.toLowerCase() || !verifyAdminPassword(text(body.password))) {
       return sendJson(res, 401, { ok: false, message: 'Invalid admin credentials' }), true;
     }
-    return sendJson(res, 200, { ok: true, data: { token: issueToken('admin', ADMIN_EMAIL), admin: { email: ADMIN_EMAIL } } }), true;
+    const token = issueToken('admin', ADMIN_EMAIL);
+    setAuthCookie(res, 'admin', token);
+    return sendJson(res, 200, { ok: true, data: { admin: { email: ADMIN_EMAIL } } }), true;
+  }
+
+  if (pathname === '/api/auth/admin/logout' && req.method === 'POST') {
+    clearAuthCookie(res, 'admin');
+    return sendJson(res, 200, { ok: true, data: { loggedOut: true } }), true;
   }
 
   if (pathname === '/api/auth/customer/session' && req.method === 'POST') {
-    try { return sendJson(res, 200, { ok: true, data: createCustomerSession(await parseJsonBody(req)) }), broadcastState(), true; }
+    try {
+      const auth = requireAuth(req, url, 'customer');
+      const data = createCustomerSession(await parseJsonBody(req), auth?.sub || '');
+      setAuthCookie(res, 'customer', data.token);
+      return sendJson(res, 200, { ok: true, data: { customer: data.customer } }), broadcastState(), true;
+    }
     catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
+  }
+
+  if (pathname === '/api/auth/customer/logout' && req.method === 'POST') {
+    clearAuthCookie(res, 'customer');
+    return sendJson(res, 200, { ok: true, data: { loggedOut: true } }), true;
   }
 
   if (pathname === '/api/drivers/register' && req.method === 'POST') {
@@ -610,8 +710,17 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === '/api/drivers/login' && req.method === 'POST') {
-    try { return sendJson(res, 200, { ok: true, data: loginDriver(await parseJsonBody(req)) }), true; }
+    try {
+      const data = loginDriver(await parseJsonBody(req));
+      setAuthCookie(res, 'driver', data.token);
+      return sendJson(res, 200, { ok: true, data: { driver: data.driver } }), true;
+    }
     catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
+  }
+
+  if (pathname === '/api/auth/driver/logout' && req.method === 'POST') {
+    clearAuthCookie(res, 'driver');
+    return sendJson(res, 200, { ok: true, data: { loggedOut: true } }), true;
   }
 
   if (pathname === '/api/drivers/password-reset-request' && req.method === 'POST') {
@@ -630,10 +739,31 @@ async function handleApi(req, res, url) {
     return data ? (sendJson(res, 200, { ok: true, data }), true) : (sendJson(res, 401, { ok: false, message: 'Authentication required' }), true);
   }
 
+  if (pathname === '/api/customer/preferences' && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'customer');
+    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
+    try {
+      return sendJson(res, 200, { ok: true, data: updateCustomerPreferences(auth.sub, await parseJsonBody(req)) }), broadcastState(), true;
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, message: error.message }), true;
+    }
+  }
+
   if (pathname === '/api/driver/state' && req.method === 'GET') {
     const auth = requireAuth(req, url, 'driver');
     const data = auth ? driverState(auth.sub) : null;
     return data ? (sendJson(res, 200, { ok: true, data }), true) : (sendJson(res, 401, { ok: false, message: 'Authentication required' }), true);
+  }
+
+  const driverPreferences = routeMatches(pathname, '/api/drivers/:driverId/preferences');
+  if (driverPreferences && req.method === 'POST') {
+    const auth = requireAuth(req, url, 'driver');
+    if (!auth || auth.sub !== driverPreferences.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
+    try {
+      return sendJson(res, 200, { ok: true, data: updateDriverPreferences(auth.sub, await parseJsonBody(req)) }), broadcastState(), true;
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, message: error.message }), true;
+    }
   }
 
   if (pathname === '/api/rides' && req.method === 'POST') {
@@ -1064,9 +1194,13 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/admin/backups/export' && req.method === 'GET') {
     const auth = requireAuth(req, url, 'admin');
     if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const exportFile = fs.existsSync(backupDataFile) ? backupDataFile : dataFile;
     try {
-      const payload = fs.readFileSync(exportFile);
+      const backup = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
+      const current = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
+      const payload = backup?.payload || current?.payload;
+      if (!payload) {
+        return sendJson(res, 404, { ok: false, message: 'No backup snapshot found to export' }), true;
+      }
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Content-Disposition': `attachment; filename="teleka-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json"`,
@@ -1081,24 +1215,17 @@ async function handleApi(req, res, url) {
   if (pathname === '/api/admin/backups/restore' && req.method === 'POST') {
     const auth = requireAuth(req, url, 'admin');
     if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    if (!fs.existsSync(backupDataFile)) {
-      return sendJson(res, 404, { ok: false, message: 'No backup file found to restore' }), true;
-    }
     try {
-      const parsed = JSON.parse(fs.readFileSync(backupDataFile, 'utf8'));
-      const snapshotFile = path.join(dataDir, `teleka-store.pre-restore-${Date.now()}.json`);
-      if (fs.existsSync(dataFile)) fs.copyFileSync(dataFile, snapshotFile);
-      state = {
-        ...baseState(),
-        ...parsed,
-        settings: { ...baseState().settings, ...(parsed.settings || {}) },
-        customers: parsed.customers || [],
-        drivers: parsed.drivers || [],
-        rides: parsed.rides || [],
-        notifications: parsed.notifications || [],
-        passwordResetRequests: parsed.passwordResetRequests || [],
-        meta: { ...baseState().meta, ...(parsed.meta || {}) },
-      };
+      const backup = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
+      if (!backup?.payload) {
+        return sendJson(res, 404, { ok: false, message: 'No database backup snapshot found to restore' }), true;
+      }
+      const current = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
+      if (current?.payload) {
+        db.prepare('INSERT INTO state_archives (id, kind, payload, created_at) VALUES (?, ?, ?, ?)')
+          .run(id('archive'), 'pre-restore', current.payload, now());
+      }
+      state = normalizeState(JSON.parse(backup.payload));
       saveState();
       notification({ targetType: 'admin', message: 'Platform data restored from backup.', type: 'warning' });
       broadcastState();
@@ -1202,5 +1329,5 @@ if (!AUTH_SECRET) console.warn('WARNING: AUTH_SECRET is not configured. Set it i
 
 createServer().listen(port, '0.0.0.0', () => {
   console.log(`Static server running at http://localhost:${port}`);
-  console.log(`Persistent state file: ${dataFile}`);
+  console.log(`Persistent database: ${databasePath}`);
 });
