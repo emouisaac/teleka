@@ -1,5 +1,15 @@
 const FALLBACK_GOOGLE_CLIENT_ID = '275353277028-m8u8c8pq73jj0a2ds4n6eikj43hpklf8.apps.googleusercontent.com';
 const DEFAULT_MAP_CENTER = { lat: 0.3476, lng: 32.5825 };
+const DEFAULT_CAR_TYPE_MULTIPLIERS = {
+    standard: 1,
+    premium: 1.35,
+    suv: 1.6
+};
+const CAR_TYPE_LABELS = {
+    standard: 'Standard',
+    premium: 'Premium',
+    suv: 'SUV'
+};
 
 const customerState = {
     authenticated: false,
@@ -79,7 +89,12 @@ function switchSection(sectionId) {
         setTimeout(() => {
             if (mapState.map && window.google?.maps) {
                 google.maps.event.trigger(mapState.map, 'resize');
-                if (mapState.latestDirections) mapState.directionsRenderer.setDirections(mapState.latestDirections);
+                if (mapState.latestDirections) {
+                    mapState.directionsRenderer.setDirections(mapState.latestDirections);
+                    fitMapToLatestRoute();
+                } else if (document.getElementById('pickup-location')?.value.trim() && document.getElementById('dropoff-location')?.value.trim()) {
+                    queueRouteCalculation(0);
+                }
             }
         }, 120);
     }
@@ -162,6 +177,17 @@ function resetRouteSummary() {
     resetRouteSteps();
 }
 
+function getSelectedCarType() {
+    const carType = document.getElementById('car-type')?.value || 'standard';
+    return DEFAULT_CAR_TYPE_MULTIPLIERS[carType] ? carType : 'standard';
+}
+
+function getSelectedCarTypeMultiplier() {
+    const pricing = customerState.publicConfig?.pricing || {};
+    const multipliers = pricing.car_type_multipliers || DEFAULT_CAR_TYPE_MULTIPLIERS;
+    return Number(multipliers[getSelectedCarType()] || 1);
+}
+
 function syncPricingEstimate() {
     if (!mapState.latestLeg) return resetRouteSummary();
     const distanceMeters = mapState.latestLeg.distance?.value || 0;
@@ -172,10 +198,12 @@ function syncPricingEstimate() {
     const base = Number(pricing.base_fare || 3500);
     const perKm = Number(pricing.per_km || 1200);
     const perMin = Number(pricing.per_min || 180);
-    const estimate = Math.max(0, Math.round((base + ((distanceMeters / 1000) * perKm) + ((durationSeconds / 60) * perMin)) * surge));
+    const carType = getSelectedCarType();
+    const carTypeMultiplier = getSelectedCarTypeMultiplier();
+    const estimate = Math.max(0, Math.round((base + ((distanceMeters / 1000) * perKm) + ((durationSeconds / 60) * perMin)) * surge * carTypeMultiplier));
 
     document.getElementById('fare-amount').textContent = formatMoney(estimate);
-    document.getElementById('fare-breakdown').textContent = `${formatDistance(distanceMeters)} | ${formatDuration(durationSeconds)}${surge > 1 ? ' | surge applied' : ''}`;
+    document.getElementById('fare-breakdown').textContent = `${CAR_TYPE_LABELS[carType]} x${carTypeMultiplier.toFixed(2)} | ${formatDistance(distanceMeters)} | ${formatDuration(durationSeconds)}${surge > 1 ? ' | surge applied' : ''}`;
 }
 
 function updateRouteSummary(leg) {
@@ -238,6 +266,12 @@ function setRouteCalculatingState() {
     document.getElementById('route-steps-status').textContent = 'Calculating...';
 }
 
+function fitMapToLatestRoute(directions = mapState.latestDirections) {
+    const bounds = directions?.routes?.[0]?.bounds;
+    if (!mapState.map || !bounds) return;
+    mapState.map.fitBounds(bounds);
+}
+
 function calculateRoute() {
     if (!mapState.directionsService || !window.google?.maps) return;
     const pickup = getRouteLocation('pickup', 'pickup-location');
@@ -271,6 +305,7 @@ function calculateRoute() {
         mapState.latestDirections = result;
         mapState.latestLeg = result.routes[0].legs[0];
         mapState.directionsRenderer.setDirections(result);
+        fitMapToLatestRoute(result);
         updateRouteSummary(mapState.latestLeg);
         renderRouteSteps(mapState.latestLeg);
         setMapHint('Route loaded. Fare updates live.');
@@ -323,6 +358,7 @@ function initRideRequest() {
     document.getElementById('pickup-location').addEventListener('blur', () => queueRouteCalculation(0));
     document.getElementById('dropoff-location').addEventListener('blur', () => queueRouteCalculation(0));
     document.getElementById('ride-date').addEventListener('change', () => queueRouteCalculation(0));
+    document.getElementById('car-type').addEventListener('change', syncPricingEstimate);
     setRouteEndpointsPreview();
     resetRouteSteps();
     setMapHint('Start typing pickup and destination for suggestions and route.');

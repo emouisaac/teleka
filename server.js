@@ -374,14 +374,30 @@ async function requireDriver(req, res, next) {
   }
 }
 
-function calculateEstimatedFare(pricing, distanceKm, durationMin, scheduleIso) {
+const CAR_TYPE_MULTIPLIERS = Object.freeze({
+  standard: 1,
+  premium: 1.35,
+  suv: 1.6
+});
+
+function normalizeCarType(value) {
+  const type = sanitizeText(value || 'standard', 40).toLowerCase();
+  return CAR_TYPE_MULTIPLIERS[type] ? type : 'standard';
+}
+
+function getCarTypeMultiplier(carType) {
+  return parseNumber(CAR_TYPE_MULTIPLIERS[normalizeCarType(carType)], 1);
+}
+
+function calculateEstimatedFare(pricing, distanceKm, durationMin, scheduleIso, carType = 'standard') {
   const hour = new Date(scheduleIso).getHours();
   const useSurge = hour >= 22 || hour < 6;
   const surge = useSurge ? parseNumber(pricing.surge_multiplier, 1) : 1;
+  const multiplier = getCarTypeMultiplier(carType);
   const total = parseNumber(pricing.base_fare, 0)
     + (distanceKm * parseNumber(pricing.per_km, 0))
     + (durationMin * parseNumber(pricing.per_min, 0));
-  return money(total * surge);
+  return money(total * surge * multiplier);
 }
 
 async function getAdminSnapshot() {
@@ -782,7 +798,10 @@ app.get('/api/public/config', async (req, res) => {
   return res.json({
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-    pricing
+    pricing: {
+      ...(pricing || {}),
+      car_type_multipliers: CAR_TYPE_MULTIPLIERS
+    }
   });
 });
 
@@ -809,7 +828,7 @@ app.post('/api/rides/request', requireCustomer, async (req, res) => {
     const pickupLocation = sanitizeText(req.body.pickupLocation, 255);
     const dropoffLocation = sanitizeText(req.body.dropoffLocation, 255);
     const scheduledLocal = sanitizeText(req.body.scheduledAt, 64);
-    const requestedCarType = sanitizeText(req.body.carType || 'standard', 40);
+    const requestedCarType = normalizeCarType(req.body.carType);
     const paymentMethod = sanitizeText(req.body.paymentMethod || 'cash', 40);
     const distanceKm = parseNumber(req.body.distanceKm, 0);
     const durationMin = parseNumber(req.body.durationMin, 0);
@@ -827,9 +846,9 @@ app.post('/api/rides/request', requireCustomer, async (req, res) => {
     if (Number.isNaN(scheduleDate.getTime())) return sendError(res, 400, 'Invalid scheduled date');
 
     const pricing = await getQuery('SELECT * FROM pricing_settings WHERE id = 1');
-    const estimatedFare = clientFare > 0
-      ? money(clientFare)
-      : calculateEstimatedFare(pricing || {}, distanceKm, durationMin, scheduleDate.toISOString());
+    const estimatedFare = distanceKm > 0 || durationMin > 0
+      ? calculateEstimatedFare(pricing || {}, distanceKm, durationMin, scheduleDate.toISOString(), requestedCarType)
+      : money(clientFare > 0 ? clientFare : calculateEstimatedFare(pricing || {}, distanceKm, durationMin, scheduleDate.toISOString(), requestedCarType));
 
     const created = await runQuery(
       `INSERT INTO rides (
