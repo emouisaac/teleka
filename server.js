@@ -511,7 +511,8 @@ async function getDriverSnapshot(driverId) {
 
   const incomingRequest = driver?.is_online
     ? await getQuery(
-      `SELECT rides.id, rides.pickup_location, rides.dropoff_location, rides.distance_km, rides.duration_min,
+      `SELECT rides.id, rides.pickup_location, rides.dropoff_location, rides.pickup_lat, rides.pickup_lng, rides.dropoff_lat, rides.dropoff_lng,
+              rides.distance_km, rides.duration_min,
               rides.estimated_fare, rides.scheduled_at, rides.scheduled_local,
               users.name AS customer_name, users.phone AS customer_phone
        FROM rides

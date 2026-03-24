@@ -27,7 +27,9 @@ const mapState = {
     latestLeg: null,
     latestDirections: null,
     routeDebounceId: null,
-    routeRequestId: 0
+    routeRequestId: 0,
+    scriptRequested: false,
+    isCalculating: false
 };
 
 function showToast(message, type = 'success') {
@@ -86,6 +88,7 @@ function switchSection(sectionId) {
     document.querySelector('.navbar-menu')?.classList.remove('active');
     document.querySelector('.navbar-toggle')?.classList.remove('active');
     if (sectionId === 'request') {
+        ensureRideRequestMapReady();
         setTimeout(() => {
             if (mapState.map && window.google?.maps) {
                 google.maps.event.trigger(mapState.map, 'resize');
@@ -260,6 +263,7 @@ function getRouteLocation(key, inputId) {
 }
 
 function setRouteCalculatingState() {
+    mapState.isCalculating = true;
     setRouteEndpointsPreview();
     document.getElementById('fare-breakdown').textContent = 'Calculating fare estimate from the live route...';
     document.getElementById('fare-amount').textContent = 'UGX ...';
@@ -277,6 +281,7 @@ function calculateRoute() {
     const pickup = getRouteLocation('pickup', 'pickup-location');
     const dropoff = getRouteLocation('dropoff', 'dropoff-location');
     if (!pickup || !dropoff) {
+        mapState.isCalculating = false;
         mapState.latestLeg = null;
         mapState.latestDirections = null;
         mapState.directionsRenderer?.set('directions', null);
@@ -293,6 +298,7 @@ function calculateRoute() {
         drivingOptions: { departureTime: new Date(document.getElementById('ride-date').value || Date.now()) }
     }, (result, status) => {
         if (requestId !== mapState.routeRequestId) return;
+        mapState.isCalculating = false;
         if (status !== google.maps.DirectionsStatus.OK || !result?.routes?.[0]?.legs?.[0]) {
             mapState.latestLeg = null;
             mapState.latestDirections = null;
@@ -315,6 +321,10 @@ function calculateRoute() {
 function queueRouteCalculation(delay = 350) {
     if (mapState.routeDebounceId) clearTimeout(mapState.routeDebounceId);
     setRouteEndpointsPreview();
+    if (!mapState.directionsService || !window.google?.maps) {
+        ensureRideRequestMapReady();
+        return;
+    }
     mapState.routeDebounceId = setTimeout(() => {
         mapState.routeDebounceId = null;
         calculateRoute();
@@ -362,20 +372,34 @@ function initRideRequest() {
     setRouteEndpointsPreview();
     resetRouteSteps();
     setMapHint('Start typing pickup and destination for suggestions and route.');
+    if (document.getElementById('pickup-location').value.trim() && document.getElementById('dropoff-location').value.trim()) {
+        queueRouteCalculation(0);
+    }
 }
 
 window.initRideRequest = initRideRequest;
 
+function ensureRideRequestMapReady() {
+    if (!document.getElementById('map')) return;
+    if (mapState.map && window.google?.maps) return;
+    loadGoogleMapsScript();
+}
+
 async function loadGoogleMapsScript() {
     if (!document.getElementById('map')) return;
     if (window.google?.maps?.places) return initRideRequest();
+    if (mapState.scriptRequested) return;
     const config = await getPublicConfig();
     if (!config.googleMapsApiKey) return setMapHint('Missing Google Maps API key in backend config.');
+    mapState.scriptRequested = true;
     const script = document.createElement('script');
     script.async = true;
     script.defer = true;
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.googleMapsApiKey)}&libraries=places&callback=initRideRequest`;
-    script.onerror = () => setMapHint('Failed to load Google Maps. Check API key restrictions.');
+    script.onerror = () => {
+        mapState.scriptRequested = false;
+        setMapHint('Failed to load Google Maps. Check API key restrictions.');
+    };
     document.body.appendChild(script);
 }
 
@@ -469,6 +493,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Please login as customer to request a ride.', 'error');
             return;
         }
+        if (mapState.isCalculating) {
+            showToast('Please wait for the route suggestion and fare estimate to finish loading.', 'error');
+            return;
+        }
+        if (!mapState.latestLeg) {
+            queueRouteCalculation(0);
+            showToast('Enter pickup and destination, then wait for the route suggestion and estimated fare to appear.', 'error');
+            return;
+        }
         const distanceKm = (mapState.latestLeg?.distance?.value || 0) / 1000;
         const durationMin = (mapState.latestLeg?.duration_in_traffic?.value || mapState.latestLeg?.duration?.value || 0) / 60;
         const estimatedFare = Number((document.getElementById('fare-amount').textContent || '').replace(/[^\d]/g, '')) || 0;
@@ -537,6 +570,5 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Settings saved locally');
     });
 
-    loadGoogleMapsScript();
     if (typeof google !== 'undefined') initializeGoogleSignIn();
 });

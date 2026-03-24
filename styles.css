@@ -2981,6 +2981,45 @@ footer {
     font-weight: 600;
 }
 
+.driver-map-canvas {
+    position: relative;
+    overflow: hidden;
+}
+
+.driver-map-canvas.is-live {
+    border-style: solid;
+    border-color: rgba(102, 126, 234, 0.18);
+    background: rgba(255, 255, 255, 0.88);
+}
+
+.driver-map-note {
+    margin: 0.75rem 0 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.driver-map-summary {
+    margin-top: 0.75rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid rgba(102, 126, 234, 0.16);
+    background: rgba(102, 126, 234, 0.08);
+    display: grid;
+    gap: 0.3rem;
+}
+
+.driver-map-summary span {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.driver-map-summary strong {
+    font-size: 0.98rem;
+    color: var(--text-primary);
+}
+
 .actions-row {
     display: flex;
     gap: 0.8rem;
