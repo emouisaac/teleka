@@ -23,6 +23,22 @@ const driverAlertState = {
     lastIncomingRideId: null,
     lastLocationSyncAt: 0
 };
+const driverMediaState = {
+    register: {
+        facePhotoDataUrl: '',
+        carPhotoDataUrl: '',
+        docs: [],
+        faceStream: null
+    },
+    profile: {
+        profilePhotoDataUrl: '',
+        carPhotoDataUrl: '',
+        docs: [],
+        existingDocs: [],
+        storedProfilePhotoUrl: '',
+        storedCarPhotoUrl: ''
+    }
+};
 
 const DOM = {
     sidebar: null,
@@ -68,6 +84,328 @@ function formatDate(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
+}
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function isImageDataUrl(value) {
+    return /^data:image\//i.test(String(value || ''));
+}
+
+function normalizeDocumentEntry(item, index = 0) {
+    if (!item) return null;
+    if (typeof item === 'string') {
+        return { name: item, type: '', size: 0, dataUrl: '' };
+    }
+    if (typeof item !== 'object') return null;
+    return {
+        name: item.name || `Document ${index + 1}`,
+        type: item.type || '',
+        size: Number(item.size || 0),
+        dataUrl: item.dataUrl || ''
+    };
+}
+
+function parseStoredDocs(rawValue) {
+    try {
+        const parsed = JSON.parse(rawValue || '[]');
+        return Array.isArray(parsed)
+            ? parsed.map((item, index) => normalizeDocumentEntry(item, index)).filter(Boolean)
+            : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function dedupeDocumentEntries(items) {
+    const seen = new Set();
+    return items.filter((item) => {
+        const normalized = normalizeDocumentEntry(item);
+        if (!normalized) return false;
+        const key = normalized.dataUrl
+            ? `${normalized.type}|${normalized.dataUrl}`
+            : `${String(normalized.name || '').toLowerCase()}|${normalized.type}|${normalized.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+
+function setPreviewImage(elementId, dataUrl) {
+    const image = document.getElementById(elementId);
+    if (!image) return;
+    if (dataUrl) {
+        image.src = dataUrl;
+        image.classList.remove('hidden');
+        return;
+    }
+    image.removeAttribute('src');
+    image.classList.add('hidden');
+}
+
+function renderDocumentPreviewList(containerId, items, emptyText) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const docs = dedupeDocumentEntries(items.map((item, index) => normalizeDocumentEntry(item, index)).filter(Boolean));
+    if (!docs.length) {
+        container.innerHTML = `<div class="upload-preview-empty">${escapeHtml(emptyText)}</div>`;
+        return;
+    }
+    container.innerHTML = docs.map((doc, index) => `
+        <div class="upload-preview-item">
+          ${isImageDataUrl(doc.dataUrl) ? `<img src="${doc.dataUrl}" class="doc-preview-image doc-preview-image--small" alt="${escapeHtml(doc.name || `Document ${index + 1}`)}" />` : ''}
+          <strong>${escapeHtml(doc.name || `Document ${index + 1}`)}</strong>
+          <span class="muted">${escapeHtml(doc.type || 'Saved document')}</span>
+        </div>
+    `).join('');
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error(`Failed to read ${file?.name || 'file'}`));
+        reader.readAsDataURL(file);
+    });
+}
+
+function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Image preview failed'));
+        image.src = dataUrl;
+    });
+}
+
+async function shrinkImageDataUrl(dataUrl, options = {}) {
+    if (!isImageDataUrl(dataUrl)) return dataUrl;
+    const maxSide = Number(options.maxSide || 1400);
+    const quality = Number(options.quality || 0.82);
+    const image = await loadImage(dataUrl);
+    const largestSide = Math.max(image.width, image.height, 1);
+    const scale = Math.min(1, maxSide / largestSide);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', quality);
+}
+
+async function fileToUploadRecord(file, options = {}) {
+    const rawDataUrl = await readFileAsDataUrl(file);
+    const dataUrl = file?.type?.startsWith('image/')
+        ? await shrinkImageDataUrl(rawDataUrl, options)
+        : rawDataUrl;
+    return {
+        name: file?.name || 'Document',
+        type: file?.type || '',
+        size: Number(file?.size || 0),
+        dataUrl
+    };
+}
+
+function stopRegisterFaceCamera() {
+    driverMediaState.register.faceStream?.getTracks?.().forEach((track) => track.stop());
+    driverMediaState.register.faceStream = null;
+}
+
+function updateRegisterFaceControls(hasCapture = false, cameraOpen = false) {
+    document.getElementById('registerFaceVideo')?.classList.toggle('hidden', !cameraOpen);
+    document.getElementById('registerFacePreview')?.classList.toggle('hidden', !hasCapture);
+    document.getElementById('captureFacePhoto')?.classList.toggle('hidden', !cameraOpen);
+    document.getElementById('retakeFacePhoto')?.classList.toggle('hidden', !hasCapture);
+}
+
+async function startRegisterFaceCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Camera access is not available on this device');
+    }
+    stopRegisterFaceCamera();
+    const video = document.getElementById('registerFaceVideo');
+    const preview = document.getElementById('registerFacePreview');
+    if (!video || !preview) return;
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            facingMode: 'user',
+            width: { ideal: 960 },
+            height: { ideal: 960 }
+        },
+        audio: false
+    });
+    driverMediaState.register.faceStream = stream;
+    driverMediaState.register.facePhotoDataUrl = '';
+    preview.removeAttribute('src');
+    video.srcObject = stream;
+    video.classList.remove('hidden');
+    preview.classList.add('hidden');
+    updateRegisterFaceControls(false, true);
+}
+
+async function captureRegisterFacePhoto() {
+    const video = document.getElementById('registerFaceVideo');
+    if (!video || !video.videoWidth || !video.videoHeight) {
+        throw new Error('Camera is not ready yet');
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    driverMediaState.register.facePhotoDataUrl = await shrinkImageDataUrl(canvas.toDataURL('image/jpeg', 0.9), { maxSide: 1200, quality: 0.82 });
+    setPreviewImage('registerFacePreview', driverMediaState.register.facePhotoDataUrl);
+    stopRegisterFaceCamera();
+    if (video) video.srcObject = null;
+    updateRegisterFaceControls(true, false);
+}
+
+function getProfileDocumentPreviewItems() {
+    return dedupeDocumentEntries([
+        ...driverMediaState.profile.existingDocs,
+        ...driverMediaState.profile.docs
+    ]);
+}
+
+function renderProfileMediaPreviews() {
+    const profilePhoto = driverMediaState.profile.profilePhotoDataUrl || driverMediaState.profile.storedProfilePhotoUrl;
+    const carPhoto = driverMediaState.profile.carPhotoDataUrl || driverMediaState.profile.storedCarPhotoUrl;
+    setPreviewImage('profilePhotoPreview', profilePhoto);
+    setPreviewImage('profileCarPreview', carPhoto);
+    renderDocumentPreviewList('profileDocsPreview', getProfileDocumentPreviewItems(), 'No documents uploaded yet');
+}
+
+function resetRegisterMediaState() {
+    stopRegisterFaceCamera();
+    const video = document.getElementById('registerFaceVideo');
+    if (video) video.srcObject = null;
+    driverMediaState.register.facePhotoDataUrl = '';
+    driverMediaState.register.carPhotoDataUrl = '';
+    driverMediaState.register.docs = [];
+    setPreviewImage('registerFacePreview', '');
+    setPreviewImage('registerCarPreview', '');
+    renderDocumentPreviewList('registerDocsPreview', [], 'No documents selected yet');
+    updateRegisterFaceControls(false, false);
+}
+
+function resetProfileDraftMedia() {
+    driverMediaState.profile.profilePhotoDataUrl = '';
+    driverMediaState.profile.carPhotoDataUrl = '';
+    driverMediaState.profile.docs = [];
+    const profilePhotoInput = document.getElementById('profilePhoto');
+    const carPhotoInput = document.getElementById('profileCarPhoto');
+    const docsInput = document.getElementById('profileDocs');
+    if (profilePhotoInput) profilePhotoInput.value = '';
+    if (carPhotoInput) carPhotoInput.value = '';
+    if (docsInput) docsInput.value = '';
+    renderProfileMediaPreviews();
+}
+
+async function handleSingleImageSelection(file, previewId, stateKey, scope) {
+    if (!file) {
+        driverMediaState[scope][stateKey] = '';
+        setPreviewImage(previewId, '');
+        return;
+    }
+    if (!file.type.startsWith('image/')) throw new Error('Please choose an image file');
+    const record = await fileToUploadRecord(file, { maxSide: 1400, quality: 0.82 });
+    driverMediaState[scope][stateKey] = record.dataUrl;
+    setPreviewImage(previewId, record.dataUrl);
+}
+
+async function handleDocumentSelection(files, scope, previewId, emptyText) {
+    const records = await Promise.all([...files].map((file) => fileToUploadRecord(file, { maxSide: 1600, quality: 0.8 })));
+    driverMediaState[scope].docs = dedupeDocumentEntries(records);
+    renderDocumentPreviewList(previewId, scope === 'profile' ? getProfileDocumentPreviewItems() : driverMediaState[scope].docs, emptyText);
+}
+
+function bindDriverMediaInputs() {
+    renderDocumentPreviewList('registerDocsPreview', [], 'No documents selected yet');
+    renderDocumentPreviewList('profileDocsPreview', [], 'No documents uploaded yet');
+    updateRegisterFaceControls(false, false);
+
+    document.getElementById('startFaceCamera')?.addEventListener('click', async () => {
+        try {
+            await startRegisterFaceCamera();
+        } catch (error) {
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('captureFacePhoto')?.addEventListener('click', async () => {
+        try {
+            await captureRegisterFacePhoto();
+        } catch (error) {
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('retakeFacePhoto')?.addEventListener('click', async () => {
+        try {
+            await startRegisterFaceCamera();
+        } catch (error) {
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('registerCarPhoto')?.addEventListener('change', async (event) => {
+        try {
+            await handleSingleImageSelection(event.target.files?.[0], 'registerCarPreview', 'carPhotoDataUrl', 'register');
+        } catch (error) {
+            event.target.value = '';
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('registerDocs')?.addEventListener('change', async (event) => {
+        try {
+            await handleDocumentSelection(event.target.files || [], 'register', 'registerDocsPreview', 'No documents selected yet');
+        } catch (error) {
+            event.target.value = '';
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('profilePhoto')?.addEventListener('change', async (event) => {
+        try {
+            await handleSingleImageSelection(event.target.files?.[0], 'profilePhotoPreview', 'profilePhotoDataUrl', 'profile');
+            renderProfileMediaPreviews();
+        } catch (error) {
+            event.target.value = '';
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('profileCarPhoto')?.addEventListener('change', async (event) => {
+        try {
+            await handleSingleImageSelection(event.target.files?.[0], 'profileCarPreview', 'carPhotoDataUrl', 'profile');
+            renderProfileMediaPreviews();
+        } catch (error) {
+            event.target.value = '';
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('profileDocs')?.addEventListener('change', async (event) => {
+        try {
+            await handleDocumentSelection(event.target.files || [], 'profile', 'profileDocsPreview', 'No documents uploaded yet');
+        } catch (error) {
+            event.target.value = '';
+            showNotification(error.message, 'error');
+        }
+    });
+
+    document.getElementById('resetProfile')?.addEventListener('click', () => {
+        resetProfileDraftMedia();
+        loadDriverSnapshot();
+    });
 }
 
 function getDriverAudioContext() {
@@ -594,6 +932,7 @@ function logoutDriver() {
     localStorage.removeItem('driverToken');
     stopDriverLocationWatch();
     stopDriverRingtone();
+    stopRegisterFaceCamera();
     setDriverRequestOverlayVisible(false);
     showDriverAuth();
 }
@@ -697,6 +1036,10 @@ function renderSnapshot(snapshot) {
     document.getElementById('profilePhone').value = driver.phone || '';
     document.getElementById('profileVehicle').value = driver.vehicle_info || '';
     document.getElementById('profilePlate').value = driver.plate_number || '';
+    driverMediaState.profile.existingDocs = parseStoredDocs(driver.docs_json);
+    driverMediaState.profile.storedProfilePhotoUrl = driver.profile_photo_url || '';
+    driverMediaState.profile.storedCarPhotoUrl = driver.car_photo_url || '';
+    renderProfileMediaPreviews();
 
     const chartData = [snapshot.stats?.earnings_today || 0, snapshot.stats?.earnings_week || 0, (snapshot.stats?.earnings_week || 0) - (snapshot.stats?.earnings_today || 0)];
     if (window.Chart) {
@@ -781,6 +1124,23 @@ async function handleLoginSubmit(event) {
 
 async function handleRegistrationSubmit(event) {
     event.preventDefault();
+    if (!driverMediaState.register.facePhotoDataUrl) {
+        showNotification('Capture a clear face photo before submitting.', 'error');
+        return;
+    }
+    if (!driverMediaState.register.carPhotoDataUrl) {
+        showNotification('Add a clear car photo before submitting.', 'error');
+        return;
+    }
+    if (!driverMediaState.register.docs.length) {
+        showNotification('Upload at least one document photo before submitting.', 'error');
+        return;
+    }
+    const hasDocumentPhoto = driverMediaState.register.docs.some((item) => isImageDataUrl(item.dataUrl));
+    if (!hasDocumentPhoto) {
+        showNotification('Include clear document photos before submitting.', 'error');
+        return;
+    }
     const payload = {
         name: document.getElementById('registerName').value.trim(),
         email: document.getElementById('registerEmail').value.trim(),
@@ -791,7 +1151,10 @@ async function handleRegistrationSubmit(event) {
         licenseNumber: document.getElementById('registerLicenseNumber').value.trim(),
         nationalIdNumber: document.getElementById('registerNationalIdNumber').value.trim(),
         insuranceNumber: document.getElementById('registerInsuranceNumber').value.trim(),
-        docs: [...(document.getElementById('registerDocs').files || [])].map((file) => file.name)
+        facePhotoDataUrl: driverMediaState.register.facePhotoDataUrl,
+        profilePhotoDataUrl: driverMediaState.register.facePhotoDataUrl,
+        carPhotoDataUrl: driverMediaState.register.carPhotoDataUrl,
+        docs: driverMediaState.register.docs
     };
     try {
         const response = await fetch('/auth/driver/register', {
@@ -803,6 +1166,7 @@ async function handleRegistrationSubmit(event) {
         if (!response.ok || !data.success) throw new Error(data.error || 'Registration failed');
         showNotification(data.message || 'Submitted for admin review');
         event.target.reset();
+        resetRegisterMediaState();
         document.querySelector('.driver-auth-card--login')?.classList.remove('hidden');
         document.getElementById('driverRegisterCard')?.classList.add('hidden');
     } catch (error) {
@@ -812,6 +1176,7 @@ async function handleRegistrationSubmit(event) {
 
 document.addEventListener('DOMContentLoaded', () => {
     DOM.init();
+    bindDriverMediaInputs();
     DOM.menuToggle?.addEventListener('click', toggleDriverMenu);
     document.addEventListener('click', closeDriverMenuOnClickOutside);
 
@@ -831,6 +1196,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('driverRegisterCard')?.classList.remove('hidden');
     });
     document.getElementById('showLoginForm')?.addEventListener('click', () => {
+        stopRegisterFaceCamera();
         document.querySelector('.driver-auth-card--login')?.classList.remove('hidden');
         document.getElementById('driverRegisterCard')?.classList.add('hidden');
     });
@@ -884,10 +1250,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     phone: document.getElementById('profilePhone').value.trim(),
                     vehicleInfo: document.getElementById('profileVehicle').value.trim(),
                     plate: document.getElementById('profilePlate').value.trim(),
-                    docs: [...(document.getElementById('profileDocs').files || [])].map((file) => file.name)
+                    profilePhotoDataUrl: driverMediaState.profile.profilePhotoDataUrl,
+                    carPhotoDataUrl: driverMediaState.profile.carPhotoDataUrl,
+                    docs: getProfileDocumentPreviewItems()
                 })
             });
             showNotification('Profile saved');
+            resetProfileDraftMedia();
             loadDriverSnapshot();
         } catch (error) { showNotification(error.message, 'error'); }
     });

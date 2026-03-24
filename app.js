@@ -108,6 +108,62 @@ function formatDate(value) {
     return date.toLocaleString();
 }
 
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseDriverDocuments(rawValue) {
+    try {
+        const parsed = JSON.parse(rawValue || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function renderDriverAsset(title, dataUrl, emptyText, altText) {
+    if (!dataUrl) return `<div class="upload-preview-empty">${escapeHtml(emptyText)}</div>`;
+    return `
+        <div class="upload-preview-item">
+          <strong>${escapeHtml(title)}</strong>
+          <img src="${dataUrl}" class="doc-preview-image" alt="${escapeHtml(altText)}" />
+        </div>
+    `;
+}
+
+function renderDriverDocumentItem(item, index) {
+    if (typeof item === 'string') {
+        return `
+            <div class="upload-preview-item">
+              <strong>${escapeHtml(item || `Document ${index + 1}`)}</strong>
+              <span class="muted">Saved document metadata</span>
+            </div>
+        `;
+    }
+
+    const name = item?.name || `Document ${index + 1}`;
+    const type = item?.type || 'Uploaded document';
+    const dataUrl = item?.dataUrl || '';
+    const preview = /^data:image\//i.test(dataUrl)
+        ? `<img src="${dataUrl}" class="doc-preview-image doc-preview-image--small" alt="${escapeHtml(name)}" />`
+        : dataUrl
+            ? `<a class="btn small outline" href="${dataUrl}" target="_blank" rel="noopener noreferrer">Open file</a>`
+            : '';
+
+    return `
+        <div class="upload-preview-item">
+          ${preview}
+          <strong>${escapeHtml(name)}</strong>
+          <span class="muted">${escapeHtml(type)}</span>
+        </div>
+    `;
+}
+
 function renderSummary(summary) {
     if (!summary) return;
     document.getElementById('summaryCustomers').textContent = summary.customers || 0;
@@ -243,10 +299,16 @@ function viewDocuments(driverId) {
     const body = document.getElementById('driverDocsModalBody');
     const modal = document.getElementById('driverDocsModal');
     if (!body || !modal) return;
-    const docs = JSON.parse(driver?.docs_json || '[]');
-    body.innerHTML = docs.length
-        ? `<ul class="modal-list">${docs.map((item) => `<li>${item}</li>`).join('')}</ul>`
-        : '<p class="muted">No uploaded document metadata.</p>';
+    const docs = parseDriverDocuments(driver?.docs_json);
+    body.innerHTML = `
+        <div class="doc-preview-list">
+          ${renderDriverAsset('Face photo', driver?.profile_photo_url, 'No face photo uploaded yet.', `${driver?.name || 'Driver'} face photo`)}
+          ${renderDriverAsset('Car photo', driver?.car_photo_url, 'No car photo uploaded yet.', `${driver?.name || 'Driver'} car photo`)}
+          ${docs.length
+            ? docs.map((item, index) => renderDriverDocumentItem(item, index)).join('')
+            : '<div class="upload-preview-empty">No uploaded document files.</div>'}
+        </div>
+    `;
     modal.classList.remove('hidden');
 }
 

@@ -12,6 +12,7 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { createHash } = require('crypto');
 require('dotenv').config();
 
 // Import JSON-based storage instead of SQLite
@@ -33,6 +34,10 @@ const parseNumber = (value, fallback = 0) => {
 const money = (value) => Number(Number(value || 0).toFixed(2));
 const nowIso = () => new Date().toISOString();
 const toRadians = (value) => (Number(value) * Math.PI) / 180;
+const normalizeEmail = (value) => sanitizeText(value, 160).toLowerCase();
+const normalizePhone = (value) => sanitizeText(value, 50).replace(/\D+/g, '');
+const normalizeRegistryValue = (value, max = 80) => sanitizeText(value, max).replace(/[^a-z0-9]/gi, '').toUpperCase();
+const DRIVER_ADMIN_CONTACT = sanitizeText(process.env.TELEKA_DRIVER_ADMIN_CONTACT || '256788408032', 40);
 const sessionStoreDir = path.join(storageMeta.dataRoot, 'sessions');
 const sessionDbName = process.env.TELEKA_SESSIONS_DB || 'sessions.sqlite';
 const sessionDbPath = path.join(sessionStoreDir, sessionDbName);
@@ -57,6 +62,122 @@ function sendError(res, status, error) {
   return res.status(status).json({ success: false, error });
 }
 
+function sanitizeDriverImageDataUrl(value, maxLength = 2_500_000) {
+  const dataUrl = String(value || '').trim();
+  if (!dataUrl || dataUrl.length > maxLength) return '';
+  return /^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(dataUrl) ? dataUrl : '';
+}
+
+function normalizeDriverDocs(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const name = sanitizeText(item.name || `Document ${index + 1}`, 160);
+      const type = sanitizeText(item.type || '', 120).toLowerCase();
+      const dataUrl = String(item.dataUrl || '').trim();
+      if (!name || !dataUrl || dataUrl.length > 3_500_000) return null;
+      const isImage = /^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(dataUrl);
+      const isPdf = /^data:application\/pdf;base64,/i.test(dataUrl);
+      if (!isImage && !isPdf) return null;
+      return {
+        name,
+        type: type || (isImage ? 'image/jpeg' : 'application/pdf'),
+        size: Math.max(0, parseInt(item.size, 10) || 0),
+        dataUrl
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function hasImageDocument(docs) {
+  return docs.some((item) => /^data:image\//i.test(String(item?.dataUrl || '')));
+}
+
+function fingerprintUploadDataUrl(value) {
+  const dataUrl = String(value || '').trim();
+  const parts = dataUrl.match(/^data:([^;,]+);base64,(.+)$/i);
+  if (!parts) return '';
+  return createHash('sha256')
+    .update(`${String(parts[1] || '').toLowerCase()}:${String(parts[2] || '').replace(/\s+/g, '')}`)
+    .digest('hex');
+}
+
+function parseStoredDriverDocs(rawValue) {
+  try {
+    return normalizeDriverDocs(JSON.parse(rawValue || '[]'));
+  } catch (error) {
+    return [];
+  }
+}
+
+async function findDriverIdentityConflict(fields, excludeDriverId = null) {
+  const drivers = await allQuery('SELECT * FROM drivers');
+  const users = await allQuery('SELECT * FROM users');
+  const excludedDriverId = Number(excludeDriverId);
+
+  const email = normalizeEmail(fields.email);
+  if (email) {
+    const driverMatch = drivers.find((driver) => Number(driver.id) !== excludedDriverId && normalizeEmail(driver.email) === email);
+    if (driverMatch) return 'Email already registered';
+    const userMatch = users.find((user) => normalizeEmail(user.email) === email);
+    if (userMatch) return 'Email already in use';
+  }
+
+  const phone = normalizePhone(fields.phone);
+  if (phone) {
+    const driverMatch = drivers.find((driver) => Number(driver.id) !== excludedDriverId && normalizePhone(driver.phone) === phone);
+    if (driverMatch) return 'Phone number already registered';
+    const userMatch = users.find((user) => normalizePhone(user.phone) === phone);
+    if (userMatch) return 'Phone number already in use';
+  }
+
+  const licenseNumber = normalizeRegistryValue(fields.licenseNumber, 60);
+  if (licenseNumber) {
+    const match = drivers.find((driver) => Number(driver.id) !== excludedDriverId && normalizeRegistryValue(driver.license_number, 60) === licenseNumber);
+    if (match) return 'License number already registered';
+  }
+
+  const plate = normalizeRegistryValue(fields.plate, 40);
+  if (plate) {
+    const match = drivers.find((driver) => Number(driver.id) !== excludedDriverId && normalizeRegistryValue(driver.plate_number, 40) === plate);
+    if (match) return 'Vehicle plate number already registered';
+  }
+
+  const nationalIdNumber = normalizeRegistryValue(fields.nationalIdNumber, 60);
+  if (nationalIdNumber) {
+    const match = drivers.find((driver) => Number(driver.id) !== excludedDriverId && normalizeRegistryValue(driver.national_id_number, 60) === nationalIdNumber);
+    if (match) return 'National ID number already registered';
+  }
+
+  const insuranceNumber = normalizeRegistryValue(fields.insuranceNumber, 60);
+  if (insuranceNumber) {
+    const match = drivers.find((driver) => Number(driver.id) !== excludedDriverId && normalizeRegistryValue(driver.insurance_number, 60) === insuranceNumber);
+    if (match) return 'Insurance number already registered';
+  }
+
+  const docs = normalizeDriverDocs(fields.docs);
+  if (docs.length) {
+    const uploadedFingerprints = new Set();
+    for (const doc of docs) {
+      const fingerprint = fingerprintUploadDataUrl(doc?.dataUrl);
+      if (!fingerprint) continue;
+      if (uploadedFingerprints.has(fingerprint)) return 'Duplicate document uploads are not allowed';
+      uploadedFingerprints.add(fingerprint);
+    }
+
+    for (const driver of drivers) {
+      if (Number(driver.id) === excludedDriverId) continue;
+      const existingDocs = parseStoredDriverDocs(driver.docs_json);
+      const hasReusedDocument = existingDocs.some((doc) => uploadedFingerprints.has(fingerprintUploadDataUrl(doc?.dataUrl)));
+      if (hasReusedDocument) return 'One or more uploaded documents are already used by another driver account';
+    }
+  }
+
+  return '';
+}
+
 function getDriverToken(req) {
   const authHeader = req.headers.authorization || '';
   if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
@@ -73,8 +194,8 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(bodyParser.json({ limit: '2mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
+app.use(bodyParser.json({ limit: '12mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '12mb' }));
 app.use(cookieParser());
 app.use(session({
   secret: process.env.AUTH_SECRET,
@@ -451,7 +572,7 @@ async function getAdminSnapshot() {
   );
 
   const pendingDrivers = await allQuery(
-    `SELECT id, name, email, phone, vehicle_info, plate_number, status, created_at, docs_json
+    `SELECT id, name, email, phone, vehicle_info, plate_number, status, created_at, docs_json, profile_photo_url, car_photo_url
      FROM drivers WHERE status = 'pending'
      ORDER BY created_at DESC`
   );
@@ -736,56 +857,50 @@ app.post('/auth/logout', (req, res) => {
 app.post('/auth/driver/register', async (req, res) => {
   try {
     const name = sanitizeText(req.body.name, 120);
-    const email = sanitizeText(req.body.email, 160).toLowerCase();
+    const email = normalizeEmail(req.body.email);
     const phone = sanitizeText(req.body.phone, 50);
     const vehicleInfo = sanitizeText(req.body.vehicleInfo, 120);
-    const plate = sanitizeText(req.body.plate, 40);
-    const licenseNumber = sanitizeText(req.body.licenseNumber, 60);
-    const nationalIdNumber = sanitizeText(req.body.nationalIdNumber, 60);
-    const insuranceNumber = sanitizeText(req.body.insuranceNumber, 60);
+    const plate = normalizeRegistryValue(req.body.plate, 40);
+    const licenseNumber = normalizeRegistryValue(req.body.licenseNumber, 60);
+    const nationalIdNumber = normalizeRegistryValue(req.body.nationalIdNumber, 60);
+    const insuranceNumber = normalizeRegistryValue(req.body.insuranceNumber, 60);
     const password = String(req.body.password || '');
-    const docsJson = JSON.stringify(req.body.docs || []);
+    const profilePhotoUrl = sanitizeDriverImageDataUrl(req.body.profilePhotoDataUrl || req.body.facePhotoDataUrl);
+    const carPhotoUrl = sanitizeDriverImageDataUrl(req.body.carPhotoDataUrl);
+    const docs = normalizeDriverDocs(req.body.docs);
+    const docsJson = JSON.stringify(docs);
 
-    if (!name || !email || !phone || !vehicleInfo || !licenseNumber || !password) {
+    if (!name || !email || !phone || !vehicleInfo || !plate || !licenseNumber || !nationalIdNumber || !insuranceNumber || !password) {
       return sendError(res, 400, 'Missing required registration fields');
     }
     if (password.length < 6) return sendError(res, 400, 'Password must be at least 6 characters');
+    if (!profilePhotoUrl) return sendError(res, 400, 'Face photo is required');
+    if (!carPhotoUrl) return sendError(res, 400, 'Car photo is required');
+    if (!docs.length) return sendError(res, 400, 'At least one document upload is required');
+    if (!hasImageDocument(docs)) return sendError(res, 400, 'Include at least one clear document photo');
 
-    // Check for duplicate email
-    const existingEmail = await getQuery('SELECT id FROM drivers WHERE email = ?', [email]);
-    if (existingEmail) return sendError(res, 400, 'Email already registered');
-
-    // Check for duplicate phone
-    const existingPhone = await getQuery('SELECT id FROM drivers WHERE phone = ?', [phone]);
-    if (existingPhone) return sendError(res, 400, 'Phone number already registered');
-
-    // Check for duplicate license number
-    const existingLicense = await getQuery('SELECT id FROM drivers WHERE license_number = ?', [licenseNumber]);
-    if (existingLicense) return sendError(res, 400, 'License number already registered');
-
-    // Check for duplicate plate number
-    const existingPlate = await getQuery('SELECT id FROM drivers WHERE plate_number = ?', [plate]);
-    if (existingPlate) return sendError(res, 400, 'Vehicle plate number already registered');
-
-    // Check for duplicate national ID number
-    const existingNationalId = await getQuery('SELECT id FROM drivers WHERE national_id_number = ?', [nationalIdNumber]);
-    if (existingNationalId) return sendError(res, 400, 'National ID number already registered');
-
-    // Check for duplicate insurance number
-    const existingInsurance = await getQuery('SELECT id FROM drivers WHERE insurance_number = ?', [insuranceNumber]);
-    if (existingInsurance) return sendError(res, 400, 'Insurance number already registered');
+    const conflict = await findDriverIdentityConflict({
+      email,
+      phone,
+      licenseNumber,
+      plate,
+      nationalIdNumber,
+      insuranceNumber,
+      docs
+    });
+    if (conflict) return sendError(res, 400, conflict);
 
     const hash = await bcrypt.hash(password, 10);
     await runQuery(
       `INSERT INTO drivers (
         email, name, phone, license_number, vehicle_info, plate_number, national_id_number, insurance_number,
-        status, password_hash, docs_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [email, name, phone, licenseNumber, vehicleInfo, plate, nationalIdNumber, insuranceNumber, hash, docsJson]
+        status, password_hash, docs_json, profile_photo_url, car_photo_url, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [email, name, phone, licenseNumber, vehicleInfo, plate, nationalIdNumber, insuranceNumber, hash, docsJson, profilePhotoUrl, carPhotoUrl]
     );
 
-    await createNotification('admin', null, 'Driver registration', `${name} submitted a driver application.`);
-    return res.json({ success: true, message: 'Registration submitted for admin approval' });
+    await createNotification('admin', null, 'Driver registration', `${name} submitted a driver application with photos and documents.`);
+    return res.json({ success: true, message: `Registration submitted for admin approval. For more information contact admin on ${DRIVER_ADMIN_CONTACT}.` });
   } catch (error) {
     return sendError(res, 500, 'Registration failed');
   }
@@ -1033,11 +1148,27 @@ app.put('/api/driver/profile', requireDriver, async (req, res) => {
   const name = sanitizeText(req.body.name, 120);
   const phone = sanitizeText(req.body.phone, 50);
   const vehicleInfo = sanitizeText(req.body.vehicleInfo, 120);
-  const plate = sanitizeText(req.body.plate, 40);
-  const licenseNumber = sanitizeText(req.body.licenseNumber, 60);
-  const nationalIdNumber = sanitizeText(req.body.nationalIdNumber, 60);
-  const insuranceNumber = sanitizeText(req.body.insuranceNumber, 60);
-  const docsJson = JSON.stringify(req.body.docs || []);
+  const plate = normalizeRegistryValue(req.body.plate, 40);
+  const licenseNumber = normalizeRegistryValue(req.body.licenseNumber, 60);
+  const nationalIdNumber = normalizeRegistryValue(req.body.nationalIdNumber, 60);
+  const insuranceNumber = normalizeRegistryValue(req.body.insuranceNumber, 60);
+  const profilePhotoUrl = sanitizeDriverImageDataUrl(req.body.profilePhotoDataUrl);
+  const carPhotoUrl = sanitizeDriverImageDataUrl(req.body.carPhotoDataUrl);
+  const docs = normalizeDriverDocs(req.body.docs);
+  const docsJson = JSON.stringify(docs);
+
+  if (!name) return sendError(res, 400, 'Name is required');
+  if (docs.length && !hasImageDocument(docs)) return sendError(res, 400, 'Include at least one clear document photo');
+
+  const conflict = await findDriverIdentityConflict({
+    phone,
+    plate,
+    licenseNumber,
+    nationalIdNumber,
+    insuranceNumber,
+    docs: req.body.docs
+  }, req.driver.id);
+  if (conflict) return sendError(res, 400, conflict);
 
   await runQuery(
     `UPDATE drivers
@@ -1048,10 +1179,27 @@ app.put('/api/driver/profile', requireDriver, async (req, res) => {
          license_number = COALESCE(NULLIF(?, ''), license_number),
          national_id_number = COALESCE(NULLIF(?, ''), national_id_number),
          insurance_number = COALESCE(NULLIF(?, ''), insurance_number),
+         profile_photo_url = CASE WHEN ? = '' THEN profile_photo_url ELSE ? END,
+         car_photo_url = CASE WHEN ? = '' THEN car_photo_url ELSE ? END,
          docs_json = CASE WHEN ? = '[]' THEN docs_json ELSE ? END,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    [name, phone, vehicleInfo, plate, licenseNumber, nationalIdNumber, insuranceNumber, docsJson, docsJson, req.driver.id]
+    [
+      name,
+      phone,
+      vehicleInfo,
+      plate,
+      licenseNumber,
+      nationalIdNumber,
+      insuranceNumber,
+      profilePhotoUrl,
+      profilePhotoUrl,
+      carPhotoUrl,
+      carPhotoUrl,
+      docsJson,
+      docsJson,
+      req.driver.id
+    ]
   );
   return res.json({ success: true });
 });
@@ -1281,7 +1429,7 @@ app.post('/api/admin/reset-password', requireAdmin, async (req, res) => {
 
 app.get('/api/drivers/pending', requireAdmin, async (req, res) => {
   const drivers = await allQuery(
-    `SELECT id, email, name, phone, license_number, vehicle_info, plate_number, status, docs_json, created_at
+    `SELECT id, email, name, phone, license_number, vehicle_info, plate_number, status, docs_json, profile_photo_url, car_photo_url, created_at
      FROM drivers
      WHERE status = 'pending'
      ORDER BY created_at DESC`

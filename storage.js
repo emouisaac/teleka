@@ -371,8 +371,8 @@ async function runQuery(sql, params = []) {
         status: 'pending',
         password_hash: params[8] || null,
         docs_json: params[9] || '[]',
-        profile_photo_url: null,
-        car_photo_url: null,
+        profile_photo_url: params[10] || null,
+        car_photo_url: params[11] || null,
         is_online: 0,
         current_ride_id: null,
         rating: 5,
@@ -550,7 +550,9 @@ async function runQuery(sql, params = []) {
         if (params[4]) driver.license_number = params[4];
         if (params[5]) driver.national_id_number = params[5];
         if (params[6]) driver.insurance_number = params[6];
-        if (params[7] && params[7] !== '[]') driver.docs_json = params[8] || params[7];
+        if (params[7]) driver.profile_photo_url = params[8] || params[7];
+        if (params[9]) driver.car_photo_url = params[10] || params[9];
+        if (params[11] && params[11] !== '[]') driver.docs_json = params[12] || params[11];
       }
       driver.updated_at = new Date().toISOString();
 
@@ -759,10 +761,14 @@ async function getQuery(sql, params = []) {
             return cloneRecord(driver);
           }
         }
+      } else if (sqlLower.includes('phone = ? and id != ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.phone === params[0] && Number(driver.id) !== Number(params[1])) || null);
       } else if (sqlLower.includes('phone = ?')) {
         return cloneRecord(getAllDrivers().find((driver) => driver.phone === params[0]) || null);
       } else if (sqlLower.includes('license_number = ?')) {
         return cloneRecord(getAllDrivers().find((driver) => driver.license_number === params[0]) || null);
+      } else if (sqlLower.includes('plate_number = ? and id != ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.plate_number === params[0] && Number(driver.id) !== Number(params[1])) || null);
       } else if (sqlLower.includes('plate_number = ?')) {
         return cloneRecord(getAllDrivers().find((driver) => driver.plate_number === params[0]) || null);
       } else if (sqlLower.includes('national_id_number = ?')) {
