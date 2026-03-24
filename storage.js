@@ -189,11 +189,96 @@ function savePricing() {
 }
 
 // ============ QUERY INTERFACE ============
+function normalizeSql(sql) {
+  return String(sql || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function cloneRecord(record) {
+  return record ? JSON.parse(JSON.stringify(record)) : record;
+}
+
+function toTime(value) {
+  const date = new Date(value || 0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function sortByDateDesc(rows, field = 'created_at') {
+  return [...rows].sort((left, right) => toTime(right[field]) - toTime(left[field]));
+}
+
+function isSameLocalDay(value, base = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getFullYear() === base.getFullYear()
+    && date.getMonth() === base.getMonth()
+    && date.getDate() === base.getDate();
+}
+
+function isWithinLastDays(value, days, base = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const cutoff = new Date(base);
+  cutoff.setDate(cutoff.getDate() - days);
+  return date >= cutoff;
+}
+
+function getAllUsers() {
+  return Array.from(store.users.values());
+}
+
+function getAllDrivers() {
+  return Array.from(store.drivers.values());
+}
+
+function getAllRides() {
+  return Array.from(store.rides.values());
+}
+
+function getAllRideMessages() {
+  return Array.from(store.rideMessages.values());
+}
+
+function getAllNotifications() {
+  return Array.from(store.notifications.values());
+}
+
+function getAllRideOffers() {
+  return Array.from(store.rideDriverOffers.values());
+}
+
+function getAllResetRequests() {
+  return Array.from(store.driverResetRequests.values());
+}
+
+function enrichRide(ride) {
+  if (!ride) return null;
+  const customer = store.users.get(Number(ride.customer_id)) || null;
+  const driver = store.drivers.get(Number(ride.driver_id)) || null;
+  return {
+    ...cloneRecord(ride),
+    customer_name: customer?.name || null,
+    customer_phone: customer?.phone || null,
+    driver_name: driver?.name || null,
+    driver_phone: driver?.phone || null,
+    driver_vehicle: driver?.vehicle_info || null,
+    driver_photo: driver?.profile_photo_url || null,
+    driver_car_photo: driver?.car_photo_url || null
+  };
+}
+
+function matchesNotificationAudience(notification, targetUserId, audience) {
+  return audience.includes(notification.target_role) || Number(notification.target_user_id) === Number(targetUserId);
+}
+
+function parseMinuteWindow(sqlLower) {
+  const match = sqlLower.match(/-\s*(\d+)\s*minute/);
+  return match ? Number(match[1]) : null;
+}
 
 // Run a write operation (INSERT/UPDATE)
 async function runQuery(sql, params = []) {
   try {
-    const sqlLower = sql.toLowerCase();
+    const sqlLower = normalizeSql(sql);
 
     if (sqlLower.includes('insert into users')) {
       let email = params[0] || null;
@@ -245,9 +330,9 @@ async function runQuery(sql, params = []) {
         plate_number: params[5] || null,
         national_id_number: params[6] || null,
         insurance_number: params[7] || null,
-        status: params[8] || 'pending',
-        password_hash: params[9] || null,
-        docs_json: params[10] || '[]',
+        status: 'pending',
+        password_hash: params[8] || null,
+        docs_json: params[9] || '[]',
         profile_photo_url: null,
         car_photo_url: null,
         is_online: 0,
@@ -272,23 +357,23 @@ async function runQuery(sql, params = []) {
       const ride = {
         id: store.nextIds.rides++,
         customer_id: params[0],
-        driver_id: params[1] || null,
-        pickup_location: params[2],
-        dropoff_location: params[3],
-        pickup_lat: params[4] || null,
-        pickup_lng: params[5] || null,
-        dropoff_lat: params[6] || null,
-        dropoff_lng: params[7] || null,
-        scheduled_at: params[8],
-        scheduled_local: params[9],
-        requested_car_type: params[10] || 'standard',
-        payment_method: params[11] || 'cash',
-        distance_km: params[12] || 0,
-        duration_min: params[13] || 0,
-        estimated_fare: params[14] || 0,
+        driver_id: null,
+        pickup_location: params[1],
+        dropoff_location: params[2],
+        pickup_lat: params[3] || null,
+        pickup_lng: params[4] || null,
+        dropoff_lat: params[5] || null,
+        dropoff_lng: params[6] || null,
+        scheduled_at: params[7],
+        scheduled_local: params[8],
+        requested_car_type: params[9] || 'standard',
+        payment_method: params[10] || 'cash',
+        distance_km: params[11] || 0,
+        duration_min: params[12] || 0,
+        estimated_fare: params[13] || 0,
         final_fare: null,
-        status: params[15] || 'pending',
-        timeline_stage: params[16] || 'requested',
+        status: 'pending',
+        timeline_stage: 'requested',
         customer_note: null,
         driver_note: null,
         cancel_reason: null,
@@ -335,20 +420,21 @@ async function runQuery(sql, params = []) {
       return { lastID: notif.id, changes: 1 };
     }
 
-    if (sqlLower.includes('insert into ride_driver_offers')) {
+    if (sqlLower.includes('into ride_driver_offers')) {
+      const key = `${params[0]}_${params[1]}`;
+      const existing = store.rideDriverOffers.get(key);
       const offer = {
-        id: store.nextIds.rideDriverOffers++,
+        id: existing?.id || store.nextIds.rideDriverOffers++,
         ride_id: params[0],
         driver_id: params[1],
-        status: params[2] || 'offered',
-        distance_km: params[3] || 0,
-        created_at: new Date().toISOString(),
+        status: 'offered',
+        distance_km: params[2] || 0,
+        created_at: existing?.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      const key = `${offer.ride_id}_${offer.driver_id}`;
       store.rideDriverOffers.set(key, offer);
       saveCollection('rideDriverOffers', store.rideDriverOffers);
-      saveNextIds();
+      if (!existing) saveNextIds();
       return { lastID: offer.id, changes: 1 };
     }
 
@@ -398,18 +484,27 @@ async function runQuery(sql, params = []) {
       const driver = store.drivers.get(driverId);
       if (!driver) return { lastID: 0, changes: 0 };
 
-      if (sqlLower.includes('is_online')) {
-        driver.is_online = params[0];
-        if (Number.isFinite(params[1])) driver.current_lat = params[1];
-        if (Number.isFinite(params[3])) driver.current_lng = params[3];
-        if (Number.isFinite(params[5])) driver.location_updated_at = new Date().toISOString();
+      if (sqlLower.includes("set status = 'approved'")) {
+        driver.status = 'approved';
+        driver.approved_at = new Date().toISOString();
+        driver.approved_by = params[0] ?? null;
+      } else if (sqlLower.includes("set status = 'rejected'")) {
+        driver.status = 'rejected';
+        driver.is_online = 0;
+      } else if (sqlLower.includes('is_online')) {
+        const lat = Number.isFinite(Number(params[1])) ? Number(params[1]) : null;
+        const lng = Number.isFinite(Number(params[3])) ? Number(params[3]) : null;
+        driver.is_online = params[0] ? 1 : 0;
+        if (lat !== null) driver.current_lat = lat;
+        if (lng !== null) driver.current_lng = lng;
+        if (lat !== null && lng !== null) driver.location_updated_at = new Date().toISOString();
       } else if (sqlLower.includes('current_ride_id')) {
         driver.current_ride_id = params[0] || null;
-      } else if (sqlLower.includes('current_lat')) {
-        driver.current_lat = params[0];
-        driver.current_lng = params[1];
+      } else if (sqlLower.includes('current_lat = ?') && sqlLower.includes('current_lng = ?')) {
+        driver.current_lat = Number(params[0]);
+        driver.current_lng = Number(params[1]);
         driver.location_updated_at = new Date().toISOString();
-      } else if (sqlLower.includes('profile')) {
+      } else if (sqlLower.includes('set name = coalesce(nullif')) {
         if (params[0]) driver.name = params[0];
         if (params[1]) driver.phone = params[1];
         if (params[2]) driver.vehicle_info = params[2];
@@ -417,14 +512,7 @@ async function runQuery(sql, params = []) {
         if (params[4]) driver.license_number = params[4];
         if (params[5]) driver.national_id_number = params[5];
         if (params[6]) driver.insurance_number = params[6];
-        if (params[7] && params[7] !== '[]') driver.docs_json = params[7];
-      } else if (sqlLower.includes('status')) {
-        driver.status = params[0];
-        driver.is_online = 0;
-      } else if (sqlLower.includes('approved')) {
-        driver.status = params[0];
-        driver.approved_at = new Date().toISOString();
-        driver.approved_by = params[1];
+        if (params[7] && params[7] !== '[]') driver.docs_json = params[8] || params[7];
       }
       driver.updated_at = new Date().toISOString();
 
@@ -434,14 +522,34 @@ async function runQuery(sql, params = []) {
     }
 
     if (sqlLower.includes('update rides')) {
-      const rideId = params[params.length - 1];
-      const ride = store.rides.get(rideId);
-      if (!ride) return { lastID: 0, changes: 0 };
+      let rideId = null;
+      let ride = null;
+      if (sqlLower.includes('where id = ? and driver_id = ?')) {
+        rideId = Number(params[params.length - 2]);
+        ride = store.rides.get(rideId);
+        if (!ride || Number(ride.driver_id) !== Number(params[params.length - 1])) return { lastID: 0, changes: 0 };
+      } else if (sqlLower.includes("where id = ? and status = 'pending'")) {
+        rideId = Number(params[params.length - 1]);
+        ride = store.rides.get(rideId);
+        if (!ride || ride.status !== 'pending') return { lastID: 0, changes: 0 };
+      } else {
+        rideId = Number(params[params.length - 1]);
+        ride = store.rides.get(rideId);
+        if (!ride) return { lastID: 0, changes: 0 };
+      }
 
-      if (sqlLower.includes('driver_id')) {
+      if (sqlLower.includes("set driver_id = ?, status = 'accepted', timeline_stage = 'accepted'")) {
         ride.driver_id = params[0];
-        ride.status = params[1] || ride.status;
-        ride.timeline_stage = params[2] || ride.timeline_stage;
+        ride.status = 'accepted';
+        ride.timeline_stage = 'accepted';
+      } else if (sqlLower.includes("set status = 'pending', driver_id = null, timeline_stage = 'requested'")) {
+        ride.status = 'pending';
+        ride.driver_id = null;
+        ride.timeline_stage = 'requested';
+      } else if (sqlLower.includes('set status = ?, timeline_stage = ?, final_fare = ?')) {
+        ride.status = params[0];
+        ride.timeline_stage = params[1];
+        ride.final_fare = params[2];
       } else if (sqlLower.includes('status')) {
         ride.status = params[0];
         ride.timeline_stage = params[1] || ride.timeline_stage;
@@ -455,20 +563,53 @@ async function runQuery(sql, params = []) {
     }
 
     if (sqlLower.includes('update ride_driver_offers')) {
-      const rideId = params[params.length - 1];
-      store.rideDriverOffers.forEach((offer) => {
-        if (offer.ride_id === rideId) {
-          if (sqlLower.includes('status = case')) {
-            // Handle CASE statement
-            if (params[0]) offer.status = offer.driver_id === params[0] ? 'accepted' : 'expired';
-          } else {
-            offer.status = params[0];
+      let changes = 0;
+      if (sqlLower.includes("set status = 'rejected'") && sqlLower.includes('driver_id = ?')) {
+        const rideId = Number(params[0]);
+        const driverId = Number(params[1]);
+        store.rideDriverOffers.forEach((offer, key) => {
+          if (Number(offer.ride_id) === rideId && Number(offer.driver_id) === driverId && offer.status === 'offered') {
+            offer.status = 'rejected';
+            offer.updated_at = new Date().toISOString();
+            store.rideDriverOffers.set(key, offer);
+            changes += 1;
           }
-          offer.updated_at = new Date().toISOString();
-        }
-      });
+        });
+      } else if (sqlLower.includes("case when driver_id = ? then 'accepted' else 'expired'")) {
+        const driverId = Number(params[0]);
+        const rideId = Number(params[1]);
+        store.rideDriverOffers.forEach((offer, key) => {
+          if (Number(offer.ride_id) === rideId && offer.status === 'offered') {
+            offer.status = Number(offer.driver_id) === driverId ? 'accepted' : 'expired';
+            offer.updated_at = new Date().toISOString();
+            store.rideDriverOffers.set(key, offer);
+            changes += 1;
+          }
+        });
+      } else if (sqlLower.includes("case when driver_id = ? then 'rejected' else 'expired'")) {
+        const driverId = Number(params[0]);
+        const rideId = Number(params[1]);
+        store.rideDriverOffers.forEach((offer, key) => {
+          if (Number(offer.ride_id) === rideId) {
+            offer.status = Number(offer.driver_id) === driverId ? 'rejected' : 'expired';
+            offer.updated_at = new Date().toISOString();
+            store.rideDriverOffers.set(key, offer);
+            changes += 1;
+          }
+        });
+      } else {
+        const rideId = Number(params[1]);
+        store.rideDriverOffers.forEach((offer, key) => {
+          if (Number(offer.ride_id) === rideId) {
+            offer.status = params[0];
+            offer.updated_at = new Date().toISOString();
+            store.rideDriverOffers.set(key, offer);
+            changes += 1;
+          }
+        });
+      }
       saveCollection('rideDriverOffers', store.rideDriverOffers);
-      return { lastID: 0, changes: 1 };
+      return { lastID: 0, changes };
     }
 
     if (sqlLower.includes('update pricing_settings')) {
@@ -495,10 +636,63 @@ async function runQuery(sql, params = []) {
 // Get a single row
 async function getQuery(sql, params = []) {
   try {
-    const sqlLower = sql.toLowerCase();
+    const sqlLower = normalizeSql(sql);
+
+    if (sqlLower.startsWith('select (select count(*) from users')) {
+      const rides = getAllRides();
+      return {
+        customers: getAllUsers().filter((user) => user.role === 'customer').length,
+        drivers_online: getAllDrivers().filter((driver) => driver.status === 'approved' && Number(driver.is_online) === 1).length,
+        pending_rides: rides.filter((ride) => ride.status === 'pending').length,
+        active_rides: rides.filter((ride) => ['accepted', 'arrived', 'enroute'].includes(ride.status)).length,
+        completed_rides: rides.filter((ride) => ride.status === 'completed').length,
+        revenue: rides
+          .filter((ride) => ride.status === 'completed')
+          .reduce((sum, ride) => sum + Number(ride.final_fare || 0), 0)
+      };
+    }
+
+    if (sqlLower.startsWith('select coalesce(sum(case when status = \'completed\'')) {
+      const rides = getAllRides();
+      return {
+        revenue: rides
+          .filter((ride) => ride.status === 'completed')
+          .reduce((sum, ride) => sum + Number(ride.final_fare || 0), 0),
+        completed_trips: rides.filter((ride) => ride.status === 'completed').length,
+        cancelled_trips: rides.filter((ride) => ride.status === 'cancelled').length
+      };
+    }
+
+    if (sqlLower.startsWith('select coalesce(sum(case when status=\'completed\'')) {
+      const driverId = Number(params[0]);
+      const driverRides = getAllRides().filter((ride) => Number(ride.driver_id) === driverId);
+      return {
+        earnings_today: driverRides
+          .filter((ride) => ride.status === 'completed' && isSameLocalDay(ride.updated_at))
+          .reduce((sum, ride) => sum + (Number(ride.final_fare || 0) * 0.8), 0),
+        earnings_week: driverRides
+          .filter((ride) => ride.status === 'completed' && isWithinLastDays(ride.updated_at, 6))
+          .reduce((sum, ride) => sum + (Number(ride.final_fare || 0) * 0.8), 0),
+        trips_completed: driverRides.filter((ride) => ride.status === 'completed').length,
+        active_distance: driverRides
+          .filter((ride) => ['accepted', 'arrived', 'enroute'].includes(ride.status))
+          .reduce((sum, ride) => sum + Number(ride.distance_km || 0), 0)
+      };
+    }
+
+    if (sqlLower.startsWith('select count(*) as total_rides')) {
+      const customerId = Number(params[0]);
+      const customerRides = getAllRides().filter((ride) => Number(ride.customer_id) === customerId);
+      return {
+        total_rides: customerRides.length,
+        completed_spend: customerRides
+          .filter((ride) => ride.status === 'completed')
+          .reduce((sum, ride) => sum + Number(ride.final_fare || 0), 0)
+      };
+    }
 
     if (sqlLower.includes('from users where')) {
-      if (sqlLower.includes('email')) {
+      if (sqlLower.includes('email = ?')) {
         const matches = [];
         for (const user of store.users.values()) {
           if (user.email === params[0] && (params[1] === undefined || user.role === params[1])) {
@@ -508,48 +702,91 @@ async function getQuery(sql, params = []) {
         if (matches.length === 0) return null;
         if (params[1] === 'admin') {
           const adminWithPassword = matches.find((user) => user.password_hash);
-          if (adminWithPassword) return adminWithPassword;
+          if (adminWithPassword) return cloneRecord(adminWithPassword);
         }
-        return matches[0];
+        return cloneRecord(matches[0]);
+      } else if (sqlLower.includes('phone = ? and id != ?')) {
+        const match = getAllUsers().find((user) => user.phone === params[0] && Number(user.id) !== Number(params[1]));
+        return cloneRecord(match || null);
       } else if (sqlLower.includes('id =')) {
-        return store.users.get(params[0]) || null;
+        return cloneRecord(store.users.get(Number(params[0])) || null);
       }
       return null;
     }
 
     if (sqlLower.includes('from drivers where')) {
-      if (sqlLower.includes('email')) {
+      if (sqlLower.includes('email = ?')) {
         for (const driver of store.drivers.values()) {
           if (driver.email === params[0] && (params[1] === undefined || driver.status === params[1])) {
-            return driver;
+            return cloneRecord(driver);
           }
         }
+      } else if (sqlLower.includes('phone = ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.phone === params[0]) || null);
+      } else if (sqlLower.includes('license_number = ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.license_number === params[0]) || null);
+      } else if (sqlLower.includes('plate_number = ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.plate_number === params[0]) || null);
+      } else if (sqlLower.includes('national_id_number = ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.national_id_number === params[0]) || null);
+      } else if (sqlLower.includes('insurance_number = ?')) {
+        return cloneRecord(getAllDrivers().find((driver) => driver.insurance_number === params[0]) || null);
       } else if (sqlLower.includes('id =')) {
-        return store.drivers.get(params[0]) || null;
+        const driver = store.drivers.get(Number(params[0])) || null;
+        if (!driver) return null;
+        if (sqlLower.includes('status = ?') && driver.status !== params[1]) return null;
+        if (sqlLower.includes("status = 'approved'") && driver.status !== 'approved') return null;
+        return cloneRecord(driver);
       }
       return null;
     }
 
+    if (sqlLower.includes('from rides join users on users.id = rides.customer_id')
+      && sqlLower.includes('where rides.driver_id = ? and rides.status in')) {
+      const activeRide = sortByDateDesc(
+        getAllRides().filter((ride) => Number(ride.driver_id) === Number(params[0]) && ['accepted', 'arrived', 'enroute'].includes(ride.status)),
+        'updated_at'
+      )[0];
+      return enrichRide(activeRide);
+    }
+
+    if (sqlLower.includes('from rides left join drivers on drivers.id = rides.driver_id')
+      && sqlLower.includes('where rides.customer_id = ? and rides.status in')) {
+      const activeRide = sortByDateDesc(
+        getAllRides().filter((ride) => Number(ride.customer_id) === Number(params[0]) && ['pending', 'accepted', 'arrived', 'enroute'].includes(ride.status)),
+        'updated_at'
+      )[0];
+      return enrichRide(activeRide);
+    }
+
     if (sqlLower.includes('from rides where')) {
-      if (sqlLower.includes('id =') && sqlLower.includes('customer_id')) {
+      if (sqlLower.includes('where id = ? and customer_id = ?')) {
         for (const ride of store.rides.values()) {
-          if (ride.id === params[0] && ride.customer_id === params[1]) {
-            return ride;
+          if (Number(ride.id) === Number(params[0]) && Number(ride.customer_id) === Number(params[1])) {
+            return cloneRecord(ride);
           }
         }
-      } else if (sqlLower.includes('id =') && sqlLower.includes('driver_id')) {
+      } else if (sqlLower.includes('where id = ? and driver_id = ?')) {
         for (const ride of store.rides.values()) {
-          if (ride.id === params[0] && ride.driver_id === params[1]) {
-            return ride;
+          if (Number(ride.id) === Number(params[0]) && Number(ride.driver_id) === Number(params[1])) {
+            return cloneRecord(ride);
           }
         }
       } else if (sqlLower.includes('driver_id =') && sqlLower.includes('status in')) {
         const statuses = ['accepted', 'arrived', 'enroute'];
-        for (const ride of store.rides.values()) {
-          if (ride.driver_id === params[0] && statuses.includes(ride.status)) {
-            return ride;
-          }
-        }
+        const activeRide = sortByDateDesc(
+          getAllRides().filter((ride) => Number(ride.driver_id) === Number(params[0]) && statuses.includes(ride.status)),
+          'updated_at'
+        )[0];
+        return enrichRide(activeRide);
+      } else if (sqlLower.includes('customer_id = ?') && sqlLower.includes('status in')) {
+        const activeRide = sortByDateDesc(
+          getAllRides().filter((ride) => Number(ride.customer_id) === Number(params[0]) && ['pending', 'accepted', 'arrived', 'enroute'].includes(ride.status)),
+          'updated_at'
+        )[0];
+        return enrichRide(activeRide);
+      } else if (sqlLower.includes('where id = ?')) {
+        return cloneRecord(store.rides.get(Number(params[0])) || null);
       }
       return null;
     }
@@ -559,8 +796,45 @@ async function getQuery(sql, params = []) {
     }
 
     if (sqlLower.includes('from ride_driver_offers')) {
+      if (sqlLower.includes('join rides on rides.id = offers.ride_id')) {
+        const driverId = Number(params[0]);
+        const incoming = sortByDateDesc(
+          getAllRideOffers()
+            .filter((offer) => Number(offer.driver_id) === driverId && offer.status === 'offered')
+            .map((offer) => {
+              const ride = store.rides.get(Number(offer.ride_id));
+              if (!ride || ride.status !== 'pending') return null;
+              const customer = store.users.get(Number(ride.customer_id)) || null;
+              return {
+                id: ride.id,
+                pickup_location: ride.pickup_location,
+                dropoff_location: ride.dropoff_location,
+                pickup_lat: ride.pickup_lat,
+                pickup_lng: ride.pickup_lng,
+                dropoff_lat: ride.dropoff_lat,
+                dropoff_lng: ride.dropoff_lng,
+                distance_km: ride.distance_km,
+                duration_min: ride.duration_min,
+                driver_distance_km: offer.distance_km,
+                estimated_fare: ride.estimated_fare,
+                scheduled_at: ride.scheduled_at,
+                scheduled_local: ride.scheduled_local,
+                customer_name: customer?.name || null,
+                customer_phone: customer?.phone || null,
+                created_at: offer.created_at
+              };
+            })
+            .filter(Boolean),
+          'created_at'
+        )[0];
+        return cloneRecord(incoming || null);
+      }
+
       const key = `${params[0]}_${params[1]}`;
-      return store.rideDriverOffers.get(key) || null;
+      const offer = store.rideDriverOffers.get(key) || null;
+      if (!offer) return null;
+      if (sqlLower.includes("status = 'offered'") && offer.status !== 'offered') return null;
+      return cloneRecord(offer);
     }
 
     return null;
@@ -573,8 +847,17 @@ async function getQuery(sql, params = []) {
 // Get multiple rows
 async function allQuery(sql, params = []) {
   try {
-    const sqlLower = sql.toLowerCase();
+    const sqlLower = normalizeSql(sql);
     const result = [];
+
+    if (sqlLower === 'select * from users') return sortByDateDesc(getAllUsers());
+    if (sqlLower === 'select * from drivers') return sortByDateDesc(getAllDrivers());
+    if (sqlLower === 'select * from rides') return sortByDateDesc(getAllRides());
+    if (sqlLower === 'select * from ride_messages') return sortByDateDesc(getAllRideMessages());
+    if (sqlLower === 'select * from notifications') return sortByDateDesc(getAllNotifications());
+    if (sqlLower === 'select * from driver_reset_requests') return sortByDateDesc(getAllResetRequests());
+    if (sqlLower === 'select * from ride_driver_offers') return sortByDateDesc(getAllRideOffers(), 'created_at');
+    if (sqlLower === 'select * from pricing_settings') return store.pricing ? [cloneRecord(store.pricing)] : [];
 
     if (sqlLower.includes('from users')) {
       const hasEmailFilter = sqlLower.includes('where email = ?');
@@ -590,36 +873,56 @@ async function allQuery(sql, params = []) {
         if (hasCustomerLiteralRole && user.role !== 'customer') continue;
         result.push(user);
       }
-      return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 150);
-    }
-
-    if (sqlLower.includes('from drivers') && sqlLower.includes('status')) {
-      const status = sqlLower.includes('pending') ? 'pending' : 'approved';
-      for (const driver of store.drivers.values()) {
-        if (driver.status === status) result.push(driver);
-      }
-      return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return sortByDateDesc(result).slice(0, sqlLower.includes('limit 150') ? 150 : result.length);
     }
 
     if (sqlLower.includes('from drivers where')) {
-      if (sqlLower.includes('approved') && sqlLower.includes('online')) {
-        for (const driver of store.drivers.values()) {
-          if (driver.status === 'approved' && driver.is_online === 1) result.push(driver);
-        }
-      } else {
-        result.push(...store.drivers.values());
+      let drivers = getAllDrivers();
+      if (sqlLower.includes("status = 'pending'")) drivers = drivers.filter((driver) => driver.status === 'pending');
+      if (sqlLower.includes("status = 'approved'")) drivers = drivers.filter((driver) => driver.status === 'approved');
+      if (sqlLower.includes('is_online = 1')) drivers = drivers.filter((driver) => Number(driver.is_online) === 1);
+      if (sqlLower.includes('current_ride_id is null')) drivers = drivers.filter((driver) => !driver.current_ride_id);
+      if (sqlLower.includes('current_lat is not null')) drivers = drivers.filter((driver) => driver.current_lat !== null && driver.current_lat !== undefined);
+      if (sqlLower.includes('current_lng is not null')) drivers = drivers.filter((driver) => driver.current_lng !== null && driver.current_lng !== undefined);
+      if (sqlLower.includes('location_updated_at is not null')) drivers = drivers.filter((driver) => Boolean(driver.location_updated_at));
+
+      const freshnessMinutes = parseMinuteWindow(sqlLower);
+      if (freshnessMinutes !== null) {
+        const cutoff = Date.now() - (freshnessMinutes * 60 * 1000);
+        drivers = drivers.filter((driver) => toTime(driver.location_updated_at) >= cutoff);
       }
-      return result;
+      return sqlLower.includes('order by updated_at desc') ? sortByDateDesc(drivers, 'updated_at') : sortByDateDesc(drivers);
     }
 
     if (sqlLower.includes('from ride_driver_offers')) {
       for (const offer of store.rideDriverOffers.values()) {
         if (offer.ride_id === params[0]) result.push(offer);
       }
-      return result;
+      return sortByDateDesc(result, 'created_at');
     }
 
     if (sqlLower.includes('from rides')) {
+      if (sqlLower.includes('join users on users.id = rides.customer_id') || sqlLower.includes('left join users on users.id = rides.customer_id')
+        || sqlLower.includes('left join drivers on drivers.id = rides.driver_id') || sqlLower.includes('join users on users.id = rides.customer_id')) {
+        let rides = getAllRides();
+        if (sqlLower.includes('where rides.customer_id = ?')) rides = rides.filter((ride) => Number(ride.customer_id) === Number(params[0]));
+        if (sqlLower.includes('where rides.driver_id = ? and rides.status in (\'completed\',\'cancelled\')')) {
+          rides = rides.filter((ride) => Number(ride.driver_id) === Number(params[0]) && ['completed', 'cancelled'].includes(ride.status));
+        } else if (sqlLower.includes('where rides.driver_id = ?')) {
+          rides = rides.filter((ride) => Number(ride.driver_id) === Number(params[0]));
+        }
+        if (sqlLower.includes('status = \'completed\' and customer_rating is not null')) {
+          rides = rides.filter((ride) => Number(ride.driver_id) === Number(params[0]) && ride.status === 'completed' && ride.customer_rating !== null && ride.customer_rating !== undefined);
+        }
+        const enriched = sortByDateDesc(rides).map((ride) => enrichRide(ride));
+        if (sqlLower.includes('limit 12')) return enriched.slice(0, 12);
+        if (sqlLower.includes('limit 20')) return enriched.slice(0, 20);
+        if (sqlLower.includes('limit 50')) return enriched.slice(0, 50);
+        if (sqlLower.includes('limit 120')) return enriched.slice(0, 120);
+        if (sqlLower.includes('limit 250')) return enriched.slice(0, 250);
+        return enriched;
+      }
+
       if (sqlLower.includes('customer_id')) {
         for (const ride of store.rides.values()) {
           if (ride.customer_id === params[0]) result.push(ride);
@@ -631,34 +934,57 @@ async function allQuery(sql, params = []) {
       } else {
         result.push(...store.rides.values());
       }
-      return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 250);
+      if (sqlLower.includes("status = 'completed' and customer_rating is not null")) {
+        return sortByDateDesc(result.filter((ride) => ride.status === 'completed' && ride.customer_rating !== null && ride.customer_rating !== undefined), 'updated_at').slice(0, 20);
+      }
+      return sortByDateDesc(result).slice(0, 250);
     }
 
     if (sqlLower.includes('from ride_messages')) {
       for (const msg of store.rideMessages.values()) {
         if (msg.ride_id === params[0]) result.push(msg);
       }
-      return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 50);
+      return sortByDateDesc(result).slice(0, sqlLower.includes('limit 20') ? 20 : 50);
+    }
+
+    if (sqlLower.includes('from drivers left join rides on rides.driver_id = drivers.id')) {
+      const rows = getAllDrivers()
+        .filter((driver) => driver.status === 'approved')
+        .map((driver) => {
+          const driverRides = getAllRides().filter((ride) => Number(ride.driver_id) === Number(driver.id));
+          return {
+            id: driver.id,
+            name: driver.name,
+            total_earnings: driverRides
+              .filter((ride) => ride.status === 'completed')
+              .reduce((sum, ride) => sum + (Number(ride.final_fare || 0) * 0.8), 0),
+            today_earnings: driverRides
+              .filter((ride) => ride.status === 'completed' && isSameLocalDay(ride.updated_at))
+              .reduce((sum, ride) => sum + (Number(ride.final_fare || 0) * 0.8), 0),
+            trips: driverRides.filter((ride) => ride.status === 'completed').length
+          };
+        });
+      return rows.sort((left, right) => right.total_earnings - left.total_earnings);
     }
 
     if (sqlLower.includes('from notifications')) {
       for (const notif of store.notifications.values()) {
-        if (sqlLower.includes('target_role in')) {
-          if ((params[0].split(',').includes(notif.target_role) || notif.target_user_id === params[1])) {
-            result.push(notif);
-          }
+        if (sqlLower.includes("where target_role in ('all','drivers') or target_user_id = ?")) {
+          if (matchesNotificationAudience(notif, params[0], ['all', 'drivers'])) result.push(notif);
+        } else if (sqlLower.includes("where target_role in ('all','customers') or target_user_id = ?")) {
+          if (matchesNotificationAudience(notif, params[0], ['all', 'customers'])) result.push(notif);
         } else {
           result.push(notif);
         }
       }
-      return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, params[2] || 100);
+      return sortByDateDesc(result).slice(0, sqlLower.includes('limit 30') ? 30 : sqlLower.includes('limit 50') ? 50 : 100);
     }
 
     if (sqlLower.includes('from driver_reset_requests')) {
       for (const req of store.driverResetRequests.values()) {
         result.push(req);
       }
-      return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 50);
+      return sortByDateDesc(result).slice(0, 50);
     }
 
     return result;
