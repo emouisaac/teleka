@@ -196,14 +196,35 @@ async function runQuery(sql, params = []) {
     const sqlLower = sql.toLowerCase();
 
     if (sqlLower.includes('insert into users')) {
+      let email = params[0] || null;
+      let name = params[1] || 'Customer';
+      let role = params[2] || 'customer';
+      let googleId = params[3] || null;
+      let passwordHash = params[4] || null;
+      let phone = params[5] || null;
+
+      if (sqlLower.includes("values (?, 'administrator', 'admin', ?")) {
+        name = 'Administrator';
+        role = 'admin';
+        googleId = null;
+        passwordHash = params[1] || null;
+        phone = null;
+      } else if (sqlLower.includes("values (?, ?, 'customer', ?")) {
+        name = params[1] || 'Customer';
+        role = 'customer';
+        googleId = params[2] || null;
+        passwordHash = null;
+        phone = null;
+      }
+
       const user = {
         id: store.nextIds.users++,
-        email: params[0],
-        name: params[1],
-        role: params[2] || 'customer',
-        google_id: params[3] || null,
-        password_hash: params[4] || null,
-        phone: params[5] || null,
+        email,
+        name,
+        role,
+        google_id: googleId,
+        password_hash: passwordHash,
+        phone,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -347,14 +368,20 @@ async function runQuery(sql, params = []) {
     }
 
     if (sqlLower.includes('update users')) {
-      const match = sql.match(/where\s+id\s*=\s*\?/i);
       const userId = params[params.length - 1];
       const user = store.users.get(userId);
       if (!user) return { lastID: 0, changes: 0 };
 
-      if (sqlLower.includes('update users set name')) {
+      if (sqlLower.includes('set role = ?, name = ?')) {
+        user.role = params[0];
+        user.name = params[1] || user.name;
+        user.updated_at = new Date().toISOString();
+      } else if (sqlLower.includes('set role = ?')) {
+        user.role = params[0];
+        user.updated_at = new Date().toISOString();
+      } else if (sqlLower.includes('update users set name')) {
         user.name = params[0];
-        if (params[1]) user.phone = params[1];
+        if (params.length > 2) user.phone = params[1];
         user.updated_at = new Date().toISOString();
       } else if (sqlLower.includes('update users set password_hash')) {
         user.password_hash = params[0];
@@ -472,11 +499,18 @@ async function getQuery(sql, params = []) {
 
     if (sqlLower.includes('from users where')) {
       if (sqlLower.includes('email')) {
+        const matches = [];
         for (const user of store.users.values()) {
           if (user.email === params[0] && (params[1] === undefined || user.role === params[1])) {
-            return user;
+            matches.push(user);
           }
         }
+        if (matches.length === 0) return null;
+        if (params[1] === 'admin') {
+          const adminWithPassword = matches.find((user) => user.password_hash);
+          if (adminWithPassword) return adminWithPassword;
+        }
+        return matches[0];
       } else if (sqlLower.includes('id =')) {
         return store.users.get(params[0]) || null;
       }
@@ -543,16 +577,18 @@ async function allQuery(sql, params = []) {
     const result = [];
 
     if (sqlLower.includes('from users')) {
-      if (sqlLower.includes('role = ?')) {
-        for (const user of store.users.values()) {
-          if (user.role === params[0]) result.push(user);
+      const hasEmailFilter = sqlLower.includes('where email = ?');
+      const hasRoleParamFilter = sqlLower.includes('role = ?');
+      const hasCustomerLiteralRole = sqlLower.includes("where role = 'customer'");
+
+      for (const user of store.users.values()) {
+        if (hasEmailFilter && user.email !== params[0]) continue;
+        if (hasRoleParamFilter) {
+          const roleParamIndex = hasEmailFilter ? 1 : 0;
+          if (user.role !== params[roleParamIndex]) continue;
         }
-      } else if (sqlLower.includes('where role =')) {
-        for (const user of store.users.values()) {
-          if (user.role === 'customer') result.push(user);
-        }
-      } else {
-        result.push(...store.users.values());
+        if (hasCustomerLiteralRole && user.role !== 'customer') continue;
+        result.push(user);
       }
       return result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 150);
     }

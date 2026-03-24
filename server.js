@@ -193,10 +193,22 @@ async function ensureAdminUser(email = null, password = null) {
     console.log(`\n=== ADMIN USER SETUP ===`);
     console.log(`Email: ${adminEmail}`);
 
-    const existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+    // Normalize to a single active admin for this email, with safe fallback
+    let existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+    const userMatches = await allQuery('SELECT id, role FROM users WHERE email = ?', [adminEmail]);
+    const validAdmin = userMatches.find((row) => row.role === 'admin' && row.password_hash);
+    if (validAdmin) existingAdmin = { id: validAdmin.id, password_hash: validAdmin.password_hash };
 
+    // If any non-admin entry exists with the same email, convert it to admin role now
+    if (!existingAdmin && userMatches.length > 0) {
+      const candidate = userMatches[0];
+      await runQuery('UPDATE users SET role = ?, name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', ['admin', 'Administrator', candidate.id]);
+      existingAdmin = { id: candidate.id };
+      console.log(`⚠️ Existing same-email user converted to admin: id=${candidate.id}`);
+    }
+
+    // If still no admin, create new admin row
     if (!existingAdmin) {
-      // Create new admin user
       const adminHash = await bcrypt.hash(finalPassword, 10);
       await runQuery(
         `INSERT INTO users (email, name, role, password_hash, created_at, updated_at)
@@ -207,15 +219,20 @@ async function ensureAdminUser(email = null, password = null) {
       console.log(`🔐 Password: ${finalPassword}`);
       console.log(`⚠️  IMPORTANT: Save this password securely! It will only be shown once.`);
     } else if (!existingAdmin.password_hash) {
-      // Update admin user with password
       const adminHash = await bcrypt.hash(finalPassword, 10);
       await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [adminHash, existingAdmin.id]);
-      console.log(`✅ Admin user password set successfully`);
+      console.log(`✅ Admin user found and password updated`);
       console.log(`🔐 Password: ${finalPassword}`);
       console.log(`⚠️  IMPORTANT: Save this password securely! It will only be shown once.`);
     } else {
-      console.log(`ℹ️  Admin user already exists with password set`);
-      console.log(`📧 Email: ${adminEmail}`);
+      console.log('Admin user found; keeping existing password');
+    }
+
+    const canonicalAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+    for (const row of userMatches) {
+      if (row.role === 'admin' && row.id !== canonicalAdmin?.id && !row.password_hash && canonicalAdmin?.password_hash) {
+        await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [canonicalAdmin.password_hash, row.id]);
+      }
     }
 
     console.log(`========================\n`);
