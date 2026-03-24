@@ -963,6 +963,58 @@ body {
     word-break: break-word;
 }
 
+.route-steps {
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(102, 126, 234, 0.16);
+    border-radius: 12px;
+    padding: 0.95rem 1rem;
+    display: grid;
+    gap: 0.85rem;
+    box-shadow: 0 14px 30px rgba(25, 43, 88, 0.08);
+}
+
+.route-steps-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.route-steps-header strong {
+    font-size: 0.98rem;
+}
+
+.route-steps-header span {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.route-steps-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.route-steps-list li {
+    color: var(--text-primary);
+}
+
+.route-step {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.route-step-instruction {
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+.route-step-meta {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
 .fare-estimate {
     background: rgba(102, 126, 234, 0.08);
     padding: 0.8rem 1rem;

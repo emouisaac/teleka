@@ -15,7 +15,9 @@ const mapState = {
     directionsService: null,
     directionsRenderer: null,
     latestLeg: null,
-    latestDirections: null
+    latestDirections: null,
+    routeDebounceId: null,
+    routeRequestId: 0
 };
 
 function showToast(message, type = 'success') {
@@ -134,13 +136,30 @@ function setMapHint(message) {
     if (hint) hint.textContent = message;
 }
 
+function setRouteEndpointsPreview() {
+    const pickup = document.getElementById('pickup-location')?.value.trim();
+    const dropoff = document.getElementById('dropoff-location')?.value.trim();
+    document.getElementById('route-from').textContent = pickup || 'Waiting for pickup...';
+    document.getElementById('route-to').textContent = dropoff || 'Waiting for destination...';
+}
+
+function resetRouteSteps(message = 'Enter pickup and destination to see directions here.', status = 'Waiting for route...') {
+    const list = document.getElementById('route-steps-list');
+    const statusEl = document.getElementById('route-steps-status');
+    if (statusEl) statusEl.textContent = status;
+    if (!list) return;
+    const item = document.createElement('li');
+    item.textContent = message;
+    list.replaceChildren(item);
+}
+
 function resetRouteSummary() {
     document.getElementById('route-distance').textContent = '--';
     document.getElementById('route-duration').textContent = '--';
-    document.getElementById('route-from').textContent = 'Waiting for pickup...';
-    document.getElementById('route-to').textContent = 'Waiting for destination...';
+    setRouteEndpointsPreview();
     document.getElementById('fare-breakdown').textContent = 'Type pickup and destination to calculate fare.';
     document.getElementById('fare-amount').textContent = 'UGX 0';
+    resetRouteSteps();
 }
 
 function syncPricingEstimate() {
@@ -167,10 +186,62 @@ function updateRouteSummary(leg) {
     syncPricingEstimate();
 }
 
+function decodeInstruction(html) {
+    if (!html) return '';
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    return temp.textContent?.replace(/\s+/g, ' ').trim() || '';
+}
+
+function renderRouteSteps(leg) {
+    const list = document.getElementById('route-steps-list');
+    const statusEl = document.getElementById('route-steps-status');
+    if (!list) return;
+    const steps = leg?.steps || [];
+    if (!steps.length) return resetRouteSteps('Route found, but detailed directions are unavailable.', 'Directions ready');
+
+    const items = steps.map((step) => {
+        const item = document.createElement('li');
+        item.className = 'route-step';
+
+        const instruction = document.createElement('div');
+        instruction.className = 'route-step-instruction';
+        instruction.textContent = decodeInstruction(step.instructions) || 'Continue on route';
+
+        const meta = document.createElement('div');
+        meta.className = 'route-step-meta';
+        meta.textContent = `${step.distance?.text || ''}${step.duration?.text ? ` | ${step.duration.text}` : ''}`.replace(/^ \| | \| $/g, '');
+
+        item.append(instruction);
+        if (meta.textContent) item.append(meta);
+        return item;
+    });
+
+    list.replaceChildren(...items);
+    if (statusEl) statusEl.textContent = `${steps.length} step${steps.length === 1 ? '' : 's'} ready`;
+}
+
+function getRouteLocation(key, inputId) {
+    const value = document.getElementById(inputId)?.value.trim();
+    if (!value) return null;
+    const place = customerState.places[key];
+    if (place?.place_id && (place.formatted_address === value || place.name === value)) {
+        return { placeId: place.place_id };
+    }
+    return value;
+}
+
+function setRouteCalculatingState() {
+    setRouteEndpointsPreview();
+    document.getElementById('fare-breakdown').textContent = 'Calculating fare estimate from the live route...';
+    document.getElementById('fare-amount').textContent = 'UGX ...';
+    document.getElementById('route-steps-status').textContent = 'Calculating...';
+}
+
 function calculateRoute() {
     if (!mapState.directionsService || !window.google?.maps) return;
-    const pickup = document.getElementById('pickup-location').value.trim();
-    const dropoff = document.getElementById('dropoff-location').value.trim();
+    const pickup = getRouteLocation('pickup', 'pickup-location');
+    const dropoff = getRouteLocation('dropoff', 'dropoff-location');
     if (!pickup || !dropoff) {
         mapState.latestLeg = null;
         mapState.latestDirections = null;
@@ -178,6 +249,8 @@ function calculateRoute() {
         resetRouteSummary();
         return;
     }
+    const requestId = ++mapState.routeRequestId;
+    setRouteCalculatingState();
     mapState.directionsService.route({
         origin: pickup,
         destination: dropoff,
@@ -185,10 +258,13 @@ function calculateRoute() {
         unitSystem: google.maps.UnitSystem.METRIC,
         drivingOptions: { departureTime: new Date(document.getElementById('ride-date').value || Date.now()) }
     }, (result, status) => {
+        if (requestId !== mapState.routeRequestId) return;
         if (status !== google.maps.DirectionsStatus.OK || !result?.routes?.[0]?.legs?.[0]) {
             mapState.latestLeg = null;
+            mapState.latestDirections = null;
             mapState.directionsRenderer?.set('directions', null);
             resetRouteSummary();
+            resetRouteSteps('No directions found for those locations. Try a suggested address.', 'Route unavailable');
             setMapHint('No route found. Use suggested addresses.');
             return;
         }
@@ -196,8 +272,18 @@ function calculateRoute() {
         mapState.latestLeg = result.routes[0].legs[0];
         mapState.directionsRenderer.setDirections(result);
         updateRouteSummary(mapState.latestLeg);
+        renderRouteSteps(mapState.latestLeg);
         setMapHint('Route loaded. Fare updates live.');
     });
+}
+
+function queueRouteCalculation(delay = 350) {
+    if (mapState.routeDebounceId) clearTimeout(mapState.routeDebounceId);
+    setRouteEndpointsPreview();
+    mapState.routeDebounceId = setTimeout(() => {
+        mapState.routeDebounceId = null;
+        calculateRoute();
+    }, delay);
 }
 
 function setupAutocomplete(input, key) {
@@ -209,7 +295,14 @@ function setupAutocomplete(input, key) {
         const place = autocomplete.getPlace();
         if (place?.formatted_address) input.value = place.formatted_address;
         customerState.places[key] = place || null;
-        calculateRoute();
+        if (place?.geometry?.location && mapState.map) {
+            mapState.map.panTo(place.geometry.location);
+        }
+        queueRouteCalculation(0);
+    });
+    input.addEventListener('input', () => {
+        customerState.places[key] = null;
+        queueRouteCalculation();
     });
 }
 
@@ -227,9 +320,11 @@ function initRideRequest() {
     mapState.directionsRenderer = new google.maps.DirectionsRenderer({ map: mapState.map, suppressMarkers: false });
     setupAutocomplete(document.getElementById('pickup-location'), 'pickup');
     setupAutocomplete(document.getElementById('dropoff-location'), 'dropoff');
-    document.getElementById('pickup-location').addEventListener('blur', calculateRoute);
-    document.getElementById('dropoff-location').addEventListener('blur', calculateRoute);
-    document.getElementById('ride-date').addEventListener('change', syncPricingEstimate);
+    document.getElementById('pickup-location').addEventListener('blur', () => queueRouteCalculation(0));
+    document.getElementById('dropoff-location').addEventListener('blur', () => queueRouteCalculation(0));
+    document.getElementById('ride-date').addEventListener('change', () => queueRouteCalculation(0));
+    setRouteEndpointsPreview();
+    resetRouteSteps();
     setMapHint('Start typing pickup and destination for suggestions and route.');
 }
 
