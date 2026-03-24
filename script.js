@@ -36,6 +36,12 @@ const mapState = {
     routeRequestId: 0
 };
 
+const heroSliderState = {
+    headings: [],
+    activeIndex: 0,
+    intervalId: null
+};
+
 function showToast(message, type = 'success') {
     const el = document.createElement('div');
     el.className = `notification notification--${type}`;
@@ -45,6 +51,48 @@ function showToast(message, type = 'success') {
         el.classList.add('fade-out');
         setTimeout(() => el.remove(), 250);
     }, 2500);
+}
+
+function updateHeroSlide(nextIndex) {
+    if (!heroSliderState.headings.length) return;
+    const normalizedIndex = ((nextIndex % heroSliderState.headings.length) + heroSliderState.headings.length) % heroSliderState.headings.length;
+    const current = heroSliderState.headings[heroSliderState.activeIndex];
+    const next = heroSliderState.headings[normalizedIndex];
+
+    if (current && current !== next) {
+        current.classList.remove('active');
+        current.classList.add('exit');
+    }
+
+    heroSliderState.headings.forEach((heading, index) => {
+        if (index !== normalizedIndex && heading !== current) {
+            heading.classList.remove('active', 'exit');
+        }
+    });
+
+    if (next) {
+        next.classList.remove('exit');
+        next.classList.add('active');
+    }
+
+    heroSliderState.activeIndex = normalizedIndex;
+}
+
+function startHeroSlider() {
+    const container = document.querySelector('.hero-content');
+    const headings = Array.from(container?.querySelectorAll('h1') || []);
+    if (!container || headings.length === 0) return;
+
+    if (heroSliderState.intervalId) clearInterval(heroSliderState.intervalId);
+    heroSliderState.headings = headings;
+    heroSliderState.activeIndex = 0;
+    headings.forEach((heading) => heading.classList.remove('active', 'exit'));
+    updateHeroSlide(0);
+
+    if (headings.length === 1) return;
+    heroSliderState.intervalId = setInterval(() => {
+        updateHeroSlide(heroSliderState.activeIndex + 1);
+    }, 2800);
 }
 
 function getCustomerAudioContext() {
@@ -546,6 +594,7 @@ async function initializeGoogleSignIn() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    startHeroSlider();
     ['click', 'keydown', 'touchstart'].forEach((eventName) => {
         document.addEventListener(eventName, () => { getCustomerAudioContext(); }, { once: true });
     });
