@@ -1,601 +1,411 @@
-const navbarToggle = document.querySelector('.navbar-toggle');
-const navbarMenu = document.querySelector('.navbar-menu');
+const FALLBACK_GOOGLE_CLIENT_ID = '275353277028-m8u8c8pq73jj0a2ds4n6eikj43hpklf8.apps.googleusercontent.com';
+const DEFAULT_MAP_CENTER = { lat: 0.3476, lng: 32.5825 };
 
-if (navbarToggle && navbarMenu) {
-  navbarToggle.addEventListener('click', () => {
-    navbarMenu.classList.toggle('active');
-    navbarToggle.classList.toggle('active');
-  });
-}
-
-const appState = {
-  auth: { customerId: '' },
-  profile: {},
-  eventSource: null,
-  lastRideStatus: '',
-  activeRideId: '',
-  notifications: [],
-  audioContext: null,
+const customerState = {
+    authenticated: false,
+    user: null,
+    pollId: null,
+    publicConfig: null,
+    activeRideId: null,
+    places: { pickup: null, dropoff: null }
 };
 
-function showMessage(message) {
-  window.alert(message);
+const mapState = {
+    map: null,
+    directionsService: null,
+    directionsRenderer: null,
+    latestLeg: null,
+    latestDirections: null
+};
+
+function showToast(message, type = 'success') {
+    const el = document.createElement('div');
+    el.className = `notification notification--${type}`;
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => {
+        el.classList.add('fade-out');
+        setTimeout(() => el.remove(), 250);
+    }, 2500);
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function api(url, options = {}) {
-  return fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-    ...options,
-  }).then(async (response) => {
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.ok) throw new Error(payload.message || `Request failed: ${response.status}`);
-    return payload.data;
-  });
-}
-
-function formatUGX(amount) {
-  return new Intl.NumberFormat('en-UG', {
-    style: 'currency',
-    currency: 'UGX',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Number(amount) || 0);
-}
-
-function requestSystemNotificationPermission() {
-  if (!('Notification' in window) || Notification.permission !== 'default') return;
-  Notification.requestPermission().catch(() => {});
-}
-
-function showSystemNotification(title, body, options = {}) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return null;
-  try {
-    return new Notification(title, {
-      body,
-      icon: 'ims/t2icon.png',
-      badge: 'ims/t2icon.png',
-      renotify: true,
-      ...options,
+async function api(url, options = {}) {
+    const response = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
     });
-  } catch {
-    return null;
-  }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
 }
 
-const AudioAlerts = {
-  unlock() {
-    if (appState.audioContext) return appState.audioContext;
-    const AudioContextRef = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextRef) return null;
-    appState.audioContext = new AudioContextRef();
-    if (appState.audioContext.state === 'suspended') appState.audioContext.resume().catch(() => {});
-    return appState.audioContext;
-  },
-  pulse(frequency, startAt, duration, gainValue) {
-    const context = AudioAlerts.unlock();
-    if (!context) return;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(frequency, startAt);
-    gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(startAt);
-    oscillator.stop(startAt + duration + 0.05);
-  },
-  playNotification() {
-    const context = AudioAlerts.unlock();
-    if (!context) return;
-    const startAt = context.currentTime + 0.02;
-    AudioAlerts.pulse(698, startAt, 0.18, 0.1);
-    AudioAlerts.pulse(880, startAt + 0.2, 0.24, 0.09);
-    AudioAlerts.pulse(1046, startAt + 0.46, 0.22, 0.085);
-  },
-  playRideAccepted() {
-    const context = AudioAlerts.unlock();
-    if (!context) return;
-    const startAt = context.currentTime + 0.02;
-    AudioAlerts.pulse(784, startAt, 0.22, 0.11);
-    AudioAlerts.pulse(988, startAt + 0.26, 0.24, 0.11);
-    AudioAlerts.pulse(1174, startAt + 0.56, 0.34, 0.12);
-  },
-};
-
-function setCurrentDate() {
-  const dateEl = document.getElementById('current-date');
-  if (!dateEl) return;
-  dateEl.textContent = new Date().toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function applyDarkMode(enabled) {
-  document.body.classList.toggle('dark-mode', enabled);
-  const toggle = document.querySelector('#dark-mode-toggle');
-  if (toggle) toggle.checked = enabled;
-}
-
-function initDarkMode() {
-  const toggle = document.querySelector('#dark-mode-toggle');
-  const enabled = Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  applyDarkMode(enabled);
-  if (!toggle) return;
-  toggle.addEventListener('change', () => {
-    applyDarkMode(toggle.checked);
-    if (appState.auth.customerId) {
-      api('/api/customer/preferences', {
-        method: 'POST',
-        body: JSON.stringify({ darkMode: toggle.checked }),
-      }).catch(console.warn);
+async function getPublicConfig() {
+    if (!customerState.publicConfig) {
+        customerState.publicConfig = await api('/api/public/config').catch(() => ({}));
     }
-  });
+    return customerState.publicConfig;
 }
 
-function initHeroSlider() {
-  const slides = document.querySelectorAll('.hero-content h1');
-  if (!slides.length) return;
-  let current = 0;
-  slides[current].classList.add('active');
-  slides[current].style.color = 'orange';
-  setInterval(() => {
-    slides[current].classList.remove('active');
-    slides[current].classList.add('exit');
-    slides[current].style.color = '';
-    current = (current + 1) % slides.length;
-    slides[current].classList.remove('exit');
-    slides[current].classList.add('active');
-    slides[current].style.color = 'orange';
-  }, 3000);
+function toggleMobileMenu() {
+    const menu = document.querySelector('.navbar-menu');
+    const toggle = document.querySelector('.navbar-toggle');
+    if (!menu || !toggle) return;
+    menu.classList.toggle('active');
+    toggle.classList.toggle('active');
+}
+
+function setActiveNavbarItem(sectionId) {
+    document.querySelectorAll('.navbar-menu li').forEach((item) => {
+        const link = item.querySelector('.navbar-link');
+        const href = link?.getAttribute('href') || '';
+        const active = href === `#${sectionId}`;
+        item.classList.toggle('active', active);
+        link?.classList.toggle('active', active);
+    });
 }
 
 function switchSection(sectionId) {
-  document.querySelectorAll('.content .section').forEach((section) => {
-    section.classList.toggle('active', section.id === sectionId);
-  });
-  document.querySelectorAll('.services, .features, .contact').forEach((section) => {
-    section.style.display = sectionId === 'dashboard' ? 'block' : 'none';
-  });
-  if (sectionId === 'request') initRideRequest();
-  navbarMenu?.classList.remove('active');
-  navbarToggle?.classList.remove('active');
-}
-
-window.switchSection = switchSection;
-
-let googleUser = null;
-let googleReady = false;
-
-function setAuthState(user) {
-  googleUser = user;
-  const authLink = document.getElementById('auth-action');
-  if (!authLink) return;
-  authLink.textContent = user ? ((user.name || '').trim().split(/\s+/)[0] || 'Account') : 'Login';
-}
-
-function initGoogleSignIn() {
-  if (!window.google?.accounts?.id) return;
-  if (!window.GOOGLE_CLIENT_ID || window.GOOGLE_CLIENT_ID.includes('{{')) return;
-  google.accounts.id.initialize({
-    client_id: window.GOOGLE_CLIENT_ID,
-    callback: (response) => {
-      try {
-        const payload = JSON.parse(atob(response.credential.split('.')[1]));
-        appState.profile = {
-          googleId: payload.sub || appState.profile.googleId || '',
-          name: payload.name || appState.profile.name || '',
-          email: payload.email || appState.profile.email || '',
-          phone: appState.profile.phone || '',
-        };
-        fillProfileForm();
-        setAuthState({ name: appState.profile.name });
-        syncCustomerSession().catch(console.warn);
-      } catch (error) {
-        console.warn('Failed to parse Google credential', error);
-      }
-    },
-  });
-  googleReady = true;
-}
-
-async function handleAuthClick(event) {
-  event.preventDefault();
-  if (googleUser) {
-    google.accounts?.id?.disableAutoSelect?.();
-    try {
-      await api('/api/auth/customer/logout', { method: 'POST', body: '{}' });
-    } catch {}
-    appState.auth = { customerId: '' };
-    appState.profile = {};
-    appState.notifications = [];
-    setAuthState(null);
-    showMessage('Logged out successfully.');
-    fillProfileForm();
-    return;
-  }
-  if (!googleReady) initGoogleSignIn();
-  if (googleReady) google.accounts.id.prompt();
-  else showMessage('Google login is not configured for this environment.');
-}
-
-window.handleAuthClick = handleAuthClick;
-
-function profileFromForm() {
-  return {
-    googleId: appState.profile.googleId || '',
-    name: document.getElementById('customer-name')?.value.trim() || '',
-    email: document.getElementById('customer-email')?.value.trim() || '',
-    phone: document.getElementById('customer-phone')?.value.trim() || '',
-  };
-}
-
-function fillProfileForm() {
-  document.getElementById('customer-name').value = appState.profile.name || '';
-  document.getElementById('customer-email').value = appState.profile.email || '';
-  document.getElementById('customer-phone').value = appState.profile.phone || '';
-}
-
-function renderCustomerChat(activeRide) {
-  const summary = document.getElementById('customer-chat-summary');
-  const list = document.getElementById('customer-chat-preview');
-  const input = document.getElementById('customer-chat-input');
-  const sendButton = document.getElementById('customer-chat-send');
-  const links = [
-    document.getElementById('customer-chat-link'),
-    document.getElementById('customer-chat-link-secondary'),
-  ].filter(Boolean);
-  if (!summary || !list || !input || !sendButton) return;
-
-  appState.activeRideId = activeRide?.id || '';
-  links.forEach((link) => {
-    link.href = activeRide ? `chat.html?role=customer&rideId=${encodeURIComponent(activeRide.id)}` : 'chat.html?role=customer';
-    link.classList.toggle('disabled', !activeRide);
-  });
-
-  if (!activeRide) {
-    summary.textContent = 'Chat becomes active when a driver accepts your ride.';
-    list.innerHTML = '<div class="notification-empty"><p>No active ride chat yet.</p></div>';
-    input.disabled = true;
-    sendButton.disabled = true;
-    return;
-  }
-
-  summary.textContent = `Ride ${activeRide.id}: ${activeRide.driverName || 'Driver'} ${activeRide.driverPhone ? `(${activeRide.driverPhone})` : ''}`;
-  const messages = activeRide.chatMessages || [];
-  if (!messages.length) {
-    list.innerHTML = '<div class="notification-empty"><p>No messages yet. You can now chat with your driver.</p></div>';
-  } else {
-    list.innerHTML = messages.map((message) => `
-      <div class="notification-card ${message.senderRole === 'customer' ? 'info' : 'warning'}">
-        <div class="notification-content">
-          <p><strong>${escapeHtml(message.senderName)}</strong>: ${escapeHtml(message.message)}</p>
-          <span class="notification-time">${new Date(message.createdAt).toLocaleString()}</span>
-        </div>
-      </div>
-    `).join('');
-    list.scrollTop = list.scrollHeight;
-  }
-  input.disabled = false;
-  sendButton.disabled = false;
-}
-
-async function syncCustomerSession(resetAuth = false) {
-  if (resetAuth) {
-    appState.auth = { customerId: '' };
-  }
-  const body = {
-    ...profileFromForm(),
-  };
-  const data = await api('/api/auth/customer/session', { method: 'POST', body: JSON.stringify(body) });
-  appState.auth = { customerId: data.customer.id };
-  appState.profile = data.customer;
-  fillProfileForm();
-  await refreshCustomerState();
-  ensureEvents();
-  return data.customer;
-}
-
-async function refreshCustomerState() {
-  const previousNotificationIds = new Set((appState.notifications || []).map((item) => item.id));
-  const data = await api('/api/customer/state');
-  const rides = data.rides || [];
-  const activeRide = data.activeRide;
-  if (activeRide && appState.lastRideStatus && appState.lastRideStatus !== activeRide.status && activeRide.status === 'accepted') {
-    AudioAlerts.playRideAccepted();
-    showSystemNotification(
-      'Driver Assigned',
-      `${activeRide.driverName || 'Your driver'} accepted your ride. ${activeRide.driverPhone || 'Contact details are ready.'}`,
-      { tag: `customer-ride-${activeRide.id}`, requireInteraction: true }
-    );
-    showMessage(`Your ride was accepted by ${activeRide.driverName}. Driver contact: ${activeRide.driverPhone || 'Unavailable'}`);
-  }
-  const latestNotification = (data.notifications || [])[0];
-  if (appState.notifications.length && latestNotification && !previousNotificationIds.has(latestNotification.id) && activeRide?.status !== 'accepted') {
-    AudioAlerts.playNotification();
-    showSystemNotification('Teleka Update', latestNotification.message || 'You have a new update.', {
-      tag: `customer-notification-${latestNotification.id}`,
+    document.querySelectorAll('main .section[id]').forEach((section) => {
+        section.classList.toggle('active', section.id === sectionId);
     });
-  }
-  appState.notifications = data.notifications || [];
-  appState.auth.customerId = data.customer?.id || '';
-  appState.profile = data.customer || appState.profile;
-  setAuthState(data.customer ? { name: data.customer.name || 'Customer' } : null);
-  if (typeof data.customer?.preferences?.darkMode === 'boolean') {
-    applyDarkMode(data.customer.preferences.darkMode);
-  }
-  appState.lastRideStatus = activeRide ? activeRide.status : '';
-  document.getElementById('upcoming-ride-status').textContent = data.activeRide
-    ? `${data.activeRide.status.toUpperCase()}: ${data.activeRide.pickup} to ${data.activeRide.dropoff}`
-    : 'No rides scheduled';
-  document.getElementById('active-driver-contact').textContent = activeRide?.driverPhone
-    ? `Driver ${activeRide.driverName}: ${activeRide.driverPhone}`
-    : 'Driver contact will appear after acceptance.';
-  const mediaShell = document.getElementById('active-driver-media');
-  const avatar = document.getElementById('active-driver-avatar');
-  const car = document.getElementById('active-driver-car');
-  if (mediaShell && avatar && car) {
-    const showMedia = Boolean(activeRide?.driverAvatar || activeRide?.driverCarPhoto);
-    mediaShell.classList.toggle('hidden', !showMedia);
-    if (activeRide?.driverAvatar) avatar.src = activeRide.driverAvatar;
-    if (activeRide?.driverCarPhoto) car.src = activeRide.driverCarPhoto;
-    avatar.parentElement?.classList.toggle('hidden', !activeRide?.driverAvatar);
-    car.parentElement?.classList.toggle('hidden', !activeRide?.driverCarPhoto);
-  }
-  renderCustomerChat(activeRide);
-  document.getElementById('total-rides-count').textContent = String(rides.length);
-  document.getElementById('account-balance').textContent = formatUGX(
-    rides.filter((ride) => ride.status === 'completed').reduce((sum, ride) => sum + (ride.fare || 0), 0)
-  );
-  const body = document.getElementById('ride-history-body');
-  body.innerHTML = '';
-  if (!rides.length) {
-    body.innerHTML = '<tr><td colspan="5">No rides yet.</td></tr>';
-    return;
-  }
-  rides.forEach((ride) => {
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${new Date(ride.createdAt).toLocaleString()}</td>
-      <td>${ride.pickup}</td>
-      <td>${ride.dropoff}</td>
-      <td>${formatUGX(ride.fare)}</td>
-      <td>${ride.status}</td>
-    `;
-    body.appendChild(row);
-  });
+    setActiveNavbarItem(sectionId);
+    if (window.location.hash !== `#${sectionId}`) history.replaceState(null, '', `#${sectionId}`);
+    document.querySelector('.navbar-menu')?.classList.remove('active');
+    document.querySelector('.navbar-toggle')?.classList.remove('active');
+    if (sectionId === 'request') {
+        setTimeout(() => {
+            if (mapState.map && window.google?.maps) {
+                google.maps.event.trigger(mapState.map, 'resize');
+                if (mapState.latestDirections) mapState.directionsRenderer.setDirections(mapState.latestDirections);
+            }
+        }, 120);
+    }
 }
 
-function ensureEvents() {
-  if (appState.eventSource) return;
-  const stream = new EventSource('/api/events');
-  stream.addEventListener('state-update', () => refreshCustomerState().catch(console.warn));
-  stream.onerror = () => {
-    stream.close();
-    appState.eventSource = null;
-    setTimeout(ensureEvents, 3000);
-  };
-  appState.eventSource = stream;
-}
-
-function initProfileForm() {
-  fillProfileForm();
-  document.getElementById('customer-profile-form')?.addEventListener('submit', async (event) => {
+function handleAuthClick(event) {
     event.preventDefault();
-    appState.profile = profileFromForm();
-    try {
-      await syncCustomerSession();
-      showMessage('Profile updated.');
-    } catch (error) {
-      showMessage(error.message);
-    }
-  });
+    window.location.href = '/auth/google';
 }
 
-function initCustomerChatForm() {
-  document.getElementById('customer-chat-form')?.addEventListener('submit', async (event) => {
+async function handleLogout(event) {
     event.preventDefault();
-    const input = document.getElementById('customer-chat-input');
-    const message = input?.value.trim() || '';
-    if (!appState.activeRideId) {
-      showMessage('No active ride available for chat.');
-      return;
+    await api('/auth/logout', { method: 'POST' });
+    window.location.reload();
+}
+
+function updateAuthUI(authenticated, user) {
+    const authLink = document.getElementById('auth-action');
+    if (!authLink) return;
+    if (authenticated && user) {
+        authLink.textContent = `Logout (${user.name})`;
+        authLink.onclick = handleLogout;
+    } else {
+        authLink.textContent = 'Login';
+        authLink.onclick = handleAuthClick;
     }
-    if (!message) return;
-    try {
-      await api(`/api/rides/${encodeURIComponent(appState.activeRideId)}/chat`, {
-        method: 'POST',
-        body: JSON.stringify({ message }),
-      });
-      input.value = '';
-      await refreshCustomerState();
-    } catch (error) {
-      showMessage(error.message);
+}
+
+function formatMoney(value) {
+    return `UGX ${Math.round(Number(value || 0)).toLocaleString('en-US')}`;
+}
+
+function formatDate(value) {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+}
+
+function formatDistance(meters) {
+    return `${(Number(meters || 0) / 1000).toFixed(1)} km`;
+}
+
+function formatDuration(seconds) {
+    const minutes = Math.round(Number(seconds || 0) / 60);
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    const remain = minutes % 60;
+    return remain ? `${hours} hr ${remain} min` : `${hours} hr`;
+}
+
+function setMapHint(message) {
+    const hint = document.querySelector('.map-hint');
+    if (hint) hint.textContent = message;
+}
+
+function resetRouteSummary() {
+    document.getElementById('route-distance').textContent = '--';
+    document.getElementById('route-duration').textContent = '--';
+    document.getElementById('route-from').textContent = 'Waiting for pickup...';
+    document.getElementById('route-to').textContent = 'Waiting for destination...';
+    document.getElementById('fare-breakdown').textContent = 'Type pickup and destination to calculate fare.';
+    document.getElementById('fare-amount').textContent = 'UGX 0';
+}
+
+function syncPricingEstimate() {
+    if (!mapState.latestLeg) return resetRouteSummary();
+    const distanceMeters = mapState.latestLeg.distance?.value || 0;
+    const durationSeconds = mapState.latestLeg.duration_in_traffic?.value || mapState.latestLeg.duration?.value || 0;
+    const pricing = customerState.publicConfig?.pricing || {};
+    const hour = new Date(document.getElementById('ride-date').value || Date.now()).getHours();
+    const surge = (hour >= 22 || hour < 6) ? Number(pricing.surge_multiplier || 1.15) : 1;
+    const base = Number(pricing.base_fare || 3500);
+    const perKm = Number(pricing.per_km || 1200);
+    const perMin = Number(pricing.per_min || 180);
+    const estimate = Math.max(0, Math.round((base + ((distanceMeters / 1000) * perKm) + ((durationSeconds / 60) * perMin)) * surge));
+
+    document.getElementById('fare-amount').textContent = formatMoney(estimate);
+    document.getElementById('fare-breakdown').textContent = `${formatDistance(distanceMeters)} | ${formatDuration(durationSeconds)}${surge > 1 ? ' | surge applied' : ''}`;
+}
+
+function updateRouteSummary(leg) {
+    document.getElementById('route-distance').textContent = formatDistance(leg.distance?.value || 0);
+    document.getElementById('route-duration').textContent = formatDuration(leg.duration_in_traffic?.value || leg.duration?.value || 0);
+    document.getElementById('route-from').textContent = leg.start_address || 'Pickup selected';
+    document.getElementById('route-to').textContent = leg.end_address || 'Destination selected';
+    syncPricingEstimate();
+}
+
+function calculateRoute() {
+    if (!mapState.directionsService || !window.google?.maps) return;
+    const pickup = document.getElementById('pickup-location').value.trim();
+    const dropoff = document.getElementById('dropoff-location').value.trim();
+    if (!pickup || !dropoff) {
+        mapState.latestLeg = null;
+        mapState.latestDirections = null;
+        mapState.directionsRenderer?.set('directions', null);
+        resetRouteSummary();
+        return;
     }
-  });
+    mapState.directionsService.route({
+        origin: pickup,
+        destination: dropoff,
+        travelMode: google.maps.TravelMode.DRIVING,
+        unitSystem: google.maps.UnitSystem.METRIC,
+        drivingOptions: { departureTime: new Date(document.getElementById('ride-date').value || Date.now()) }
+    }, (result, status) => {
+        if (status !== google.maps.DirectionsStatus.OK || !result?.routes?.[0]?.legs?.[0]) {
+            mapState.latestLeg = null;
+            mapState.directionsRenderer?.set('directions', null);
+            resetRouteSummary();
+            setMapHint('No route found. Use suggested addresses.');
+            return;
+        }
+        mapState.latestDirections = result;
+        mapState.latestLeg = result.routes[0].legs[0];
+        mapState.directionsRenderer.setDirections(result);
+        updateRouteSummary(mapState.latestLeg);
+        setMapHint('Route loaded. Fare updates live.');
+    });
 }
 
-function initFooterToggles() {
-  document.querySelectorAll('.footer-toggle').forEach((toggle) => {
-    toggle.addEventListener('click', () => toggle.nextElementSibling?.classList.toggle('active'));
-  });
-}
-
-function addServiceIcons() {
-  const icons = {
-    'Airport Transfers': '<svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>',
-    'City Rides': '<svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM5 11l1.5-4.5h11L19 11H5z"/></svg>',
-    'Business Travel': '<svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M20 7h-4V5l-2-2h-4L8 5v2H4c-1.1 0-2 .9-2 2v5c0 .75.4 1.38 1 1.73V19c0 1.11.89 2 2 2h14c1.11 0 2-.89 2-2v-3.27c.59-.36 1-.98 1-1.73V9c0-1.1-.9-2-2-2z"/></svg>',
-    'Tours Travel': '<svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 1.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5z"/></svg>',
-  };
-  document.querySelectorAll('.service-card').forEach((card) => {
-    const title = card.querySelector('h3')?.textContent.trim();
-    const iconDiv = card.querySelector('.service-icon');
-    if (iconDiv && title && icons[title]) iconDiv.innerHTML = icons[title];
-  });
-}
-
-const DEFAULT_CENTER = { lat: 0.3476, lng: 32.5825 };
-let map;
-let directionsService;
-let directionsRenderer;
-let pickupMarker;
-let dropoffMarker;
-let rideRequestInitialized = false;
-let pickupCoords = null;
-let dropoffCoords = null;
-
-function estimateFare(distanceMeters, carType) {
-  const km = distanceMeters / 1000;
-  let multiplier = 1;
-  if (carType === 'premium') multiplier = 1.4;
-  if (carType === 'suv') multiplier = 1.75;
-  return Math.round((3000 + 1800 * km) * multiplier);
+function setupAutocomplete(input, key) {
+    const autocomplete = new google.maps.places.Autocomplete(input, {
+        fields: ['formatted_address', 'geometry', 'name', 'place_id'],
+        componentRestrictions: { country: 'ug' }
+    });
+    autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        if (place?.formatted_address) input.value = place.formatted_address;
+        customerState.places[key] = place || null;
+        calculateRoute();
+    });
 }
 
 function initRideRequest() {
-  if (rideRequestInitialized || !window.google?.maps) return;
-  const mapEl = document.getElementById('map');
-  const pickupInput = document.getElementById('pickup-location');
-  const dropoffInput = document.getElementById('dropoff-location');
-  const rideForm = document.getElementById('ride-form');
-  if (!mapEl || !pickupInput || !dropoffInput || !rideForm) return;
-
-  map = new google.maps.Map(mapEl, { center: DEFAULT_CENTER, zoom: 12, disableDefaultUI: true });
-  directionsService = new google.maps.DirectionsService();
-  directionsRenderer = new google.maps.DirectionsRenderer({ map, suppressMarkers: true, polylineOptions: { strokeColor: '#3c8dbc', strokeWeight: 6 } });
-  const options = { componentRestrictions: { country: 'ug' }, fields: ['geometry', 'formatted_address', 'name'] };
-  const pickupAutocomplete = new google.maps.places.Autocomplete(pickupInput, options);
-  const dropoffAutocomplete = new google.maps.places.Autocomplete(dropoffInput, options);
-
-  let origin = null;
-  let destination = null;
-  let distanceMeters = 0;
-
-  const redraw = () => {
-    if (!origin || !destination) return;
-    directionsService.route({ origin, destination, travelMode: google.maps.TravelMode.DRIVING }, (result, status) => {
-      if (status !== 'OK' || !result) return;
-      directionsRenderer.setDirections(result);
-      const leg = result.routes[0].legs[0];
-      distanceMeters = leg.distance.value;
-      document.getElementById('fare-amount').textContent = formatUGX(estimateFare(distanceMeters, document.getElementById('car-type').value));
-      if (pickupMarker) pickupMarker.setMap(null);
-      if (dropoffMarker) dropoffMarker.setMap(null);
-      pickupMarker = new google.maps.Marker({ position: leg.start_location, map, label: 'A' });
-      dropoffMarker = new google.maps.Marker({ position: leg.end_location, map, label: 'B' });
-      map.fitBounds(result.routes[0].bounds, { padding: 60 });
+    if (mapState.map || !window.google?.maps) return;
+    const mapElement = document.getElementById('map');
+    if (!mapElement) return;
+    mapState.map = new google.maps.Map(mapElement, {
+        center: DEFAULT_MAP_CENTER,
+        zoom: 13,
+        mapTypeControl: false,
+        streetViewControl: false
     });
-  };
-
-  pickupAutocomplete.addListener('place_changed', () => {
-    const place = pickupAutocomplete.getPlace();
-    if (place.geometry?.location) {
-      origin = place.geometry.location;
-      pickupCoords = { lat: origin.lat(), lng: origin.lng() };
-      redraw();
-    }
-  });
-  dropoffAutocomplete.addListener('place_changed', () => {
-    const place = dropoffAutocomplete.getPlace();
-    if (place.geometry?.location) {
-      destination = place.geometry.location;
-      dropoffCoords = { lat: destination.lat(), lng: destination.lng() };
-      redraw();
-    }
-  });
-  document.getElementById('car-type')?.addEventListener('change', redraw);
-
-  rideForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    try {
-      if (!origin || !destination) throw new Error('Select both pickup and dropoff from the suggestions.');
-      await syncCustomerSession();
-      await api('/api/rides', {
-        method: 'POST',
-        body: JSON.stringify({
-          pickup: pickupInput.value.trim(),
-          dropoff: dropoffInput.value.trim(),
-          date: document.getElementById('ride-date')?.value || '',
-          carType: document.getElementById('car-type')?.value || 'standard',
-          payment: document.getElementById('payment-method')?.value || 'cash',
-          fare: estimateFare(distanceMeters, document.getElementById('car-type').value),
-          distanceKm: Number((distanceMeters / 1000).toFixed(2)),
-          pickupLat: pickupCoords?.lat,
-          pickupLng: pickupCoords?.lng,
-          dropoffLat: dropoffCoords?.lat,
-          dropoffLng: dropoffCoords?.lng,
-        }),
-      });
-      await refreshCustomerState();
-      showMessage('Ride request submitted successfully.');
-      rideForm.reset();
-      directionsRenderer.set('directions', null);
-      pickupMarker?.setMap(null);
-      dropoffMarker?.setMap(null);
-      pickupMarker = null;
-      dropoffMarker = null;
-      origin = null;
-      destination = null;
-      pickupCoords = null;
-      dropoffCoords = null;
-      distanceMeters = 0;
-      document.getElementById('fare-amount').textContent = formatUGX(0);
-      map.setCenter(DEFAULT_CENTER);
-      map.setZoom(12);
-      switchSection('history');
-    } catch (error) {
-      showMessage(error.message);
-    }
-  });
-
-  rideRequestInitialized = true;
+    mapState.directionsService = new google.maps.DirectionsService();
+    mapState.directionsRenderer = new google.maps.DirectionsRenderer({ map: mapState.map, suppressMarkers: false });
+    setupAutocomplete(document.getElementById('pickup-location'), 'pickup');
+    setupAutocomplete(document.getElementById('dropoff-location'), 'dropoff');
+    document.getElementById('pickup-location').addEventListener('blur', calculateRoute);
+    document.getElementById('dropoff-location').addEventListener('blur', calculateRoute);
+    document.getElementById('ride-date').addEventListener('change', syncPricingEstimate);
+    setMapHint('Start typing pickup and destination for suggestions and route.');
 }
 
 window.initRideRequest = initRideRequest;
 
+async function loadGoogleMapsScript() {
+    if (!document.getElementById('map')) return;
+    if (window.google?.maps?.places) return initRideRequest();
+    const config = await getPublicConfig();
+    if (!config.googleMapsApiKey) return setMapHint('Missing Google Maps API key in backend config.');
+    const script = document.createElement('script');
+    script.async = true;
+    script.defer = true;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.googleMapsApiKey)}&libraries=places&callback=initRideRequest`;
+    script.onerror = () => setMapHint('Failed to load Google Maps. Check API key restrictions.');
+    document.body.appendChild(script);
+}
+
+function renderCustomerSnapshot(snapshot) {
+    const profile = snapshot.profile || {};
+    const activeRide = snapshot.activeRide || null;
+    customerState.activeRideId = activeRide?.id || null;
+
+    document.getElementById('customer-name').value = profile.name || '';
+    document.getElementById('customer-email').value = profile.email || '';
+    document.getElementById('customer-phone').value = profile.phone || '';
+    document.getElementById('total-rides-count').textContent = snapshot.stats?.total_rides || 0;
+    document.getElementById('account-balance').textContent = formatMoney(snapshot.stats?.completed_spend);
+
+    if (activeRide) {
+        document.getElementById('upcoming-ride-status').textContent = `${activeRide.status.toUpperCase()} | ${activeRide.pickup_location} -> ${activeRide.dropoff_location}`;
+        document.getElementById('active-driver-contact').textContent = activeRide.driver_name
+            ? `${activeRide.driver_name} | ${activeRide.driver_phone || 'No phone'}`
+            : 'Waiting for driver assignment.';
+    } else {
+        document.getElementById('upcoming-ride-status').textContent = 'No rides scheduled';
+        document.getElementById('active-driver-contact').textContent = 'Driver contact will appear after acceptance.';
+    }
+
+    const historyBody = document.getElementById('ride-history-body');
+    historyBody.innerHTML = (snapshot.rides || []).map((ride) => `
+        <tr><td>${formatDate(ride.scheduled_local || ride.scheduled_at || ride.created_at)}</td><td>${ride.pickup_location}</td><td>${ride.dropoff_location}</td><td>${formatMoney(ride.final_fare ?? ride.estimated_fare)}</td><td>${ride.status}</td></tr>
+    `).join('') || '<tr><td colspan="5">No rides yet.</td></tr>';
+
+    const chatPreview = document.getElementById('customer-chat-preview');
+    chatPreview.innerHTML = (snapshot.activeRideMessages || []).map((msg) => `
+        <div class="chat-line ${msg.sender_role === 'customer' ? 'chat-line--user' : 'chat-line--admin'}">
+          <strong>${msg.sender_role === 'customer' ? 'You' : 'Driver'}:</strong> ${msg.message}
+        </div>
+    `).join('') || '<div class="notification-empty"><p>No messages yet.</p></div>';
+}
+
+async function loadCustomerSnapshot() {
+    if (!customerState.authenticated || customerState.user?.role !== 'customer') return;
+    try {
+        const snapshot = await api('/api/customer/snapshot');
+        renderCustomerSnapshot(snapshot);
+    } catch (error) {
+        console.error('Customer snapshot error:', error);
+    }
+}
+
+function startCustomerPolling() {
+    clearInterval(customerState.pollId);
+    loadCustomerSnapshot();
+    customerState.pollId = setInterval(loadCustomerSnapshot, 5000);
+}
+
+async function checkAuthStatus() {
+    try {
+        const data = await api('/auth/status');
+        customerState.authenticated = Boolean(data.authenticated);
+        customerState.user = data.user || null;
+        updateAuthUI(customerState.authenticated, customerState.user);
+        if (customerState.authenticated && customerState.user?.role === 'customer') startCustomerPolling();
+    } catch (error) {
+        console.error('Auth check failed:', error);
+    }
+}
+
+async function initializeGoogleSignIn() {
+    if (!window.google?.accounts?.id) return;
+    const config = await getPublicConfig();
+    const clientId = config.googleClientId || FALLBACK_GOOGLE_CLIENT_ID;
+    google.accounts.id.initialize({ client_id: clientId, callback: () => window.location.reload() });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-  initHeroSlider();
-  setCurrentDate();
-  initDarkMode();
-  initGoogleSignIn();
-  initProfileForm();
-  initCustomerChatForm();
-  renderCustomerChat(null);
-  initFooterToggles();
-  addServiceIcons();
-  document.addEventListener('pointerdown', () => {
-    AudioAlerts.unlock();
-    requestSystemNotificationPermission();
-  }, { once: true });
-  document.addEventListener('keydown', () => {
-    AudioAlerts.unlock();
-    requestSystemNotificationPermission();
-  }, { once: true });
-  document.querySelector('.settings-form')?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    showMessage('Settings saved on this device.');
-  });
-  try {
-    await refreshCustomerState();
-    ensureEvents();
-  } catch (error) {
-    console.warn(error.message);
-  }
+    await checkAuthStatus();
+    const initial = window.location.hash.slice(1);
+    switchSection(document.getElementById(initial) ? initial : 'dashboard');
+    window.addEventListener('hashchange', () => {
+        const hashSection = window.location.hash.slice(1);
+        if (document.getElementById(hashSection)) switchSection(hashSection);
+    });
+
+    const rideDateInput = document.getElementById('ride-date');
+    if (rideDateInput && !rideDateInput.value) {
+        const date = new Date(Date.now() + 30 * 60 * 1000);
+        rideDateInput.value = date.toISOString().slice(0, 16);
+    }
+
+    document.getElementById('ride-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!customerState.authenticated || customerState.user?.role !== 'customer') {
+            showToast('Please login as customer to request a ride.', 'error');
+            return;
+        }
+        const distanceKm = (mapState.latestLeg?.distance?.value || 0) / 1000;
+        const durationMin = (mapState.latestLeg?.duration_in_traffic?.value || mapState.latestLeg?.duration?.value || 0) / 60;
+        const estimatedFare = Number((document.getElementById('fare-amount').textContent || '').replace(/[^\d]/g, '')) || 0;
+        try {
+            await api('/api/rides/request', {
+                method: 'POST',
+                body: JSON.stringify({
+                    pickupLocation: document.getElementById('pickup-location').value.trim(),
+                    dropoffLocation: document.getElementById('dropoff-location').value.trim(),
+                    scheduledAt: document.getElementById('ride-date').value,
+                    carType: document.getElementById('car-type').value,
+                    paymentMethod: document.getElementById('payment-method').value,
+                    distanceKm,
+                    durationMin,
+                    estimatedFare,
+                    pickupLat: customerState.places.pickup?.geometry?.location?.lat?.(),
+                    pickupLng: customerState.places.pickup?.geometry?.location?.lng?.(),
+                    dropoffLat: customerState.places.dropoff?.geometry?.location?.lat?.(),
+                    dropoffLng: customerState.places.dropoff?.geometry?.location?.lng?.()
+                })
+            });
+            showToast('Ride request submitted');
+            loadCustomerSnapshot();
+            switchSection('history');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    document.getElementById('customer-profile-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        try {
+            await api('/api/customer/profile', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    name: document.getElementById('customer-name').value.trim(),
+                    phone: document.getElementById('customer-phone').value.trim()
+                })
+            });
+            showToast('Profile updated');
+            checkAuthStatus();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    document.getElementById('customer-chat-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!customerState.activeRideId) return showToast('No active ride to chat with.', 'error');
+        const message = document.getElementById('customer-chat-input').value.trim();
+        if (!message) return;
+        try {
+            await api(`/api/customer/rides/${customerState.activeRideId}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ message })
+            });
+            document.getElementById('customer-chat-input').value = '';
+            loadCustomerSnapshot();
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    });
+
+    document.querySelector('.settings-form')?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        showToast('Settings saved locally');
+    });
+
+    loadGoogleMapsScript();
+    if (typeof google !== 'undefined') initializeGoogleSignIn();
 });

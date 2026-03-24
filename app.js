@@ -1,563 +1,284 @@
-const TelekaAdmin = (() => {
-  const state = {
-    auth: { email: '' },
-    data: null,
-    eventSource: null,
-    promptedResetIds: [],
-    audioContext: null,
-  };
+const adminState = {
+    pollId: null,
+    pendingDrivers: new Map(),
+    modalOpen: false
+};
 
-  const DOM = {
-    qs(selector, root = document) { return root.querySelector(selector); },
-    qsa(selector, root = document) { return Array.from(root.querySelectorAll(selector)); },
-    money(amount) {
-      return new Intl.NumberFormat('en-UG', {
-        style: 'currency',
-        currency: 'UGX',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      }).format(Number(amount) || 0);
-    },
-    toast(message) {
-      const toast = document.createElement('div');
-      toast.className = 'toast';
-      toast.textContent = message;
-      document.body.appendChild(toast);
-      requestAnimationFrame(() => toast.classList.add('visible'));
-      setTimeout(() => {
-        toast.classList.remove('visible');
-        setTimeout(() => toast.remove(), 300);
-      }, 2400);
-    },
-    api(url, options = {}) {
-      return fetch(url, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(options.headers || {}),
-        },
-        ...options,
-      }).then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.ok) throw new Error(payload.message || `Request failed: ${response.status}`);
-        return payload.data;
-      });
-    },
-  };
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    sidebar.classList.toggle('open');
+}
 
-  function requestSystemNotificationPermission() {
-    if (!('Notification' in window) || Notification.permission !== 'default') return;
-    Notification.requestPermission().catch(() => {});
-  }
+function closeSidebarOnClickOutside(event) {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar || !sidebar.classList.contains('open') || window.innerWidth > 768) return;
+    if (event.target.closest('.sidebar') || event.target.closest('#adminSidebarToggle')) return;
+    sidebar.classList.remove('open');
+}
 
-  function showSystemNotification(title, body, options = {}) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return null;
-    try {
-      return new Notification(title, {
-        body,
-        icon: 'ims/t2icon.png',
-        badge: 'ims/t2icon.png',
-        renotify: true,
-        ...options,
-      });
-    } catch {
-      return null;
-    }
-  }
+function resetSidebarOnResize() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    if (window.innerWidth > 768) sidebar.classList.remove('open');
+}
 
-  const AudioAlerts = {
-    unlock() {
-      if (state.audioContext) return state.audioContext;
-      const AudioContextRef = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextRef) return null;
-      state.audioContext = new AudioContextRef();
-      if (state.audioContext.state === 'suspended') state.audioContext.resume().catch(() => {});
-      return state.audioContext;
-    },
-    pulse(frequency, startAt, duration, gainValue) {
-      const context = AudioAlerts.unlock();
-      if (!context) return;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = 'triangle';
-      oscillator.frequency.setValueAtTime(frequency, startAt);
-      gain.gain.setValueAtTime(0.0001, startAt);
-      gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(startAt);
-      oscillator.stop(startAt + duration + 0.05);
-    },
-    playRideRequest() {
-      const context = AudioAlerts.unlock();
-      if (!context) return;
-      const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(784, startAt, 0.22, 0.11);
-      AudioAlerts.pulse(988, startAt + 0.26, 0.22, 0.11);
-      AudioAlerts.pulse(1174, startAt + 0.54, 0.32, 0.12);
-    },
-    playNotification() {
-      const context = AudioAlerts.unlock();
-      if (!context) return;
-      const startAt = context.currentTime + 0.02;
-      AudioAlerts.pulse(622, startAt, 0.18, 0.1);
-      AudioAlerts.pulse(831, startAt + 0.2, 0.22, 0.09);
-      AudioAlerts.pulse(988, startAt + 0.46, 0.18, 0.085);
-    },
-  };
+function setAdminShellVisibility(isAuthenticated) {
+    document.querySelector('.sidebar')?.classList.toggle('hidden', !isAuthenticated);
+    document.querySelector('.content')?.classList.toggle('hidden', !isAuthenticated);
+    document.querySelector('.topbar')?.classList.toggle('hidden', !isAuthenticated);
+    document.getElementById('adminAuthPanel')?.classList.toggle('hidden', isAuthenticated);
+}
 
-  function handleRealtimeAlerts(previousData, nextData) {
-    if (!previousData) return;
-    const previousPendingRideIds = new Set((previousData.rides || []).filter((ride) => ride.status === 'pending').map((ride) => ride.id));
-    const nextPendingRide = (nextData.rides || []).find((ride) => ride.status === 'pending' && !previousPendingRideIds.has(ride.id));
-    if (nextPendingRide) {
-      AudioAlerts.playRideRequest();
-      showSystemNotification(
-        'New Ride Request',
-        `${nextPendingRide.customerName} needs a ride from ${nextPendingRide.pickup} to ${nextPendingRide.dropoff}.`,
-        { tag: `admin-ride-${nextPendingRide.id}`, requireInteraction: true }
-      );
-      DOM.toast(`New ride request ${nextPendingRide.id} received.`);
-      return;
-    }
-    const previousNotificationIds = new Set((previousData.notifications || []).map((item) => item.id));
-    const latestNotification = (nextData.notifications || [])[0];
-    if (latestNotification && !previousNotificationIds.has(latestNotification.id)) {
-      AudioAlerts.playNotification();
-      showSystemNotification('Teleka Admin Alert', latestNotification.message || 'You have a new admin alert.', {
-        tag: `admin-notification-${latestNotification.id}`,
-      });
-    }
-  }
-
-  const UI = {
-    toggleSidebar(forceClose = false) {
-      const sidebar = DOM.qs('.sidebar');
-      if (!sidebar) return;
-      if (window.innerWidth <= 1024) {
-        sidebar.classList.toggle('open', forceClose ? false : !sidebar.classList.contains('open'));
-        return;
-      }
-      sidebar.classList.toggle('collapsed', forceClose || !sidebar.classList.contains('collapsed'));
-    },
-    setActiveSection(sectionId) {
-      DOM.qsa('.section').forEach((section) => section.classList.toggle('active', section.id === sectionId));
-      DOM.qsa('.sidebar-item').forEach((item) => item.classList.toggle('active', item.dataset.section === sectionId));
-      const pageTitle = DOM.qs('.page-title');
-      if (pageTitle) pageTitle.textContent = sectionId.charAt(0).toUpperCase() + sectionId.slice(1);
-      if (window.innerWidth <= 1024) UI.toggleSidebar(true);
-    },
-    setAuthenticated(authenticated) {
-      DOM.qs('#adminAuthPanel').classList.toggle('active', !authenticated);
-      DOM.qsa('#mainContent > .section:not(#adminAuthPanel)').forEach((section) => section.classList.toggle('active', authenticated && section.id === 'overview'));
-      DOM.qs('.sidebar').style.display = authenticated ? '' : 'none';
-      DOM.qs('#notifToggle').style.display = authenticated ? '' : 'none';
-      DOM.qs('.page-title').textContent = authenticated ? 'Overview' : 'Admin Login';
-      DOM.qs('.page-subtitle').textContent = authenticated
-        ? 'Operational control for customers, drivers, rides, revenue, and dispatch settings.'
-        : 'Authenticated admin access is required.';
-    },
-    render() {
-      const data = state.data;
-      if (!data) return;
-      DOM.qs('#summaryCustomers').textContent = String(data.summary.totalCustomers);
-      DOM.qs('#summaryDriversOnline').textContent = String(data.summary.onlineDrivers);
-      DOM.qs('#summaryPendingRides').textContent = String(data.summary.pendingRides);
-      DOM.qs('#summaryActiveRides').textContent = String(data.summary.activeRides);
-      DOM.qs('#summaryCompletedRides').textContent = String(data.summary.completedRides);
-      DOM.qs('#summaryRevenue').textContent = DOM.money(data.summary.revenue);
-      DOM.qs('#notifCount').textContent = String((data.notifications || []).length);
-
-      renderTable('#overviewRidesBody', data.rides.slice(0, 8), (ride) => `
-        <td>${ride.id}</td>
-        <td>${ride.customerName}</td>
-        <td>${ride.driverName}</td>
-        <td>${ride.pickup} → ${ride.dropoff}</td>
-        <td>${ride.status}</td>
-        <td>${DOM.money(ride.fare)}</td>
-      `, 6, 'No rides yet.');
-
-      renderTable('#usersTableBody', data.customers, (customer) => `
-        <td>${customer.name}</td>
-        <td>${customer.email || '-'}</td>
-        <td>${customer.phone || '-'}</td>
-        <td>${new Date(customer.createdAt).toLocaleString()}</td>
-      `, 4, 'No customers registered yet.');
-
-      renderTable('#driversTableBody', data.drivers, (driver) => `
-        <td>${driver.name}</td>
-        <td>${driver.phone || '-'}</td>
-        <td>${driver.vehicle || '-'}</td>
-        <td>${driver.online ? 'online' : driver.approvalStatus || 'offline'}</td>
-        <td>${driver.documents?.verified ? 'verified' : (driver.approvalStatus || 'pending')}</td>
-        <td>${driver.currentRideId || '-'}</td>
-        <td>${DOM.money(driver.earningsTotal || 0)}</td>
-        <td>${driver.approvalStatus === 'approved'
-          ? `<button class="btn small" data-action="view-driver-docs" data-id="${driver.id}">View Docs</button> <button class="btn small" data-action="reset-driver-password" data-id="${driver.id}">Reset Password</button>`
-          : '-'}</td>
-      `, 8, 'No drivers registered yet.');
-
-      renderTable('#driverApplicationsBody', data.driverApplications || [], (driver) => `
-        <td>${driver.name}</td>
-        <td>${driver.phone || '-'}</td>
-        <td>${driver.vehicle || '-'}${driver.plate ? ` / ${driver.plate}` : ''}</td>
-        <td>${formatDocuments(driver.documents)}</td>
-        <td>${driver.approvalStatus || 'pending'}</td>
-        <td>${driver.approvalStatus === 'pending'
-          ? `<button class="btn small" data-action="view-driver-docs" data-id="${driver.id}">View Docs</button>
-             <button class="btn small" data-action="approve-driver" data-id="${driver.id}">Approve</button>
-             <button class="btn small secondary" data-action="reject-driver" data-id="${driver.id}">Reject</button>`
-          : (driver.approvalNotes || '-')}</td>
-      `, 6, 'No pending driver applications.');
-
-      renderTable('#driverResetRequestsBody', data.passwordResetRequests || [], (request) => `
-        <td>${request.driverName}</td>
-        <td>${request.registeredPhone}</td>
-        <td>${request.whatsappNumber}</td>
-        <td>${request.status}</td>
-        <td>${new Date(request.createdAt).toLocaleString()}</td>
-        <td>${request.status === 'pending'
-          ? `<button class="btn small" data-action="send-reset-whatsapp" data-id="${request.id}">Send via WhatsApp</button>
-             <button class="btn small secondary" data-action="reset-driver-password" data-id="${request.driverId}">Reset Password</button>`
-          : (request.adminMessage || '-')}</td>
-      `, 6, 'No password reset requests.');
-
-      renderTable('#ridesTableBody', data.rides, (ride) => `
-        <td>${ride.id}</td>
-        <td>${ride.customerName}</td>
-        <td>${ride.driverName}</td>
-        <td>${ride.pickup}</td>
-        <td>${ride.dropoff}</td>
-        <td>${ride.status}</td>
-        <td>${DOM.money(ride.fare)}</td>
-        <td>${['completed', 'cancelled'].includes(ride.status)
-          ? '-'
-          : `${ride.status === 'pending' && !ride.driverId ? `<button class="btn small" data-action="assign-driver" data-id="${ride.id}">Assign Driver</button> ` : ''}<button class="btn small" data-action="cancel-ride" data-id="${ride.id}">Cancel</button>`}</td>
-      `, 8, 'No rides found.');
-
-      DOM.qs('#earningsRevenue').textContent = DOM.money(data.summary.revenue);
-      DOM.qs('#earningsCompletedTrips').textContent = String(data.summary.completedRides);
-      DOM.qs('#earningsCancelledTrips').textContent = String(data.summary.cancelledRides);
-
-      renderTable('#driverEarningsBody', data.drivers, (driver) => `
-        <td>${driver.name}</td>
-        <td>${data.rides.filter((ride) => ride.driverId === driver.id && ride.status === 'completed').length}</td>
-        <td>${DOM.money(driver.earningsToday || 0)}</td>
-        <td>${DOM.money(driver.earningsTotal || 0)}</td>
-      `, 4, 'No driver earnings yet.');
-
-      renderTable('#notificationsBody', data.notifications, (item) => `
-        <td>${new Date(item.createdAt).toLocaleString()}</td>
-        <td>${item.targetType}</td>
-        <td>${item.type || 'info'}</td>
-        <td>${item.message}</td>
-      `, 4, 'No notifications sent yet.');
-
-      DOM.qs('#settingBaseFare').value = data.settings.baseFare;
-      DOM.qs('#settingPerKm').value = data.settings.perKm;
-      DOM.qs('#settingPerMin').value = data.settings.perMin;
-      DOM.qs('#settingSurge').value = data.settings.surge;
-      DOM.qs('#settingCancelFee').value = data.settings.cancelFee;
-
-      (data.passwordResetRequests || [])
-        .filter((request) => request.status === 'pending' && !state.promptedResetIds.includes(request.id))
-        .forEach((request) => {
-          state.promptedResetIds.push(request.id);
-          if (window.confirm(`Password reset requested by ${request.driverName} on ${request.whatsappNumber}. Send a WhatsApp response now?`)) {
-            Actions.sendResetViaWhatsApp(request.id).catch((error) => DOM.toast(error.message));
-          }
-        });
-    },
-  };
-
-  function renderTable(selector, rows, rowTemplate, colspan, emptyMessage) {
-    const body = DOM.qs(selector);
-    body.innerHTML = '';
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="${colspan}">${emptyMessage}</td></tr>`;
-      return;
-    }
-    rows.forEach((rowData) => {
-      const row = document.createElement('tr');
-      row.innerHTML = rowTemplate(rowData);
-      body.appendChild(row);
+function showAdminSection(sectionId) {
+    document.querySelectorAll('.section').forEach((section) => {
+        section.classList.toggle('active', section.id === sectionId);
     });
-  }
+    document.querySelectorAll('.sidebar-item[data-section]').forEach((item) => {
+        item.classList.toggle('active', item.getAttribute('data-section') === sectionId);
+    });
+}
 
-  function formatDocuments(documents = {}) {
-    const items = [
-      documents.licenseNumber && `License: ${documents.licenseNumber}`,
-      documents.nationalIdNumber && `National ID: ${documents.nationalIdNumber}`,
-      documents.insuranceNumber && `Insurance: ${documents.insuranceNumber}`,
-      documents.photoName && `Photo: ${documents.photoName}`,
-      documents.carPhotoName && `Car: ${documents.carPhotoName}`,
-      Array.isArray(documents.documentNames) && documents.documentNames.length ? `Files: ${documents.documentNames.join(', ')}` : '',
-    ].filter(Boolean);
-    return items.length ? items.join(' | ') : 'No documents';
-  }
+async function api(url, options = {}) {
+    const response = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
+}
 
-  const Actions = {
-    async login() {
-      const email = DOM.qs('#adminEmail').value.trim();
-      const password = DOM.qs('#adminPassword').value;
-      const data = await DOM.api('/api/auth/admin/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
-      state.auth = { email: data.admin.email };
-      UI.setAuthenticated(true);
-      await Actions.refresh();
-      Actions.ensureEvents();
-    },
-    async refresh() {
-      const previousData = state.data;
-      state.data = await DOM.api('/api/admin/state');
-      UI.render();
-      handleRealtimeAlerts(previousData, state.data);
-    },
-    ensureEvents() {
-      if (state.eventSource) return;
-      const stream = new EventSource('/api/events');
-      stream.addEventListener('state-update', () => Actions.refresh().catch(console.warn));
-      stream.onerror = () => {
-        stream.close();
-        state.eventSource = null;
-        setTimeout(() => Actions.ensureEvents(), 3000);
-      };
-      state.eventSource = stream;
-    },
-    async cancelRide(rideId) {
-      await DOM.api(`/api/rides/${encodeURIComponent(rideId)}/cancel`, { method: 'POST', body: '{}' });
-      await Actions.refresh();
-      DOM.toast(`Ride ${rideId} cancelled.`);
-    },
-    async assignDriver(rideId) {
-      const availableDrivers = (state.data?.drivers || []).filter((driver) => driver.approvalStatus === 'approved' && driver.online && !driver.currentRideId);
-      if (!availableDrivers.length) throw new Error('No available online drivers to assign');
-      const options = availableDrivers.map((driver, index) => `${index + 1}. ${driver.name} | ${driver.phone || '-'} | ${driver.vehicle || '-'}${driver.plate ? ` | ${driver.plate}` : ''}`).join('\n');
-      const answer = window.prompt(`Assign driver to ride ${rideId}. Enter the number:\n${options}`, '1');
-      if (!answer) return;
-      const selectedIndex = Number(answer) - 1;
-      const selectedDriver = availableDrivers[selectedIndex];
-      if (!selectedDriver) throw new Error('Invalid driver selection');
-      await DOM.api(`/api/admin/rides/${encodeURIComponent(rideId)}/assign-driver`, {
-        method: 'POST',
-        body: JSON.stringify({ driverId: selectedDriver.id }),
-      });
-      await Actions.refresh();
-      DOM.toast(`Ride ${rideId} assigned to ${selectedDriver.name}.`);
-    },
-    viewDriverDocs(driverId) {
-      const driver = [...(state.data?.driverApplications || []), ...(state.data?.drivers || [])].find((item) => item.id === driverId);
-      if (!driver) return;
-      const docs = driver.documents || {};
-      const files = Array.isArray(docs.files) ? docs.files : [];
-      DOM.qs('#driverDocsTitle').textContent = `${driver.name} Documents`;
-      DOM.qs('#driverDocsModalBody').innerHTML = `
-        <div class="modal-grid">
-          <div class="modal-block">
-            <h4>Face Photo</h4>
-            ${driver.avatar ? `<img class="doc-preview-image" src="${driver.avatar}" alt="${driver.name} face photo">` : '<p class="muted">No face photo uploaded.</p>'}
-          </div>
-          <div class="modal-block">
-            <h4>Car Photo</h4>
-            ${docs.carPhotoDataUrl ? `<img class="doc-preview-image" src="${docs.carPhotoDataUrl}" alt="${driver.name} car photo">` : '<p class="muted">No car photo uploaded.</p>'}
-          </div>
-        </div>
-        <div class="modal-grid">
-          <div class="modal-block">
-            <h4>Identity Details</h4>
-            <ul class="modal-list">
-              <li>License: ${docs.licenseNumber || '-'}</li>
-              <li>National ID: ${docs.nationalIdNumber || '-'}</li>
-              <li>Insurance: ${docs.insuranceNumber || '-'}</li>
-            </ul>
-          </div>
-          <div class="modal-block">
-            <h4>Uploaded Files</h4>
-            <div class="doc-preview-list">
-              ${files.length ? files.map((file) => file.type === 'application/pdf'
-                ? `<a class="btn small" href="${file.dataUrl}" target="_blank" rel="noreferrer">${file.name}</a>`
-                : `<a href="${file.dataUrl}" target="_blank" rel="noreferrer"><img class="doc-preview-image doc-preview-image--small" src="${file.dataUrl}" alt="${file.name}"></a>`).join('') : '<p class="muted">No supporting files uploaded.</p>'}
-            </div>
-          </div>
-        </div>
-      `;
-      DOM.qs('#driverDocsModal').classList.remove('hidden');
-      DOM.qs('#driverDocsModal').setAttribute('aria-hidden', 'false');
-    },
-    async approveDriver(driverId) {
-      await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/approve`, { method: 'POST', body: JSON.stringify({ notes: 'Documents verified by admin' }) });
-      await Actions.refresh();
-      DOM.toast('Driver approved.');
-    },
-    async rejectDriver(driverId) {
-      const notes = window.prompt('Reason for rejection', 'Incomplete or invalid driver documents');
-      if (!notes) return;
-      await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/reject`, { method: 'POST', body: JSON.stringify({ notes }) });
-      await Actions.refresh();
-      DOM.toast('Driver rejected.');
-    },
-    async resetDriverPassword(driverId) {
-      const password = window.prompt('Enter the new temporary password for this driver');
-      if (!password) return;
-      await DOM.api(`/api/admin/drivers/${encodeURIComponent(driverId)}/reset-password`, { method: 'POST', body: JSON.stringify({ password, adminMessage: 'Password reset by admin' }) });
-      await Actions.refresh();
-      DOM.toast('Driver password reset.');
-    },
-    async sendResetViaWhatsApp(requestId) {
-      const request = (state.data?.passwordResetRequests || []).find((item) => item.id === requestId);
-      if (!request) return;
-      const message = window.prompt(
-        'WhatsApp message to send',
-        `Hello ${request.driverName}, your password reset request has been received. Reply here once you are ready to receive your temporary password.`
-      );
-      if (!message) return;
-      const whatsappNumber = request.whatsappNumber.replace(/[^\d]/g, '');
-      await DOM.api(`/api/admin/password-reset-requests/${encodeURIComponent(requestId)}/whatsapp`, {
-        method: 'POST',
-        body: JSON.stringify({ status: 'sent', adminMessage: message }),
-      });
-      window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
-      await Actions.refresh();
-      DOM.toast('WhatsApp handoff prepared.');
-    },
-    async sendNotification() {
-      const target = DOM.qs('#notificationTarget').value;
-      const message = DOM.qs('#notificationMessage').value.trim();
-      if (!message) return;
-      await DOM.api('/api/admin/notifications', { method: 'POST', body: JSON.stringify({ target, message, type: 'info' }) });
-      DOM.qs('#notificationMessage').value = '';
-      await Actions.refresh();
-      DOM.toast('Notification sent.');
-    },
-    async saveSettings() {
-      await DOM.api('/api/admin/settings', {
-        method: 'POST',
-        body: JSON.stringify({
-          baseFare: Number(DOM.qs('#settingBaseFare').value),
-          perKm: Number(DOM.qs('#settingPerKm').value),
-          perMin: Number(DOM.qs('#settingPerMin').value),
-          surge: Number(DOM.qs('#settingSurge').value),
-          cancelFee: Number(DOM.qs('#settingCancelFee').value),
-        }),
-      });
-      await Actions.refresh();
-      DOM.toast('Pricing settings saved.');
-    },
-    async exportBackup() {
-      const response = await fetch('/api/admin/backups/export', {
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.message || `Request failed: ${response.status}`);
-      }
-      const blob = await response.blob();
-      const downloadUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = downloadUrl;
-      anchor.download = `teleka-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(downloadUrl);
-      DOM.toast('Backup exported.');
-    },
-    async restoreBackup() {
-      if (!window.confirm('Restore the platform from the saved backup? This will replace current live data.')) return;
-      await DOM.api('/api/admin/backups/restore', { method: 'POST', body: '{}' });
-      await Actions.refresh();
-      DOM.toast('Backup restored.');
-    },
-    async logout() {
-      state.eventSource?.close();
-      state.eventSource = null;
-      try { await DOM.api('/api/auth/admin/logout', { method: 'POST', body: '{}' }); } catch {}
-      state.auth = { email: state.auth.email || '' };
-      state.data = null;
-      UI.setAuthenticated(false);
-      UI.setActiveSection('adminAuthPanel');
-      DOM.toast('Signed out.');
-    },
-  };
+function formatMoney(value) {
+    return `UGX ${Math.round(Number(value || 0)).toLocaleString('en-US')}`;
+}
 
-  const Events = {
-    attach() {
-      DOM.qsa('.sidebar-item').forEach((item) => item.addEventListener('click', () => {
-        if (!item.dataset.section) return;
-        UI.setActiveSection(item.dataset.section);
-      }));
-      DOM.qs('#adminSidebarLogout')?.addEventListener('click', Actions.logout);
-      DOM.qs('#toggleSidebar')?.addEventListener('click', () => UI.toggleSidebar());
-      DOM.qs('#mobileSidebarToggle')?.addEventListener('click', () => UI.toggleSidebar());
-      DOM.qs('#notifToggle')?.addEventListener('click', () => UI.setActiveSection('notifications'));
-      DOM.qs('#adminLoginForm')?.addEventListener('submit', (event) => {
+function formatDate(value) {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+}
+
+function renderSummary(summary) {
+    if (!summary) return;
+    document.getElementById('summaryCustomers').textContent = summary.customers || 0;
+    document.getElementById('summaryDriversOnline').textContent = summary.drivers_online || 0;
+    document.getElementById('summaryPendingRides').textContent = summary.pending_rides || 0;
+    document.getElementById('summaryActiveRides').textContent = summary.active_rides || 0;
+    document.getElementById('summaryCompletedRides').textContent = summary.completed_rides || 0;
+    document.getElementById('summaryRevenue').textContent = formatMoney(summary.revenue);
+}
+
+function renderTableRows(tbodyId, rowsHtml) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    tbody.innerHTML = rowsHtml || '<tr><td colspan="8">No records found.</td></tr>';
+}
+
+function renderSnapshot(snapshot) {
+    renderSummary(snapshot.summary);
+
+    renderTableRows('overviewRidesBody', (snapshot.latestRides || []).map((ride) => `
+        <tr>
+          <td>#${ride.id}</td>
+          <td>${ride.customer_name || '--'}</td>
+          <td>${ride.driver_name || 'Unassigned'}</td>
+          <td>${ride.pickup_location} -> ${ride.dropoff_location}</td>
+          <td>${ride.status}</td>
+          <td>${formatMoney(ride.final_fare ?? ride.estimated_fare)}</td>
+        </tr>
+    `).join(''));
+
+    renderTableRows('usersTableBody', (snapshot.users || []).map((user) => `
+        <tr><td>${user.name}</td><td>${user.email}</td><td>${user.phone || '--'}</td><td>${formatDate(user.created_at)}</td></tr>
+    `).join(''));
+
+    adminState.pendingDrivers = new Map((snapshot.pendingDrivers || []).map((driver) => [driver.id, driver]));
+    renderTableRows('driverApplicationsBody', (snapshot.pendingDrivers || []).map((driver) => `
+        <tr>
+          <td>${driver.name}</td>
+          <td>${driver.phone || '--'}</td>
+          <td>${driver.vehicle_info || '--'}</td>
+          <td><button class="btn small" onclick="viewDocuments(${driver.id})">View</button></td>
+          <td><span class="status-badge pending">${driver.status}</span></td>
+          <td>
+            <button class="btn small primary" onclick="approveDriver(${driver.id})">Approve</button>
+            <button class="btn small secondary" onclick="rejectDriver(${driver.id})">Reject</button>
+          </td>
+        </tr>
+    `).join(''));
+
+    renderTableRows('driversTableBody', (snapshot.approvedDrivers || []).map((driver) => `
+        <tr>
+          <td>${driver.name}</td><td>${driver.phone || '--'}</td><td>${driver.vehicle_info || '--'}</td>
+          <td>${driver.is_online ? 'Online' : 'Offline'}</td><td>${Number(driver.rating || 0).toFixed(1)}</td>
+          <td>${driver.current_ride_id ? `#${driver.current_ride_id}` : '--'}</td>
+          <td>${driver.review_count || 0} reviews</td><td>Active</td>
+        </tr>
+    `).join(''));
+
+    renderTableRows('ridesTableBody', (snapshot.rides || []).map((ride) => `
+        <tr>
+          <td>#${ride.id}</td><td>${ride.customer_name || '--'}</td><td>${ride.driver_name || 'Unassigned'}</td>
+          <td>${ride.pickup_location}</td><td>${ride.dropoff_location}</td><td>${ride.status}</td>
+          <td>${formatMoney(ride.final_fare ?? ride.estimated_fare)}</td>
+          <td>${['pending','accepted','arrived','enroute'].includes(ride.status) ? `<button class="btn small secondary" onclick="setRideStatus(${ride.id}, 'cancelled')">Cancel</button>` : '--'}</td>
+        </tr>
+    `).join(''));
+
+    document.getElementById('earningsRevenue').textContent = formatMoney(snapshot.earnings?.revenue);
+    document.getElementById('earningsCompletedTrips').textContent = snapshot.earnings?.completed_trips || 0;
+    document.getElementById('earningsCancelledTrips').textContent = snapshot.earnings?.cancelled_trips || 0;
+    renderTableRows('driverEarningsBody', (snapshot.earnings?.driverEarnings || []).map((row) => `
+        <tr><td>${row.name}</td><td>${row.trips || 0}</td><td>${formatMoney(row.today_earnings)}</td><td>${formatMoney(row.total_earnings)}</td></tr>
+    `).join(''));
+
+    renderTableRows('notificationsBody', (snapshot.notifications || []).map((note) => `
+        <tr><td>${formatDate(note.created_at)}</td><td>${note.target_role}</td><td>${note.type || 'info'}</td><td>${note.message}</td></tr>
+    `).join(''));
+
+    renderTableRows('driverResetRequestsBody', (snapshot.resetRequests || []).map((row) => `
+        <tr><td>#${row.driver_id || '--'}</td><td>${row.driver_phone || '--'}</td><td>${row.whatsapp || '--'}</td><td>${row.status}</td><td>${formatDate(row.created_at)}</td><td>--</td></tr>
+    `).join(''));
+
+    const pricing = snapshot.pricing || {};
+    document.getElementById('settingBaseFare').value = pricing.base_fare ?? 3500;
+    document.getElementById('settingPerKm').value = pricing.per_km ?? 1200;
+    document.getElementById('settingPerMin').value = pricing.per_min ?? 180;
+    document.getElementById('settingSurge').value = pricing.surge_multiplier ?? 1.15;
+    document.getElementById('settingCancelFee').value = pricing.cancellation_fee ?? 2500;
+}
+
+async function loadAdminSnapshot() {
+    try {
+        const snapshot = await api('/api/admin/snapshot');
+        renderSnapshot(snapshot);
+    } catch (error) {
+        console.error('Snapshot load failed:', error);
+    }
+}
+
+function startPolling() {
+    clearInterval(adminState.pollId);
+    loadAdminSnapshot();
+    adminState.pollId = setInterval(loadAdminSnapshot, 5000);
+}
+
+async function checkAdminAuth() {
+    try {
+        const response = await fetch('/auth/status', { credentials: 'include' });
+        const data = await response.json();
+        const authorized = Boolean(data.authenticated && data.user?.role === 'admin');
+        setAdminShellVisibility(authorized);
+        if (authorized) startPolling();
+    } catch (error) {
+        console.error('Auth check failed:', error);
+        setAdminShellVisibility(false);
+    }
+}
+
+async function approveDriver(driverId) {
+    await api(`/api/drivers/approve/${driverId}`, { method: 'POST' });
+    loadAdminSnapshot();
+}
+
+async function rejectDriver(driverId) {
+    if (!confirm('Reject this driver application?')) return;
+    await api(`/api/drivers/reject/${driverId}`, { method: 'POST' });
+    loadAdminSnapshot();
+}
+
+function viewDocuments(driverId) {
+    const driver = adminState.pendingDrivers.get(driverId);
+    const body = document.getElementById('driverDocsModalBody');
+    const modal = document.getElementById('driverDocsModal');
+    if (!body || !modal) return;
+    const docs = JSON.parse(driver?.docs_json || '[]');
+    body.innerHTML = docs.length
+        ? `<ul class="modal-list">${docs.map((item) => `<li>${item}</li>`).join('')}</ul>`
+        : '<p class="muted">No uploaded document metadata.</p>';
+    modal.classList.remove('hidden');
+}
+
+function closeDocsModal() {
+    document.getElementById('driverDocsModal')?.classList.add('hidden');
+}
+
+async function setRideStatus(rideId, status) {
+    await api(`/api/admin/rides/${rideId}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status })
+    });
+    loadAdminSnapshot();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('adminLoginForm')?.addEventListener('submit', async (event) => {
         event.preventDefault();
-        Actions.login().catch((error) => DOM.toast(error.message));
-      });
-      DOM.qs('#notificationForm')?.addEventListener('submit', (event) => {
-        event.preventDefault();
-        Actions.sendNotification().catch((error) => DOM.toast(error.message));
-      });
-      DOM.qs('#pricingForm')?.addEventListener('submit', (event) => {
-        event.preventDefault();
-        Actions.saveSettings().catch((error) => DOM.toast(error.message));
-      });
-      DOM.qs('#exportBackupBtn')?.addEventListener('click', () => Actions.exportBackup().catch((error) => DOM.toast(error.message)));
-      DOM.qs('#restoreBackupBtn')?.addEventListener('click', () => Actions.restoreBackup().catch((error) => DOM.toast(error.message)));
-      document.body.addEventListener('click', (event) => {
-        const action = event.target.closest('[data-action="cancel-ride"]');
-        if (action) Actions.cancelRide(action.dataset.id).catch((error) => DOM.toast(error.message));
-        const assign = event.target.closest('[data-action="assign-driver"]');
-        if (assign) Actions.assignDriver(assign.dataset.id).catch((error) => DOM.toast(error.message));
-        const viewDocs = event.target.closest('[data-action="view-driver-docs"]');
-        if (viewDocs) Actions.viewDriverDocs(viewDocs.dataset.id);
-        const approve = event.target.closest('[data-action="approve-driver"]');
-        if (approve) Actions.approveDriver(approve.dataset.id).catch((error) => DOM.toast(error.message));
-        const reject = event.target.closest('[data-action="reject-driver"]');
-        if (reject) Actions.rejectDriver(reject.dataset.id).catch((error) => DOM.toast(error.message));
-        const resetPassword = event.target.closest('[data-action="reset-driver-password"]');
-        if (resetPassword) Actions.resetDriverPassword(resetPassword.dataset.id).catch((error) => DOM.toast(error.message));
-        const sendWhatsApp = event.target.closest('[data-action="send-reset-whatsapp"]');
-        if (sendWhatsApp) Actions.sendResetViaWhatsApp(sendWhatsApp.dataset.id).catch((error) => DOM.toast(error.message));
-      });
-      DOM.qs('#closeDriverDocsModal')?.addEventListener('click', () => {
-        DOM.qs('#driverDocsModal')?.classList.add('hidden');
-        DOM.qs('#driverDocsModal')?.setAttribute('aria-hidden', 'true');
-      });
-      document.addEventListener('pointerdown', () => {
-        AudioAlerts.unlock();
-        requestSystemNotificationPermission();
-      }, { once: true });
-      document.addEventListener('keydown', () => {
-        AudioAlerts.unlock();
-        requestSystemNotificationPermission();
-      }, { once: true });
-      document.addEventListener('click', (event) => {
-        if (window.innerWidth <= 1024 && !event.target.closest('.sidebar') && !event.target.closest('#mobileSidebarToggle')) {
-          UI.toggleSidebar(true);
+        const email = document.getElementById('adminEmail').value;
+        const password = document.getElementById('adminPassword').value;
+        try {
+            await api('/auth/admin/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+            checkAdminAuth();
+        } catch (error) {
+            alert(error.message || 'Login failed');
         }
-      });
-    },
-  };
+    });
 
-  return {
-    async init() {
-      Events.attach();
-      UI.setAuthenticated(false);
-      if (state.auth.email) DOM.qs('#adminEmail').value = state.auth.email;
-      try {
-        UI.setAuthenticated(true);
-        await Actions.refresh();
-        Actions.ensureEvents();
-      } catch {
-        state.auth = { email: '' };
-        UI.setAuthenticated(false);
-      }
-    },
-  };
-})();
+    document.getElementById('adminSidebarLogout')?.addEventListener('click', async () => {
+        try {
+            await api('/auth/admin/logout', { method: 'POST' });
+            clearInterval(adminState.pollId);
+            setAdminShellVisibility(false);
+        } catch (error) {
+            alert(error.message || 'Logout failed');
+        }
+    });
 
-window.addEventListener('DOMContentLoaded', () => {
-  TelekaAdmin.init().catch((error) => window.alert(error.message));
+    document.querySelectorAll('.sidebar-item[data-section]').forEach((item) => {
+        item.addEventListener('click', () => showAdminSection(item.getAttribute('data-section')));
+    });
+
+    document.getElementById('pricingForm')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await api('/api/admin/pricing', {
+            method: 'PUT',
+            body: JSON.stringify({
+                baseFare: document.getElementById('settingBaseFare').value,
+                perKm: document.getElementById('settingPerKm').value,
+                perMin: document.getElementById('settingPerMin').value,
+                surgeMultiplier: document.getElementById('settingSurge').value,
+                cancellationFee: document.getElementById('settingCancelFee').value
+            })
+        });
+        loadAdminSnapshot();
+    });
+
+    document.getElementById('notificationForm')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        await api('/api/admin/notifications', {
+            method: 'POST',
+            body: JSON.stringify({
+                target: document.getElementById('notificationTarget').value,
+                message: document.getElementById('notificationMessage').value
+            })
+        });
+        document.getElementById('notificationMessage').value = '';
+        loadAdminSnapshot();
+    });
+
+    document.getElementById('exportBackupBtn')?.addEventListener('click', () => window.open('/api/admin/export', '_blank'));
+    document.getElementById('restoreBackupBtn')?.addEventListener('click', () => alert('Restore endpoint is disabled from UI for safety. Use export + controlled restore process.'));
+    document.getElementById('closeDriverDocsModal')?.addEventListener('click', closeDocsModal);
+
+    document.addEventListener('click', closeSidebarOnClickOutside);
+    window.addEventListener('resize', resetSidebarOnResize);
+    checkAdminAuth();
 });
+
+window.approveDriver = approveDriver;
+window.rejectDriver = rejectDriver;
+window.viewDocuments = viewDocuments;
+window.setRideStatus = setRideStatus;

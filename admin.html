@@ -10,7 +10,7 @@
 </head>
 <body>
   <div class="dashboard-container">
-    <aside class="sidebar" aria-label="Main navigation">
+    <aside class="sidebar hidden" aria-label="Main navigation">
       <div class="sidebar-header">
         <img src="ims/ticon.png" alt="Teleka Logo" class="sidebar-logo" />
         <span class="sidebar-title">Teleka Admin</span>
@@ -52,58 +52,52 @@
       </ul>
 
       <div class="sidebar-footer">
-        <button class="btn small" id="toggleSidebar" aria-label="Toggle sidebar">
+        <button class="btn small" id="toggleSidebar" aria-label="Toggle sidebar" onclick="toggleSidebar()">
           <i class="fas fa-angle-left"></i>
           <span class="toggle-label">Collapse</span>
         </button>
       </div>
     </aside>
 
-    <main class="content" role="main">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button class="icon-btn" id="mobileSidebarToggle" aria-label="Open navigation">
-            <i class="fas fa-bars"></i>
-          </button>
-          <div class="page-header">
-            <h1 class="page-title">Overview</h1>
-            <p class="page-subtitle">Operational control for customers, drivers, rides, revenue, and dispatch settings.</p>
+      <header class="topbar hidden">
+          <div class="topbar-content">
+            <button id="adminSidebarToggle" class="sidebar-toggle-btn" type="button" onclick="toggleSidebar()" aria-label="Toggle admin menu">
+              <i class="fas fa-bars"></i>
+            </button>
+            <h1>Teleka Admin Panel</h1>
           </div>
-        </div>
-
-        <div class="topbar-right">
-          <button class="icon-btn" id="notifToggle" aria-label="Notifications">
-            <i class="fas fa-bell"></i>
-            <span class="badge" id="notifCount" aria-label="Unread notifications">0</span>
-          </button>
-        </div>
       </header>
+    
 
-      <div class="main-content" id="mainContent">
-        <section id="adminAuthPanel" class="section active">
-          <div class="section-header">
-            <h2>Admin Sign In</h2>
-            <p>Authenticated admin access is required for operational data and platform controls.</p>
-          </div>
+    <!-- Login Panel - Always visible when not authenticated -->
+    <div id="adminAuthPanel" class="auth-overlay">
+      <div class="auth-container">
+        <div class="section-header">
+          <h2>Admin Sign In</h2>
+          <p>Authenticated admin access is required for operational data and platform controls.</p>
+        </div>
 
-          <div class="panel">
-            <form class="settings-form" id="adminLoginForm">
-              <div class="form-grid">
-                <div class="form-row">
-                  <label>Email</label>
-                  <input id="adminEmail" type="email" required />
-                </div>
-                <div class="form-row">
-                  <label>Password</label>
-                  <input id="adminPassword" type="password" required />
-                </div>
+        <div class="panel">
+          <form class="settings-form" id="adminLoginForm">
+            <div class="form-grid">
+              <div class="form-row">
+                <label>Email</label>
+                <input id="adminEmail" type="email" required />
               </div>
-              <div class="form-actions">
-                <button class="btn" type="submit">Sign In</button>
+              <div class="form-row">
+                <label>Password</label>
+                <input id="adminPassword" type="password" required />
               </div>
-            </form>
-          </div>
-        </section>
+            </div>
+            <div class="form-actions">
+              <button class="btn" type="submit">Sign In</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <main class="content hidden" role="main">
 
         <section id="overview" class="section active">
           <div class="section-header">

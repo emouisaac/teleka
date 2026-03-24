@@ -1,1522 +1,1145 @@
-const http = require('http');
-const fs = require('fs');
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const LocalStrategy = require('passport-local').Strategy;
+const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
 const path = require('path');
+const fs = require('fs');
 const os = require('os');
-const crypto = require('crypto');
-const { DatabaseSync } = require('node:sqlite');
-const nodemailer = require('nodemailer');
+require('dotenv').config();
 
-const baseDir = path.resolve(__dirname);
-const projectDataDir = path.join(baseDir, 'data');
-const roamingDataDir = process.env.APPDATA
-  ? path.join(process.env.APPDATA, 'Teleka')
-  : (process.platform === 'win32'
-    ? path.join(os.homedir(), 'AppData', 'Roaming', 'Teleka')
-    : path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'teleka'));
+const app = express();
+const PORT = Number(process.env.PORT || 3000);
 
-function loadEnv() {
-  const out = {};
-  try {
-    fs.readFileSync(path.join(baseDir, '.env'), 'utf8').split(/\r?\n/).forEach((line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const [key, ...rest] = trimmed.split('=');
-      if (key) out[key.trim()] = rest.join('=').trim();
-    });
-  } catch {}
-  return out;
+const defaultDataDir = process.env.TELEKA_DATA_DIR || path.join(os.homedir(), 'AppData', 'Roaming', 'Teleka');
+const dbPath = process.env.TELEKA_DB_PATH || path.join(defaultDataDir, 'teleka.sqlite');
+const dataDir = path.dirname(dbPath);
+const sessionDbName = process.env.TELEKA_SESSIONS_DB || 'sessions.db';
+const sessionStoreDir = process.env.TELEKA_SESSIONS_DIR || __dirname;
+
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+if (!fs.existsSync(sessionStoreDir)) {
+  fs.mkdirSync(sessionStoreDir, { recursive: true });
 }
 
-const env = loadEnv();
-const port = Number(process.env.PORT || env.PORT || 3000);
-const configuredDbPath = process.env.TELEKA_DB_PATH || env.TELEKA_DB_PATH || '';
-const persistentVolumeRoot = process.env.TELEKA_VOLUME_DIR
-  || process.env.RENDER_DISK_PATH
-  || process.env.RAILWAY_VOLUME_MOUNT_PATH
-  || process.env.FLY_VOLUME_DIR
-  || process.env.KOYEB_VOLUME_DIR
-  || '';
-const databasePath = resolveDatabasePath();
-const userBackupFile = path.join(persistentVolumeRoot || projectDataDir, 'teleka-users.json');
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || env.GOOGLE_MAPS_API_KEY || '';
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || env.GOOGLE_CLIENT_ID || '';
-const AUTH_SECRET = process.env.AUTH_SECRET || env.AUTH_SECRET || '';
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || env.ADMIN_EMAIL || '';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || env.ADMIN_PASSWORD || '';
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || env.ADMIN_PASSWORD_HASH || '';
-const EMAIL_HOST = process.env.EMAIL_HOST || env.EMAIL_HOST || '';
-const EMAIL_PORT = Number(process.env.EMAIL_PORT || env.EMAIL_PORT || 587);
-const EMAIL_SECURE = String(process.env.EMAIL_SECURE || env.EMAIL_SECURE || 'false').toLowerCase() === 'true';
-const EMAIL_USER = process.env.EMAIL_USER || env.EMAIL_USER || '';
-const EMAIL_PASS = process.env.EMAIL_PASS || env.EMAIL_PASS || '';
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || env.SENDGRID_API_KEY || '';
-const EMAIL_FROM = process.env.EMAIL_FROM || env.EMAIL_FROM || 'no-reply@telekataxi.com';
-const EMAIL_TO = (process.env.EMAIL_TO || env.EMAIL_TO || '').split(',').map((v) => v.trim()).filter(Boolean);
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || env.ALLOWED_ORIGINS || '').split(',').map((v) => v.trim()).filter(Boolean);
+const db = new sqlite3.Database(dbPath);
+db.configure('busyTimeout', 5000);
 
-const mimeTypes = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.svg': 'image/svg+xml',
+const runQuery = (sql, params = []) => new Promise((resolve, reject) => {
+  db.run(sql, params, function onRun(err) {
+    if (err) return reject(err);
+    return resolve({ lastID: this.lastID, changes: this.changes });
+  });
+});
+
+const getQuery = (sql, params = []) => new Promise((resolve, reject) => {
+  db.get(sql, params, (err, row) => {
+    if (err) return reject(err);
+    return resolve(row);
+  });
+});
+
+const allQuery = (sql, params = []) => new Promise((resolve, reject) => {
+  db.all(sql, params, (err, rows) => {
+    if (err) return reject(err);
+    return resolve(rows);
+  });
+});
+
+const sanitizeText = (value, max = 2000) => String(value || '').trim().slice(0, max);
+const parseNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const money = (value) => Number(Number(value || 0).toFixed(2));
+const nowIso = () => new Date().toISOString();
+
+function sendError(res, status, error) {
+  return res.status(status).json({ success: false, error });
+}
+
+function getDriverToken(req) {
+  const authHeader = req.headers.authorization || '';
+  if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
+  return req.body?.token || req.query?.token || req.headers['x-driver-token'];
+}
+
+async function addColumn(table, definition) {
+  try {
+    await runQuery(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  } catch (error) {
+    if (!String(error.message || '').includes('duplicate column name')) throw error;
+  }
+}
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowed = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map((item) => item.trim())
+      : ['http://localhost:3000'];
+    return callback(null, allowed.includes(origin));
+  },
+  credentials: true
+}));
+app.use(bodyParser.json({ limit: '2mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '2mb' }));
+app.use(cookieParser());
+app.use(session({
+  secret: process.env.AUTH_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: new SQLiteStore({ db: sessionDbName, dir: sessionStoreDir }),
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(express.static(path.join(__dirname)));
+
+async function createNotification(targetRole, targetUserId, title, message, type = 'info') {
+  await runQuery(
+    `INSERT INTO notifications (target_role, target_user_id, title, message, type, is_read, created_at)
+     VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+    [targetRole, targetUserId ?? null, sanitizeText(title, 120), sanitizeText(message), sanitizeText(type, 40)]
+  );
+}
+
+async function initDatabase() {
+  await runQuery(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT DEFAULT 'customer',
+    google_id TEXT,
+    password_hash TEXT,
+    phone TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await addColumn('users', 'phone TEXT');
+  await addColumn('users', 'updated_at DATETIME');
+  await runQuery(`UPDATE users
+                  SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+                  WHERE updated_at IS NULL`);
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS drivers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT,
+    license_number TEXT,
+    vehicle_info TEXT,
+    plate_number TEXT,
+    national_id_number TEXT,
+    insurance_number TEXT,
+    status TEXT DEFAULT 'pending',
+    password_hash TEXT,
+    docs_json TEXT,
+    profile_photo_url TEXT,
+    car_photo_url TEXT,
+    is_online INTEGER DEFAULT 0,
+    current_ride_id INTEGER,
+    rating REAL DEFAULT 5,
+    review_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    approved_at DATETIME,
+    approved_by INTEGER,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await addColumn('drivers', 'plate_number TEXT');
+  await addColumn('drivers', 'national_id_number TEXT');
+  await addColumn('drivers', 'insurance_number TEXT');
+  await addColumn('drivers', 'docs_json TEXT');
+  await addColumn('drivers', 'profile_photo_url TEXT');
+  await addColumn('drivers', 'car_photo_url TEXT');
+  await addColumn('drivers', 'is_online INTEGER DEFAULT 0');
+  await addColumn('drivers', 'current_ride_id INTEGER');
+  await addColumn('drivers', 'rating REAL DEFAULT 5');
+  await addColumn('drivers', 'review_count INTEGER DEFAULT 0');
+  await addColumn('drivers', 'updated_at DATETIME');
+  await runQuery(`UPDATE drivers
+                  SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+                  WHERE updated_at IS NULL`);
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS rides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    driver_id INTEGER,
+    pickup_location TEXT NOT NULL,
+    dropoff_location TEXT NOT NULL,
+    pickup_lat REAL,
+    pickup_lng REAL,
+    dropoff_lat REAL,
+    dropoff_lng REAL,
+    scheduled_at TEXT NOT NULL,
+    scheduled_local TEXT,
+    requested_car_type TEXT DEFAULT 'standard',
+    payment_method TEXT DEFAULT 'cash',
+    distance_km REAL DEFAULT 0,
+    duration_min REAL DEFAULT 0,
+    estimated_fare REAL DEFAULT 0,
+    final_fare REAL,
+    status TEXT DEFAULT 'pending',
+    timeline_stage TEXT DEFAULT 'requested',
+    customer_note TEXT,
+    driver_note TEXT,
+    cancel_reason TEXT,
+    customer_rating REAL,
+    customer_review TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await addColumn('rides', 'scheduled_local TEXT');
+  await addColumn('rides', "timeline_stage TEXT DEFAULT 'requested'");
+  await addColumn('rides', 'customer_note TEXT');
+  await addColumn('rides', 'driver_note TEXT');
+  await addColumn('rides', 'cancel_reason TEXT');
+  await addColumn('rides', 'customer_rating REAL');
+  await addColumn('rides', 'customer_review TEXT');
+  await addColumn('rides', 'updated_at DATETIME');
+  await runQuery(`UPDATE rides
+                  SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+                  WHERE updated_at IS NULL`);
+  await runQuery('CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status)');
+  await runQuery('CREATE INDEX IF NOT EXISTS idx_rides_customer ON rides(customer_id)');
+  await runQuery('CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id)');
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS ride_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ride_id INTEGER NOT NULL,
+    sender_role TEXT NOT NULL,
+    sender_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await runQuery('CREATE INDEX IF NOT EXISTS idx_ride_messages_ride ON ride_messages(ride_id)');
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_role TEXT NOT NULL,
+    target_user_id INTEGER,
+    title TEXT,
+    message TEXT NOT NULL,
+    type TEXT DEFAULT 'info',
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS pricing_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    base_fare REAL NOT NULL,
+    per_km REAL NOT NULL,
+    per_min REAL NOT NULL,
+    surge_multiplier REAL NOT NULL,
+    cancellation_fee REAL NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await runQuery(
+    `INSERT OR IGNORE INTO pricing_settings (id, base_fare, per_km, per_min, surge_multiplier, cancellation_fee, updated_at)
+     VALUES (1, 3500, 1200, 180, 1.15, 2500, CURRENT_TIMESTAMP)`
+  );
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS driver_reset_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    driver_id INTEGER,
+    driver_phone TEXT,
+    whatsapp TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'admin3000';
+  const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
+  const existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+  if (!existingAdmin) {
+    await runQuery(
+      `INSERT INTO users (email, name, role, password_hash, created_at, updated_at)
+       VALUES (?, 'Administrator', 'admin', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [adminEmail, adminHash]
+    );
+  } else if (!existingAdmin.password_hash || existingAdmin.password_hash !== adminHash) {
+    await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [adminHash, existingAdmin.id]);
+  }
+}
+
+const googleCallbackLocal = process.env.GOOGLE_CALLBACK_URL_LOCAL || 'http://localhost:3000/auth/google/callback';
+const googleCallbackProduction = process.env.GOOGLE_CALLBACK_URL_PRODUCTION || 'http://www.telekataxi.com/auth/google/callback';
+const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL || `${process.env.APP_URL}/auth/google/callback`;
+
+const googleVerify = async (accessToken, refreshToken, profile, done) => {
+  try {
+    const email = profile.emails?.[0]?.value;
+    const name = profile.displayName || 'Customer';
+    if (!email) return done(new Error('Google profile missing email'));
+
+    const user = await getQuery('SELECT id, email, name, phone FROM users WHERE email = ?', [email]);
+    if (user) {
+      await runQuery('UPDATE users SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [name, user.id]);
+      return done(null, { id: user.id, email: user.email, name, role: 'customer', phone: user.phone || '' });
+    }
+
+    const created = await runQuery(
+      `INSERT INTO users (email, name, role, google_id, created_at, updated_at)
+       VALUES (?, ?, 'customer', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [email, name, profile.id]
+    );
+    return done(null, { id: created.lastID, email, name, role: 'customer', phone: '' });
+  } catch (error) {
+    return done(error);
+  }
 };
 
-const baseState = () => ({
-  settings: { baseFare: 3000, perKm: 1800, perMin: 300, surge: 1, cancelFee: 5000, currency: 'UGX' },
-  customers: [],
-  drivers: [],
-  rides: [],
-  notifications: [],
-  passwordResetRequests: [],
-  meta: { startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-});
+passport.use('google-local', new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: googleCallbackLocal
+}, googleVerify));
 
-const db = openDatabase();
-let state = loadState();
-const sseClients = new Set();
+passport.use('google-production', new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: googleCallbackProduction
+}, googleVerify));
 
-function openDatabase() {
-  fs.mkdirSync(path.dirname(databasePath), { recursive: true });
-  const database = new DatabaseSync(databasePath);
-  database.exec(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS state_documents (
-      id TEXT PRIMARY KEY,
-      payload TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+passport.use('google-default', new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: googleCallbackUrl
+}, googleVerify));
+
+passport.use(new LocalStrategy({
+  usernameField: 'email',
+  passwordField: 'password'
+}, async (email, password, done) => {
+  try {
+    const user = await getQuery('SELECT * FROM users WHERE email = ? AND role = ?', [email, 'admin']);
+    if (!user || !user.password_hash) return done(null, false, { message: 'Invalid credentials' });
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return done(null, false, { message: 'Invalid credentials' });
+    return done(null, { id: user.id, email: user.email, name: user.name, role: user.role });
+  } catch (error) {
+    return done(error);
+  }
+}));
+
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((user, done) => done(null, user));
+
+function pickGoogleStrategy(host) {
+  if (!host) return 'google-default';
+  if (host.includes('telekataxi.com')) return 'google-production';
+  return 'google-local';
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.isAuthenticated() || req.user?.role !== 'admin') return sendError(res, 403, 'Unauthorized');
+  return next();
+}
+
+function requireCustomer(req, res, next) {
+  if (!req.isAuthenticated() || req.user?.role !== 'customer') {
+    return sendError(res, 401, 'Customer authentication required');
+  }
+  return next();
+}
+
+async function requireDriver(req, res, next) {
+  try {
+    const token = getDriverToken(req);
+    if (!token) return sendError(res, 401, 'Driver token required');
+    const decoded = jwt.verify(token, process.env.AUTH_SECRET);
+    if (decoded.role !== 'driver') return sendError(res, 401, 'Invalid token');
+
+    const driver = await getQuery(
+      `SELECT id, email, name, phone, vehicle_info, plate_number, license_number, national_id_number, insurance_number,
+              status, is_online, rating, review_count, profile_photo_url, car_photo_url, docs_json
+       FROM drivers WHERE id = ? AND status = 'approved'`,
+      [decoded.id]
     );
-    CREATE TABLE IF NOT EXISTS state_backups (
-      id TEXT PRIMARY KEY,
-      payload TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS state_archives (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-  `);
-  return database;
-}
-
-function looksLikeWindowsAbsolutePath(value) {
-  return /^[A-Za-z]:\\/.test(String(value || ''));
-}
-
-function portableBaseName(filePath) {
-  return String(filePath || '').split(/[\\/]/).filter(Boolean).pop() || 'teleka.sqlite';
-}
-
-function resolveDatabasePath() {
-  const rawConfigured = text(configuredDbPath);
-  const volumeRoot = text(persistentVolumeRoot);
-  if (rawConfigured) {
-    if (process.platform !== 'win32' && looksLikeWindowsAbsolutePath(rawConfigured)) {
-      const fallbackBase = volumeRoot ? path.join(volumeRoot, 'teleka') : projectDataDir;
-      return path.join(fallbackBase, portableBaseName(rawConfigured));
-    }
-    return rawConfigured;
-  }
-  if (volumeRoot) return path.join(volumeRoot, 'teleka', 'teleka.sqlite');
-  if (process.platform === 'win32') return path.join(roamingDataDir, 'teleka.sqlite');
-  // Use persistent fallback in Render-like environments if possible
-  const renderVolume = process.env.TELEKA_VOLUME_DIR || process.env.RENDER_DISK_PATH || process.env.RAILWAY_VOLUME_MOUNT_PATH;
-  if (renderVolume) return path.join(renderVolume, 'teleka', 'teleka.sqlite');
-  return path.join(projectDataDir, 'teleka.sqlite');
-}
-
-function loadLegacyState() {
-  const candidateFile = path.join(projectDataDir, 'teleka-store.json');
-  if (!fs.existsSync(candidateFile)) return null;
-  try {
-    const imported = JSON.parse(fs.readFileSync(candidateFile, 'utf8'));
-    if (imported && typeof imported === 'object') {
-      console.log('Loaded legacy state from teleka-store.json');
-      return normalizeState(imported);
-    }
+    if (!driver) return sendError(res, 401, 'Driver not found or not approved');
+    req.driver = driver;
+    return next();
   } catch (error) {
-    console.warn('Failed to load legacy state:', error.message || error);
-  }
-  return null;
-}
-
-function loadState() {
-  try {
-    const primaryStore = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
-    const backupStore = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
-    const parsed = primaryStore?.payload || backupStore?.payload || '';
-    if (parsed) {
-      return normalizeState(JSON.parse(parsed));
-    }
-    const legacyState = loadLegacyState();
-    if (legacyState) {
-      state = legacyState;
-      saveState();
-      return state;
-    }
-    const userBackup = loadUserBackup();
-    if (userBackup) {
-      const restored = baseState();
-      restored.customers = Array.isArray(userBackup.customers) ? userBackup.customers : [];
-      restored.drivers = Array.isArray(userBackup.drivers) ? userBackup.drivers : [];
-      state = restored;
-      saveState();
-      return state;
-    }
-    return baseState();
-  } catch (error) {
-    console.warn('Failed to load state from database:', error.message || error);
-    const legacyState = loadLegacyState();
-    if (legacyState) {
-      state = legacyState;
-      saveState();
-      return state;
-    }
-    return baseState();
+    return sendError(res, 401, 'Invalid or expired driver token');
   }
 }
 
-function saveState() {
-  state.meta.updatedAt = new Date().toISOString();
-  persistStateSnapshot(state);
+function calculateEstimatedFare(pricing, distanceKm, durationMin, scheduleIso) {
+  const hour = new Date(scheduleIso).getHours();
+  const useSurge = hour >= 22 || hour < 6;
+  const surge = useSurge ? parseNumber(pricing.surge_multiplier, 1) : 1;
+  const total = parseNumber(pricing.base_fare, 0)
+    + (distanceKm * parseNumber(pricing.per_km, 0))
+    + (durationMin * parseNumber(pricing.per_min, 0));
+  return money(total * surge);
 }
 
-function normalizeState(parsed = {}) {
+async function getAdminSnapshot() {
+  const summary = await getQuery(
+    `SELECT
+      (SELECT COUNT(*) FROM users WHERE role = 'customer') AS customers,
+      (SELECT COUNT(*) FROM drivers WHERE status = 'approved' AND is_online = 1) AS drivers_online,
+      (SELECT COUNT(*) FROM rides WHERE status = 'pending') AS pending_rides,
+      (SELECT COUNT(*) FROM rides WHERE status IN ('accepted','arrived','enroute')) AS active_rides,
+      (SELECT COUNT(*) FROM rides WHERE status = 'completed') AS completed_rides,
+      (SELECT COALESCE(SUM(final_fare), 0) FROM rides WHERE status = 'completed') AS revenue`
+  );
+
+  const latestRides = await allQuery(
+    `SELECT rides.id, rides.status, rides.pickup_location, rides.dropoff_location, rides.scheduled_at, rides.scheduled_local,
+            rides.estimated_fare, rides.final_fare, users.name AS customer_name, drivers.name AS driver_name
+     FROM rides
+     LEFT JOIN users ON users.id = rides.customer_id
+     LEFT JOIN drivers ON drivers.id = rides.driver_id
+     ORDER BY rides.created_at DESC
+     LIMIT 12`
+  );
+
+  const users = await allQuery(
+    `SELECT id, name, email, phone, created_at
+     FROM users WHERE role = 'customer'
+     ORDER BY created_at DESC
+     LIMIT 150`
+  );
+
+  const pendingDrivers = await allQuery(
+    `SELECT id, name, email, phone, vehicle_info, plate_number, status, created_at, docs_json
+     FROM drivers WHERE status = 'pending'
+     ORDER BY created_at DESC`
+  );
+
+  const approvedDrivers = await allQuery(
+    `SELECT id, name, email, phone, vehicle_info, plate_number, status, is_online, rating, review_count, current_ride_id, created_at
+     FROM drivers WHERE status = 'approved'
+     ORDER BY updated_at DESC`
+  );
+
+  const rides = await allQuery(
+    `SELECT rides.id, rides.status, rides.pickup_location, rides.dropoff_location, rides.distance_km, rides.duration_min,
+            rides.scheduled_at, rides.scheduled_local, rides.estimated_fare, rides.final_fare, rides.updated_at,
+            users.name AS customer_name, drivers.name AS driver_name
+     FROM rides
+     LEFT JOIN users ON users.id = rides.customer_id
+     LEFT JOIN drivers ON drivers.id = rides.driver_id
+     ORDER BY rides.created_at DESC
+     LIMIT 250`
+  );
+
+  const earnings = await getQuery(
+    `SELECT
+      COALESCE(SUM(CASE WHEN status = 'completed' THEN final_fare ELSE 0 END),0) AS revenue,
+      COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END),0) AS completed_trips,
+      COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END),0) AS cancelled_trips
+     FROM rides`
+  );
+
+  const driverEarnings = await allQuery(
+    `SELECT drivers.id, drivers.name,
+            COALESCE(SUM(CASE WHEN rides.status='completed' THEN rides.final_fare * 0.8 ELSE 0 END),0) AS total_earnings,
+            COALESCE(SUM(CASE WHEN rides.status='completed' AND date(rides.updated_at)=date('now','localtime') THEN rides.final_fare * 0.8 ELSE 0 END),0) AS today_earnings,
+            COALESCE(SUM(CASE WHEN rides.status='completed' THEN 1 ELSE 0 END),0) AS trips
+     FROM drivers
+     LEFT JOIN rides ON rides.driver_id = drivers.id
+     WHERE drivers.status = 'approved'
+     GROUP BY drivers.id, drivers.name
+     ORDER BY total_earnings DESC`
+  );
+
+  const notifications = await allQuery(
+    `SELECT id, target_role, target_user_id, title, message, type, is_read, created_at
+     FROM notifications
+     ORDER BY created_at DESC
+     LIMIT 100`
+  );
+
+  const pricing = await getQuery('SELECT * FROM pricing_settings WHERE id = 1');
+  const resetRequests = await allQuery(
+    `SELECT id, driver_id, driver_phone, whatsapp, status, created_at
+     FROM driver_reset_requests
+     ORDER BY created_at DESC
+     LIMIT 50`
+  );
+
   return {
-    ...baseState(),
-    ...parsed,
-    settings: { ...baseState().settings, ...(parsed.settings || {}) },
-    customers: Array.isArray(parsed.customers) ? parsed.customers : [],
-    drivers: Array.isArray(parsed.drivers) ? parsed.drivers : [],
-    rides: Array.isArray(parsed.rides) ? parsed.rides : [],
-    notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
-    passwordResetRequests: Array.isArray(parsed.passwordResetRequests) ? parsed.passwordResetRequests : [],
-    meta: { ...baseState().meta, ...(parsed.meta || {}) },
-  };
-}
-
-function loadUserBackup() {
-  if (!fs.existsSync(userBackupFile)) return null;
-  try {
-    const content = fs.readFileSync(userBackupFile, 'utf8');
-    const parsed = JSON.parse(content);
-    if (parsed && typeof parsed === 'object') {
-      return parsed;
-    }
-  } catch (error) {
-    console.warn('Failed to read user backup:', error.message || error);
-  }
-  return null;
-}
-
-function saveUserBackup() {
-  const backup = {
-    meta: { updatedAt: now() },
-    customers: state.customers || [],
-    drivers: state.drivers || [],
-  };
-  try {
-    fs.mkdirSync(path.dirname(userBackupFile), { recursive: true });
-    fs.writeFileSync(userBackupFile, JSON.stringify(backup, null, 2), 'utf8');
-  } catch (error) {
-    console.warn('Failed to write user backup:', error.message || error);
-  }
-}
-
-function restoreUserBackup() {
-  const backup = loadUserBackup();
-  if (!backup) return false;
-  state.customers = Array.isArray(backup.customers) ? backup.customers : [];
-  state.drivers = Array.isArray(backup.drivers) ? backup.drivers : [];
-  saveState();
-  return true;
-}
-
-function persistStateSnapshot(nextState, { createArchive = false } = {}) {
-  const payload = JSON.stringify(normalizeState(nextState), null, 2);
-  const updatedAt = new Date().toISOString();
-  try {
-    db.exec('BEGIN IMMEDIATE');
-    db.prepare(`
-      INSERT INTO state_documents (id, payload, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
-    `).run('root', payload, updatedAt);
-    db.prepare(`
-      INSERT INTO state_backups (id, payload, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
-    `).run('latest', payload, updatedAt);
-    if (createArchive) {
-      db.prepare('INSERT INTO state_archives (id, kind, payload, created_at) VALUES (?, ?, ?, ?)')
-        .run(id('archive'), 'migration', payload, updatedAt);
-    }
-    db.exec('COMMIT');
-  } catch (error) {
-    try { db.exec('ROLLBACK'); } catch {}
-    throw error;
-  }
-  saveUserBackup();
-}
-
-function now() { return new Date().toISOString(); }
-function id(prefix) { return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`; }
-function text(value, fallback = '') { return String(value || fallback).trim(); }
-function num(value, fallback = 0) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
-function money(value) { return Math.round(num(value, 0)); }
-function hash(value) { return crypto.createHash('sha256').update(String(value)).digest('hex'); }
-function secret() { return crypto.randomBytes(24).toString('hex'); }
-function normalizePhone(value) { return text(value).replace(/\s+/g, ''); }
-function normalizeEmail(value) { return text(value).toLowerCase(); }
-function normalizePlate(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
-function normalizeDocumentId(value) { return text(value).toUpperCase().replace(/\s+/g, ' '); }
-function sanitizeUploadDataUrl(value, allowedPrefixes = ['data:image/', 'data:application/pdf']) {
-  const raw = text(value);
-  if (!raw) return '';
-  if (!allowedPrefixes.some((prefix) => raw.startsWith(prefix))) return '';
-  return raw.length <= 8_000_000 ? raw : '';
-}
-function sanitizeDocumentFiles(files) {
-  if (!Array.isArray(files)) return [];
-  return files
-    .slice(0, 8)
-    .map((file) => ({
-      name: text(file?.name, 'Document'),
-      type: text(file?.type),
-      dataUrl: sanitizeUploadDataUrl(file?.dataUrl),
-    }))
-    .filter((file) => file.dataUrl);
-}
-function clampCoord(value, min, max) {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= min && n <= max ? Number(n.toFixed(6)) : null;
-}
-function normalizeLatitude(value) { return clampCoord(value, -90, 90); }
-function normalizeLongitude(value) { return clampCoord(value, -180, 180); }
-function findCustomer(customerId) { return state.customers.find((item) => item.id === customerId); }
-function findDriver(driverId) { return state.drivers.find((item) => item.id === driverId); }
-function findCustomerByGoogleId(googleId) { return state.customers.find((item) => text(item.googleId) && text(item.googleId) === text(googleId)); }
-function findCustomerByPhone(phone) { return state.customers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
-function findCustomerByEmail(email) { return state.customers.find((item) => normalizeEmail(item.email) && normalizeEmail(item.email) === normalizeEmail(email)); }
-function findDriverByPhone(phone) { return state.drivers.find((item) => normalizePhone(item.phone) === normalizePhone(phone)); }
-function findDriverByPlate(plate) { return state.drivers.find((item) => normalizePlate(item.plate) && normalizePlate(item.plate) === normalizePlate(plate)); }
-function findDriverByDocument(field, value, excludeDriverId = '') {
-  const normalized = normalizeDocumentId(value);
-  if (!normalized) return null;
-  return state.drivers.find((item) => item.id !== excludeDriverId && normalizeDocumentId(item.documents?.[field]) === normalized);
-}
-function findRide(rideId) { return state.rides.find((item) => item.id === rideId); }
-function safeCustomer(customer) { if (!customer) return null; const { accessKeyHash, ...safe } = customer; return safe; }
-function safeDriver(driver) { if (!driver) return null; const { accessKeyHash, passwordHash, ...safe } = driver; return safe; }
-function recent(items) { return items.slice().sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)); }
-function cookieNameForRole(role) {
-  if (role === 'admin') return 'teleka_admin_token';
-  if (role === 'driver') return 'teleka_driver_token';
-  if (role === 'customer') return 'teleka_customer_token';
-  return '';
-}
-function parseCookies(req) {
-  const raw = String(req.headers.cookie || '');
-  return raw.split(';').reduce((cookies, part) => {
-    const [name, ...rest] = part.split('=');
-    const key = name?.trim();
-    if (!key) return cookies;
-    cookies[key] = decodeURIComponent(rest.join('=').trim());
-    return cookies;
-  }, {});
-}
-function appendSetCookie(res, value) {
-  const current = res.getHeader('Set-Cookie');
-  if (!current) {
-    res.setHeader('Set-Cookie', value);
-    return;
-  }
-  res.setHeader('Set-Cookie', Array.isArray(current) ? [...current, value] : [current, value]);
-}
-function setAuthCookie(res, role, token) {
-  const cookieName = cookieNameForRole(role);
-  if (!cookieName || !token) return;
-  appendSetCookie(res, `${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`);
-}
-function clearAuthCookie(res, role) {
-  const cookieName = cookieNameForRole(role);
-  if (!cookieName) return;
-  appendSetCookie(res, `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
-}
-
-function signToken(payload) {
-  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(encoded).digest('base64url');
-  return `${encoded}.${sig}`;
-}
-
-function verifyToken(token) {
-  if (!token || !AUTH_SECRET) return null;
-  const [encoded, sig] = token.split('.');
-  if (!encoded || !sig) return null;
-  const expected = crypto.createHmac('sha256', AUTH_SECRET).update(encoded).digest('base64url');
-  if (sig !== expected) return null;
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
-  if (!payload.exp || payload.exp < Date.now()) return null;
-  return payload;
-}
-
-function issueToken(role, sub) {
-  return signToken({ role, sub, exp: Date.now() + 7 * 24 * 60 * 60 * 1000 });
-}
-
-function getToken(req, url, role = '') {
-  const auth = req.headers.authorization || '';
-  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  const tokenFromQuery = url.searchParams.get('token');
-  if (tokenFromQuery) return tokenFromQuery;
-  const cookies = parseCookies(req);
-  if (role) {
-    const roleCookie = cookies[cookieNameForRole(role)];
-    if (roleCookie) return roleCookie;
-  }
-  return cookies.teleka_admin_token || cookies.teleka_driver_token || cookies.teleka_customer_token || '';
-}
-
-function requireAuth(req, url, role) {
-  const auth = verifyToken(getToken(req, url, role));
-  if (!auth || (role && auth.role !== role)) return null;
-  return auth;
-}
-
-function notification({ targetType = 'all', targetId = null, message, type = 'info' }) {
-  state.notifications.unshift({ id: id('notif'), targetType, targetId, message: text(message), type, createdAt: now() });
-  state.notifications = state.notifications.slice(0, 300);
-  saveState();
-}
-
-function filterNotifications(role, entityId) {
-  return state.notifications.filter((item) => {
-    if (item.targetType === 'all') return true;
-    if (item.targetType === 'customers') return role === 'customer';
-    if (item.targetType === 'drivers') return role === 'driver';
-    if (item.targetType === 'admin') return role === 'admin';
-    if (item.targetType === 'customer') return role === 'customer' && item.targetId === entityId;
-    if (item.targetType === 'driver') return role === 'driver' && item.targetId === entityId;
-    return false;
-  });
-}
-
-function fare({ distanceKm = 0, durationMin = 0, carType = 'standard' }) {
-  const mult = { standard: 1, premium: 1.4, suv: 1.75 }[carType] || 1;
-  return money((state.settings.baseFare + distanceKm * state.settings.perKm + durationMin * state.settings.perMin) * state.settings.surge * mult);
-}
-
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const toRad = (degrees) => degrees * (Math.PI / 180);
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function getDriverDistanceToRide(driver, ride) {
-  const driverLat = normalizeLatitude(driver?.location?.lat);
-  const driverLng = normalizeLongitude(driver?.location?.lng);
-  const pickupLat = normalizeLatitude(ride?.pickupLat);
-  const pickupLng = normalizeLongitude(ride?.pickupLng);
-  if (driverLat === null || driverLng === null || pickupLat === null || pickupLng === null) return null;
-  return Number(haversineKm(driverLat, driverLng, pickupLat, pickupLng).toFixed(2));
-}
-
-function selectRideCandidates(ride, { excludeDriverIds = [] } = {}) {
-  const excluded = new Set(excludeDriverIds.filter(Boolean));
-  const rankedDrivers = state.drivers
-    .filter((driver) => driver.online && driver.approvalStatus === 'approved' && !driver.currentRideId && !excluded.has(driver.id))
-    .map((driver) => ({ driver, distanceKm: getDriverDistanceToRide(driver, ride) }));
-  const nearbyDrivers = rankedDrivers
-    .filter((item) => item.distanceKm !== null && item.distanceKm >= 0 && item.distanceKm <= 5)
-    .sort((a, b) => a.distanceKm - b.distanceKm);
-  const fallbackDrivers = rankedDrivers
-    .filter((item) => item.distanceKm === null)
-    .sort((a, b) => new Date(b.driver.updatedAt || b.driver.createdAt) - new Date(a.driver.updatedAt || a.driver.createdAt));
-  return [...nearbyDrivers, ...fallbackDrivers].slice(0, 3);
-}
-
-function retargetRide(ride) {
-  const candidates = selectRideCandidates(ride, { excludeDriverIds: ride.rejectedDriverIds || [] });
-  ride.notifiedDriverIds = candidates.map((item) => item.driver.id);
-  ride.driverCandidates = candidates.map((item) => ({ driverId: item.driver.id, distanceKm: item.distanceKm }));
-  ride.updatedAt = now();
-  return candidates;
-}
-
-function publicRide(ride) {
-  const customer = findCustomer(ride.customerId);
-  const driver = ride.driverId ? findDriver(ride.driverId) : null;
-  return {
-    ...ride,
-    customerName: customer ? customer.name : 'Customer',
-    customerPhone: customer ? customer.phone : '',
-    driverName: driver ? driver.name : 'Unassigned',
-    driverPhone: driver ? driver.phone : '',
-    driverVehicle: driver ? driver.vehicle : '',
-    driverAvatar: driver ? driver.avatar || '' : '',
-    driverCarPhoto: driver?.documents?.carPhotoDataUrl || '',
-    targetedDrivers: Array.isArray(ride.driverCandidates) ? ride.driverCandidates.map((candidate) => {
-      const candidateDriver = findDriver(candidate.driverId);
-      return {
-        driverId: candidate.driverId,
-        driverName: candidateDriver?.name || 'Driver',
-        distanceKm: candidate.distanceKm,
-      };
-    }) : [],
-    chatMessages: Array.isArray(ride.chatMessages) ? ride.chatMessages : [],
-  };
-}
-
-function adminState() {
-  const rides = recent(state.rides).map(publicRide);
-  const completed = rides.filter((ride) => ride.status === 'completed');
-  return {
-    settings: state.settings,
-    customers: recent(state.customers).map(safeCustomer),
-    drivers: recent(state.drivers).map(safeDriver),
-    driverApplications: recent(state.drivers.filter((driver) => driver.approvalStatus !== 'approved')).map(safeDriver),
-    passwordResetRequests: recent(state.passwordResetRequests || []),
+    generatedAt: nowIso(),
+    summary,
+    latestRides,
+    users,
+    pendingDrivers,
+    approvedDrivers,
     rides,
-    notifications: filterNotifications('admin').slice(0, 50),
-    summary: {
-      totalCustomers: state.customers.length,
-      totalDrivers: state.drivers.length,
-      onlineDrivers: state.drivers.filter((driver) => driver.online).length,
-      pendingDriverApplications: state.drivers.filter((driver) => driver.approvalStatus === 'pending').length,
-      activeRides: rides.filter((ride) => ['accepted', 'arrived', 'in-progress'].includes(ride.status)).length,
-      pendingRides: rides.filter((ride) => ride.status === 'pending').length,
-      completedRides: completed.length,
-      cancelledRides: rides.filter((ride) => ride.status === 'cancelled').length,
-      revenue: completed.reduce((sum, ride) => sum + ride.fare, 0),
-    },
-    serverTime: now(),
+    earnings: { ...earnings, driverEarnings },
+    notifications,
+    pricing,
+    resetRequests
   };
 }
 
-function customerState(customerId) {
-  const customer = findCustomer(customerId);
-  if (!customer) return null;
-  const rides = recent(state.rides.filter((ride) => ride.customerId === customerId)).map(publicRide);
-  return {
-    customer: safeCustomer(customer),
-    rides,
-    activeRide: rides.find((ride) => ['pending', 'accepted', 'arrived', 'in-progress'].includes(ride.status)) || null,
-    notifications: filterNotifications('customer', customerId).slice(0, 50),
-    settings: state.settings,
-    serverTime: now(),
-  };
-}
+async function getDriverSnapshot(driverId) {
+  const driver = await getQuery(
+    `SELECT id, email, name, phone, vehicle_info, plate_number, license_number, national_id_number, insurance_number,
+            status, is_online, rating, review_count, profile_photo_url, car_photo_url, docs_json
+     FROM drivers WHERE id = ?`,
+    [driverId]
+  );
 
-function driverState(driverId) {
-  const driver = findDriver(driverId);
-  if (!driver) return null;
-  const rides = state.rides.filter((ride) => ride.driverId === driverId).map(publicRide);
-  return {
-    driver: safeDriver(driver),
-    activeRide: rides.find((ride) => ['accepted', 'arrived', 'in-progress'].includes(ride.status)) || null,
-    availableRequests: recent(
-      state.rides.filter((ride) => ride.status === 'pending' && !ride.driverId && (ride.notifiedDriverIds || []).includes(driverId))
-    ).map(publicRide),
-    history: recent(rides.filter((ride) => ride.status !== 'pending')),
-    notifications: filterNotifications('driver', driverId).slice(0, 50),
-    settings: state.settings,
-    serverTime: now(),
-  };
-}
-
-function createCustomerSession(body, currentCustomerId = '') {
-  const googleId = text(body.googleId);
-  const nextEmail = normalizeEmail(body.email);
-  const nextPhone = normalizePhone(body.phone);
-  const currentCustomer = currentCustomerId ? findCustomer(currentCustomerId) : null;
-  if (currentCustomer) {
-    const emailOwner = nextEmail ? findCustomerByEmail(nextEmail) : null;
-    const phoneOwner = nextPhone ? findCustomerByPhone(nextPhone) : null;
-    if (emailOwner && emailOwner.id !== currentCustomer.id) throw new Error('A customer account with this email already exists');
-    if (phoneOwner && phoneOwner.id !== currentCustomer.id) throw new Error('A customer account with this phone number already exists');
-    if (googleId) currentCustomer.googleId = googleId;
-    currentCustomer.name = text(body.name, currentCustomer.name);
-    currentCustomer.email = nextEmail || currentCustomer.email;
-    currentCustomer.phone = nextPhone || currentCustomer.phone;
-    currentCustomer.preferences = {
-      darkMode: Boolean(currentCustomer.preferences?.darkMode),
-    };
-    currentCustomer.updatedAt = now();
-    saveState();
-    return { customer: safeCustomer(currentCustomer), token: issueToken('customer', currentCustomer.id) };
-  }
-  const matchedCustomer = googleId
-    ? (findCustomerByGoogleId(googleId)
-      || state.customers.find((item) => !text(item.googleId) && normalizeEmail(item.email) && normalizeEmail(item.email) === normalizeEmail(body.email)))
+  const incomingRequest = driver?.is_online
+    ? await getQuery(
+      `SELECT rides.id, rides.pickup_location, rides.dropoff_location, rides.distance_km, rides.duration_min,
+              rides.estimated_fare, rides.scheduled_at, rides.scheduled_local,
+              users.name AS customer_name, users.phone AS customer_phone
+       FROM rides
+       JOIN users ON users.id = rides.customer_id
+       WHERE rides.status = 'pending'
+       ORDER BY datetime(rides.scheduled_at) ASC, rides.created_at ASC
+       LIMIT 1`
+    )
     : null;
-  if (matchedCustomer) {
-    matchedCustomer.googleId = googleId || matchedCustomer.googleId || '';
-    matchedCustomer.name = text(body.name, matchedCustomer.name);
-    matchedCustomer.email = nextEmail || matchedCustomer.email;
-    matchedCustomer.phone = nextPhone || matchedCustomer.phone;
-    matchedCustomer.preferences = {
-      darkMode: Boolean(matchedCustomer.preferences?.darkMode),
-    };
-    matchedCustomer.updatedAt = now();
-    saveState();
-    notification({ targetType: 'admin', message: `Customer profile reused: ${matchedCustomer.name}` });
-    return { customer: safeCustomer(matchedCustomer), token: issueToken('customer', matchedCustomer.id) };
-  }
-  const emailOwner = nextEmail ? findCustomerByEmail(nextEmail) : null;
-  const phoneOwner = nextPhone ? findCustomerByPhone(nextPhone) : null;
-  if (emailOwner) throw new Error('A customer account with this email already exists');
-  if (phoneOwner) throw new Error('A customer account with this phone number already exists');
-  const customer = {
-    id: id('cust'),
-    name: text(body.name, 'Customer'),
-    email: nextEmail,
-    phone: nextPhone,
-    googleId,
-    accessKeyHash: hash(secret()),
-    preferences: { darkMode: false },
-    createdAt: now(),
-    updatedAt: now(),
+
+  const activeRide = await getQuery(
+    `SELECT rides.*, users.name AS customer_name, users.phone AS customer_phone
+     FROM rides
+     JOIN users ON users.id = rides.customer_id
+     WHERE rides.driver_id = ? AND rides.status IN ('accepted','arrived','enroute')
+     ORDER BY rides.updated_at DESC
+     LIMIT 1`,
+    [driverId]
+  );
+
+  const activeRideMessages = activeRide
+    ? await allQuery(
+      `SELECT id, sender_role, sender_id, message, created_at
+       FROM ride_messages
+       WHERE ride_id = ?
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [activeRide.id]
+    )
+    : [];
+
+  const history = await allQuery(
+    `SELECT rides.id, rides.status, rides.pickup_location, rides.dropoff_location, rides.final_fare, rides.estimated_fare,
+            rides.distance_km, rides.duration_min, rides.updated_at, users.name AS customer_name
+     FROM rides
+     JOIN users ON users.id = rides.customer_id
+     WHERE rides.driver_id = ? AND rides.status IN ('completed','cancelled')
+     ORDER BY rides.updated_at DESC
+     LIMIT 50`,
+    [driverId]
+  );
+
+  const notifications = await allQuery(
+    `SELECT id, title, message, type, is_read, created_at
+     FROM notifications
+     WHERE target_role IN ('all','drivers') OR target_user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [driverId]
+  );
+
+  const reviews = await allQuery(
+    `SELECT id, customer_rating, customer_review, updated_at
+     FROM rides
+     WHERE driver_id = ? AND status = 'completed' AND customer_rating IS NOT NULL
+     ORDER BY updated_at DESC
+     LIMIT 20`,
+    [driverId]
+  );
+
+  const stats = await getQuery(
+    `SELECT
+      COALESCE(SUM(CASE WHEN status='completed' AND date(updated_at)=date('now','localtime') THEN final_fare * 0.8 ELSE 0 END),0) AS earnings_today,
+      COALESCE(SUM(CASE WHEN status='completed' AND date(updated_at)>=date('now','-6 day','localtime') THEN final_fare * 0.8 ELSE 0 END),0) AS earnings_week,
+      COALESCE(SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END),0) AS trips_completed,
+      COALESCE(SUM(CASE WHEN status IN ('accepted','arrived','enroute') THEN distance_km ELSE 0 END),0) AS active_distance
+     FROM rides
+     WHERE driver_id = ?`,
+    [driverId]
+  );
+
+  return {
+    generatedAt: nowIso(),
+    driver,
+    stats,
+    incomingRequest,
+    activeRide,
+    activeRideMessages,
+    history,
+    notifications,
+    unreadCount: notifications.filter((row) => !row.is_read).length,
+    reviews
   };
-  state.customers.unshift(customer);
-  saveState();
-  notification({ targetType: 'admin', message: `Customer profile created: ${customer.name}` });
-  return { customer: safeCustomer(customer), token: issueToken('customer', customer.id) };
 }
 
-function registerDriver(body) {
-  const phone = normalizePhone(body.phone);
-  const plate = normalizePlate(body.plate);
-  const licenseNumber = normalizeDocumentId(body.licenseNumber);
-  const nationalIdNumber = normalizeDocumentId(body.nationalIdNumber);
-  const insuranceNumber = normalizeDocumentId(body.insuranceNumber);
-  if (!phone) throw new Error('Phone number is required');
-  if (!plate) throw new Error('Vehicle plate is required');
-  if (!text(body.password) || text(body.password).length < 6) {
-    throw new Error('Driver password must be at least 6 characters');
-  }
-  if (findDriverByPhone(phone)) {
-    throw new Error('A driver account with this phone number already exists');
-  }
-  if (findDriverByPlate(plate)) {
-    throw new Error('A driver account with this vehicle plate already exists');
-  }
-  if (licenseNumber && findDriverByDocument('licenseNumber', licenseNumber)) {
-    throw new Error('A driver account with this license number already exists');
-  }
-  if (nationalIdNumber && findDriverByDocument('nationalIdNumber', nationalIdNumber)) {
-    throw new Error('A driver account with this national ID already exists');
-  }
-  if (insuranceNumber && findDriverByDocument('insuranceNumber', insuranceNumber)) {
-    throw new Error('A driver account with this insurance number already exists');
-  }
-  const driver = {
-    id: id('drv'),
-    name: text(body.name, 'Driver'),
-    phone,
-    vehicle: text(body.vehicle),
-    plate,
-    avatar: sanitizeUploadDataUrl(body.avatar, ['data:image/']),
-    passwordHash: hash(body.password),
-    accessKeyHash: hash(secret()),
-    online: false,
-    status: 'inactive',
-    approvalStatus: 'pending',
-    approvalNotes: '',
-    currentRideId: null,
-    earningsToday: 0,
-    earningsTotal: 0,
-    rating: 5,
-    ratingCount: 0,
-    preferences: { notifications: true, sound: true, autoAccept: false },
-    location: { lat: null, lng: null, updatedAt: '' },
-    documents: {
-      licenseNumber,
-      nationalIdNumber,
-      insuranceNumber,
-      photoName: text(body.photoName),
-      documentNames: Array.isArray(body.documentNames) ? body.documentNames.map((item) => text(item)).filter(Boolean) : [],
-      carPhotoName: text(body.carPhotoName),
-      carPhotoDataUrl: sanitizeUploadDataUrl(body.carPhotoDataUrl, ['data:image/']),
-      files: sanitizeDocumentFiles(body.documentFiles),
-      verified: false,
-      verifiedAt: '',
-    },
-    createdAt: now(),
-    updatedAt: now(),
+async function getCustomerSnapshot(customerId) {
+  const profile = await getQuery(
+    'SELECT id, name, email, phone, created_at, updated_at FROM users WHERE id = ?',
+    [customerId]
+  );
+
+  const rides = await allQuery(
+    `SELECT rides.id, rides.status, rides.pickup_location, rides.dropoff_location, rides.scheduled_at, rides.scheduled_local,
+            rides.requested_car_type, rides.payment_method, rides.distance_km, rides.duration_min, rides.estimated_fare, rides.final_fare,
+            rides.created_at, rides.updated_at,
+            drivers.name AS driver_name, drivers.phone AS driver_phone, drivers.vehicle_info AS driver_vehicle,
+            drivers.profile_photo_url AS driver_photo, drivers.car_photo_url AS driver_car_photo
+     FROM rides
+     LEFT JOIN drivers ON drivers.id = rides.driver_id
+     WHERE rides.customer_id = ?
+     ORDER BY rides.created_at DESC
+     LIMIT 120`,
+    [customerId]
+  );
+
+  const activeRide = await getQuery(
+    `SELECT rides.*, drivers.name AS driver_name, drivers.phone AS driver_phone, drivers.vehicle_info AS driver_vehicle,
+            drivers.profile_photo_url AS driver_photo, drivers.car_photo_url AS driver_car_photo
+     FROM rides
+     LEFT JOIN drivers ON drivers.id = rides.driver_id
+     WHERE rides.customer_id = ? AND rides.status IN ('pending','accepted','arrived','enroute')
+     ORDER BY rides.updated_at DESC
+     LIMIT 1`,
+    [customerId]
+  );
+
+  const activeRideMessages = activeRide
+    ? await allQuery(
+      `SELECT id, sender_role, sender_id, message, created_at
+       FROM ride_messages
+       WHERE ride_id = ?
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [activeRide.id]
+    )
+    : [];
+
+  const stats = await getQuery(
+    `SELECT
+      COUNT(*) AS total_rides,
+      COALESCE(SUM(CASE WHEN status = 'completed' THEN final_fare ELSE 0 END),0) AS completed_spend
+     FROM rides
+     WHERE customer_id = ?`,
+    [customerId]
+  );
+
+  const notifications = await allQuery(
+    `SELECT id, title, message, type, created_at
+     FROM notifications
+     WHERE target_role IN ('all','customers') OR target_user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 30`,
+    [customerId]
+  );
+
+  return {
+    generatedAt: nowIso(),
+    profile,
+    rides,
+    activeRide,
+    activeRideMessages,
+    stats,
+    notifications
   };
-  state.drivers.unshift(driver);
-  saveState();
-  notification({ targetType: 'admin', message: `New driver application: ${driver.name}` });
-  return { driver: safeDriver(driver) };
 }
 
-function loginDriver(body) {
-  const phone = normalizePhone(body.phone);
-  const password = text(body.password);
-  const driver = findDriverByPhone(phone);
-  if (!driver || driver.passwordHash !== hash(password)) {
-    throw new Error('Invalid driver phone or password');
-  }
-  if (driver.approvalStatus === 'pending') {
-    throw new Error('Your driver application is still pending admin approval');
-  }
-  if (driver.approvalStatus === 'rejected') {
-    throw new Error(driver.approvalNotes || 'Your driver application was rejected');
-  }
-  driver.updatedAt = now();
-  saveState();
-  return { driver: safeDriver(driver), token: issueToken('driver', driver.id) };
-}
-
-function updateCustomerPreferences(customerId, body) {
-  const customer = findCustomer(customerId);
-  if (!customer) throw new Error('Customer not found');
-  customer.preferences = {
-    darkMode: typeof body.darkMode === 'boolean' ? body.darkMode : Boolean(customer.preferences?.darkMode),
-  };
-  customer.updatedAt = now();
-  saveState();
-  return safeCustomer(customer);
-}
-
-function updateDriverPreferences(driverId, body) {
-  const driver = findDriver(driverId);
-  if (!driver) throw new Error('Driver not found');
-  driver.preferences = {
-    notifications: typeof body.notifications === 'boolean' ? body.notifications : Boolean(driver.preferences?.notifications ?? true),
-    sound: typeof body.sound === 'boolean' ? body.sound : Boolean(driver.preferences?.sound ?? true),
-    autoAccept: typeof body.autoAccept === 'boolean' ? body.autoAccept : Boolean(driver.preferences?.autoAccept),
-  };
-  driver.updatedAt = now();
-  saveState();
-  return safeDriver(driver);
-}
-
-function createPasswordResetRequest(body) {
-  const whatsappNumber = normalizePhone(body.whatsappNumber);
-  if (!whatsappNumber) {
-    throw new Error('Registered WhatsApp number is required');
-  }
-  const driver = findDriverByPhone(whatsappNumber);
-  if (!driver) {
-    throw new Error('No driver account found for that registered WhatsApp number');
-  }
-  const request = {
-    id: id('reset'),
-    driverId: driver.id,
-    driverName: driver.name,
-    registeredPhone: driver.phone,
-    whatsappNumber,
-    status: 'pending',
-    createdAt: now(),
-    updatedAt: now(),
-  };
-  state.passwordResetRequests.unshift(request);
-  saveState();
-  notification({
-    targetType: 'admin',
-    type: 'warning',
-    message: `Password reset requested by ${driver.name} (${whatsappNumber})`,
-  });
-  return request;
-}
-
-function parseJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    const maxBodySize = 8 * 1024 * 1024; // 8 MB, needed for image uploads from mobile
-    req.on('data', (chunk) => {
-      body += chunk.toString();
-      if (body.length > maxBodySize) {
-        req.destroy();
-        reject(new Error('Request body too large (max 8MB)'));
-      }
-    });
-    req.on('end', () => {
-      if (!body) return resolve({});
-      try {
-        resolve(JSON.parse(body));
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on('error', reject);
-  });
-}
-
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(payload));
-}
-
-function setCorsHeaders(req, res) {
-  const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  }
-}
-
-function routeMatches(pathname, pattern) {
-  const actual = pathname.split('/').filter(Boolean);
-  const expected = pattern.split('/').filter(Boolean);
-  if (actual.length !== expected.length) return null;
-  const params = {};
-  for (let i = 0; i < expected.length; i += 1) {
-    if (expected[i].startsWith(':')) params[expected[i].slice(1)] = actual[i];
-    else if (expected[i] !== actual[i]) return null;
-  }
-  return params;
-}
-
-function broadcastState() {
-  const payload = `event: state-update\ndata: ${JSON.stringify({ time: now() })}\n\n`;
-  sseClients.forEach((client) => client.write(payload));
-}
-
-function createMailTransport() {
-  if (SENDGRID_API_KEY) {
-    return nodemailer.createTransport({ service: 'SendGrid', auth: { user: 'apikey', pass: SENDGRID_API_KEY } });
-  }
-  if (!EMAIL_HOST || !EMAIL_USER || !EMAIL_PASS) return null;
-  return nodemailer.createTransport({ host: EMAIL_HOST, port: EMAIL_PORT, secure: EMAIL_SECURE, auth: { user: EMAIL_USER, pass: EMAIL_PASS } });
-}
-
-async function sendRideRequestEmail(ride) {
-  const transporter = createMailTransport();
-  if (!transporter) return;
-  const customer = findCustomer(ride.customerId);
-  await transporter.sendMail({
-    from: EMAIL_FROM,
-    to: EMAIL_TO,
-    subject: `New ride request ${ride.id}`,
-    text: [`Ride ID: ${ride.id}`, `Customer: ${customer ? customer.name : 'Unknown'}`, `Pickup: ${ride.pickup}`, `Dropoff: ${ride.dropoff}`, `Date: ${ride.date}`].join('\n'),
-  });
-}
-
-function verifyAdminPassword(password) {
-  if (ADMIN_PASSWORD_HASH) return hash(password) === ADMIN_PASSWORD_HASH;
-  return Boolean(ADMIN_PASSWORD) && password === ADMIN_PASSWORD;
-}
-
-async function handleApi(req, res, url) {
-  const pathname = url.pathname;
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return true;
-  }
-
-  if (pathname === '/api/events' && req.method === 'GET') {
-    const auth = requireAuth(req, url);
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.write('event: connected\ndata: {"ok":true}\n\n');
-    sseClients.add(res);
-    const heartbeat = setInterval(() => res.write('event: heartbeat\ndata: {}\n\n'), 25000);
-    req.on('close', () => { clearInterval(heartbeat); sseClients.delete(res); });
-    return true;
-  }
-
-  if (pathname === '/api/auth/admin/login' && req.method === 'POST') {
-    const body = await parseJsonBody(req);
-    if (!AUTH_SECRET || !ADMIN_EMAIL || text(body.email).toLowerCase() !== ADMIN_EMAIL.toLowerCase() || !verifyAdminPassword(text(body.password))) {
-      return sendJson(res, 401, { ok: false, message: 'Invalid admin credentials' }), true;
-    }
-    const token = issueToken('admin', ADMIN_EMAIL);
-    setAuthCookie(res, 'admin', token);
-    return sendJson(res, 200, { ok: true, data: { admin: { email: ADMIN_EMAIL } } }), true;
-  }
-
-  if (pathname === '/api/auth/admin/logout' && req.method === 'POST') {
-    clearAuthCookie(res, 'admin');
-    return sendJson(res, 200, { ok: true, data: { loggedOut: true } }), true;
-  }
-
-  if (pathname === '/api/auth/customer/session' && req.method === 'POST') {
-    try {
-      const auth = requireAuth(req, url, 'customer');
-      const data = createCustomerSession(await parseJsonBody(req), auth?.sub || '');
-      setAuthCookie(res, 'customer', data.token);
-      return sendJson(res, 200, { ok: true, data: { customer: data.customer } }), broadcastState(), true;
-    }
-    catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
-  }
-
-  if (pathname === '/api/auth/customer/logout' && req.method === 'POST') {
-    clearAuthCookie(res, 'customer');
-    return sendJson(res, 200, { ok: true, data: { loggedOut: true } }), true;
-  }
-
-  if (pathname === '/api/drivers/register' && req.method === 'POST') {
-    try { return sendJson(res, 201, { ok: true, data: registerDriver(await parseJsonBody(req)) }), broadcastState(), true; }
-    catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
-  }
-
-  if (pathname === '/api/drivers/login' && req.method === 'POST') {
-    try {
-      const data = loginDriver(await parseJsonBody(req));
-      setAuthCookie(res, 'driver', data.token);
-      return sendJson(res, 200, { ok: true, data: { driver: data.driver } }), true;
-    }
-    catch (error) { return sendJson(res, 401, { ok: false, message: error.message }), true; }
-  }
-
-  if (pathname === '/api/auth/driver/logout' && req.method === 'POST') {
-    clearAuthCookie(res, 'driver');
-    return sendJson(res, 200, { ok: true, data: { loggedOut: true } }), true;
-  }
-
-  if (pathname === '/api/drivers/password-reset-request' && req.method === 'POST') {
-    try { return sendJson(res, 201, { ok: true, data: createPasswordResetRequest(await parseJsonBody(req)) }), broadcastState(), true; }
-    catch (error) { return sendJson(res, 400, { ok: false, message: error.message }), true; }
-  }
-
-  if (pathname === '/api/admin/state' && req.method === 'GET') {
-    const auth = requireAuth(req, url, 'admin');
-    return auth ? (sendJson(res, 200, { ok: true, data: adminState() }), true) : (sendJson(res, 401, { ok: false, message: 'Authentication required' }), true);
-  }
-
-  if (pathname === '/api/customer/state' && req.method === 'GET') {
-    const auth = requireAuth(req, url, 'customer');
-    const data = auth ? customerState(auth.sub) : null;
-    return data ? (sendJson(res, 200, { ok: true, data }), true) : (sendJson(res, 401, { ok: false, message: 'Authentication required' }), true);
-  }
-
-  if (pathname === '/api/customer/preferences' && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'customer');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    try {
-      return sendJson(res, 200, { ok: true, data: updateCustomerPreferences(auth.sub, await parseJsonBody(req)) }), broadcastState(), true;
-    } catch (error) {
-      return sendJson(res, 400, { ok: false, message: error.message }), true;
-    }
-  }
-
-  if (pathname === '/api/driver/state' && req.method === 'GET') {
-    const auth = requireAuth(req, url, 'driver');
-    const data = auth ? driverState(auth.sub) : null;
-    return data ? (sendJson(res, 200, { ok: true, data }), true) : (sendJson(res, 401, { ok: false, message: 'Authentication required' }), true);
-  }
-
-  const driverPreferences = routeMatches(pathname, '/api/drivers/:driverId/preferences');
-  if (driverPreferences && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    if (!auth || auth.sub !== driverPreferences.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    try {
-      return sendJson(res, 200, { ok: true, data: updateDriverPreferences(auth.sub, await parseJsonBody(req)) }), broadcastState(), true;
-    } catch (error) {
-      return sendJson(res, 400, { ok: false, message: error.message }), true;
-    }
-  }
-
-  if (pathname === '/api/rides' && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'customer');
-    const customer = auth ? findCustomer(auth.sub) : null;
-    if (!customer) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const body = await parseJsonBody(req);
-    const ride = {
-      id: id('ride'),
-      customerId: customer.id,
-      driverId: null,
-      pickup: text(body.pickup, 'Pickup not set'),
-      dropoff: text(body.dropoff, 'Dropoff not set'),
-      pickupLat: normalizeLatitude(body.pickupLat),
-      pickupLng: normalizeLongitude(body.pickupLng),
-      dropoffLat: normalizeLatitude(body.dropoffLat),
-      dropoffLng: normalizeLongitude(body.dropoffLng),
-      date: text(body.date, now()),
-      carType: text(body.carType, 'standard'),
-      payment: text(body.payment, 'cash'),
-      fare: money(body.fare || fare({ distanceKm: Math.max(0, num(body.distanceKm, 0)), durationMin: Math.max(0, num(body.durationMin, 0)), carType: body.carType })),
-      distanceKm: Math.max(0, num(body.distanceKm, 0)),
-      durationMin: Math.max(0, num(body.durationMin, 0)),
-      status: 'pending',
-      createdAt: now(),
-      updatedAt: now(),
-      timeline: { requestedAt: now() },
-      notifiedDriverIds: [],
-      rejectedDriverIds: [],
-      driverCandidates: [],
-      chatMessages: [],
-    };
-    const targetedDrivers = retargetRide(ride);
-
-    // Auto-assign first nearby available driver, avoid manual admin assignment delay.
-    if (targetedDrivers.length > 0) {
-      const assigned = targetedDrivers[0];
-      const driver = findDriver(assigned.driver.id);
-      if (driver && driver.approvalStatus === 'approved') {
-        ride.driverId = driver.id;
-        ride.status = 'accepted';
-        ride.timeline = { ...ride.timeline, acceptedAt: now() };
-        driver.currentRideId = ride.id;
-        driver.updatedAt = now();
-        notification({
-          targetType: 'driver',
-          targetId: driver.id,
-          message: `You have been assigned ride ${ride.id} from ${ride.pickup} to ${ride.dropoff}. Start immediately.`,
-        });
-        notification({
-          targetType: 'customer',
-          targetId: customer.id,
-          message: `Your ride ${ride.id} is assigned to ${driver.name}. Driver is on the way.`,
-        });
-      }
-    }
-
-    state.rides.unshift(ride);
-    saveState();
-    if (!ride.driverId) {
-      targetedDrivers.forEach((candidate) => {
-        notification({
-          targetType: 'driver',
-          targetId: candidate.driver.id,
-          message: candidate.distanceKm === null
-            ? `New ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff}.`
-            : `New nearby ride request from ${customer.name}: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
-        });
-      });
-      notification({
-        targetType: 'customer',
-        targetId: customer.id,
-        message: targetedDrivers.length
-          ? `Ride ${ride.id} sent to ${targetedDrivers.length} nearby drivers. Waiting for acceptance.`
-          : `Ride ${ride.id} created. No drivers within 5 km are online yet.`,
-      });
-    }
-    notification({ targetType: 'admin', message: `New ride request ${ride.id} from ${customer.name}` });
-    sendRideRequestEmail(ride).catch(() => {});
-    broadcastState();
-    return sendJson(res, 201, { ok: true, data: publicRide(ride) }), true;
-  }
-
-  const availability = routeMatches(pathname, '/api/drivers/:driverId/availability');
-  if (availability && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    if (!auth || auth.sub !== availability.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    const driver = findDriver(auth.sub);
-    if (!driver || driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
-    const body = await parseJsonBody(req);
-    driver.online = Boolean(body.online);
-    if (driver.online) {
-      const lat = normalizeLatitude(body.lat);
-      const lng = normalizeLongitude(body.lng);
-      if (lat !== null && lng !== null) {
-        driver.location = { lat, lng, updatedAt: now() };
-      }
-    }
-    driver.updatedAt = now();
-    if (driver.online) {
-      state.rides
-        .filter((ride) => ride.status === 'pending' && !ride.driverId && !(ride.rejectedDriverIds || []).includes(driver.id))
-        .forEach((ride) => {
-          const before = new Set(ride.notifiedDriverIds || []);
-          const candidates = retargetRide(ride);
-          if (candidates.some((candidate) => candidate.driver.id === driver.id) && !before.has(driver.id)) {
-            const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm;
-            notification({
-              targetType: 'driver',
-              targetId: driver.id,
-              message: distanceKm === null || distanceKm === undefined
-                ? `New ride request available: ${ride.pickup} to ${ride.dropoff}.`
-                : `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
-            });
-          }
-        });
-    }
-    saveState();
-    notification({ targetType: 'admin', message: `${driver.name} is now ${driver.online ? 'online' : 'offline'}` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
-  }
-
-  const driverLocation = routeMatches(pathname, '/api/drivers/:driverId/location');
-  if (driverLocation && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    if (!auth || auth.sub !== driverLocation.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    const driver = findDriver(auth.sub);
-    if (!driver || driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
-    const body = await parseJsonBody(req);
-    const lat = normalizeLatitude(body.lat);
-    const lng = normalizeLongitude(body.lng);
-    if (lat === null || lng === null) return sendJson(res, 400, { ok: false, message: 'Valid driver coordinates are required' }), true;
-    driver.location = { lat, lng, updatedAt: now() };
-    driver.updatedAt = now();
-    state.rides
-      .filter((ride) => ride.status === 'pending' && !ride.driverId && !(ride.rejectedDriverIds || []).includes(driver.id))
-      .forEach((ride) => {
-        const before = new Set(ride.notifiedDriverIds || []);
-        const candidates = retargetRide(ride);
-        if (candidates.some((candidate) => candidate.driver.id === driver.id) && !before.has(driver.id)) {
-          const distanceKm = candidates.find((candidate) => candidate.driver.id === driver.id)?.distanceKm;
-          notification({
-            targetType: 'driver',
-            targetId: driver.id,
-            message: distanceKm === null || distanceKm === undefined
-              ? `A ride request is now assigned to you: ${ride.pickup} to ${ride.dropoff}.`
-              : `A nearby ride request is now assigned to you: ${ride.pickup} to ${ride.dropoff} (${distanceKm.toFixed(1)} km away).`,
-          });
-        }
-      });
-    saveState();
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
-  }
-
-  const profile = routeMatches(pathname, '/api/drivers/:driverId/profile');
-  if (profile && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    if (!auth || auth.sub !== profile.driverId) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    const driver = findDriver(auth.sub);
-    const body = await parseJsonBody(req);
-    const nextPhone = normalizePhone(body.phone || driver.phone);
-    const nextPlate = normalizePlate(body.plate || driver.plate);
-    const phoneOwner = findDriverByPhone(nextPhone);
-    const plateOwner = findDriverByPlate(nextPlate);
-    if (phoneOwner && phoneOwner.id !== driver.id) {
-      return sendJson(res, 409, { ok: false, message: 'Another driver already uses that phone number' }), true;
-    }
-    if (plateOwner && plateOwner.id !== driver.id) {
-      return sendJson(res, 409, { ok: false, message: 'Another driver already uses that vehicle plate' }), true;
-    }
-    driver.name = text(body.name, driver.name);
-    driver.phone = nextPhone;
-    driver.vehicle = text(body.vehicle, driver.vehicle);
-    driver.plate = nextPlate;
-    const avatar = sanitizeUploadDataUrl(body.avatar, ['data:image/']);
-    if (avatar) driver.avatar = avatar;
-    driver.documents = {
-      ...(driver.documents || {}),
-      carPhotoName: text(body.carPhotoName, driver.documents?.carPhotoName || ''),
-      carPhotoDataUrl: sanitizeUploadDataUrl(body.carPhotoDataUrl, ['data:image/']) || driver.documents?.carPhotoDataUrl || '',
-      files: sanitizeDocumentFiles(body.documentFiles).length ? sanitizeDocumentFiles(body.documentFiles) : (driver.documents?.files || []),
-    };
-    driver.updatedAt = now();
-    saveState();
-    notification({ targetType: 'admin', message: `Driver profile updated: ${driver.name}` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
-  }
-
-  const approveDriver = routeMatches(pathname, '/api/admin/drivers/:driverId/approve');
-  if (approveDriver && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const driver = findDriver(approveDriver.driverId);
-    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
-    driver.approvalStatus = 'approved';
-    driver.status = 'active';
-    driver.approvalNotes = text((await parseJsonBody(req)).notes);
-    driver.documents = { ...(driver.documents || {}), verified: true, verifiedAt: now() };
-    driver.updatedAt = now();
-    saveState();
-    notification({ targetType: 'driver', targetId: driver.id, message: 'Your driver application has been approved. You can now log in.' });
-    notification({ targetType: 'admin', message: `Driver approved: ${driver.name}` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
-  }
-
-  const rejectDriver = routeMatches(pathname, '/api/admin/drivers/:driverId/reject');
-  if (rejectDriver && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const body = await parseJsonBody(req);
-    const driver = findDriver(rejectDriver.driverId);
-    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
-    driver.approvalStatus = 'rejected';
-    driver.status = 'inactive';
-    driver.online = false;
-    driver.approvalNotes = text(body.notes, 'Application rejected by admin');
-    driver.updatedAt = now();
-    saveState();
-    notification({ targetType: 'admin', message: `Driver rejected: ${driver.name}` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
-  }
-
-  const resetDriverPassword = routeMatches(pathname, '/api/admin/drivers/:driverId/reset-password');
-  if (resetDriverPassword && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const body = await parseJsonBody(req);
-    const driver = findDriver(resetDriverPassword.driverId);
-    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
-    const newPassword = text(body.password);
-    if (newPassword.length < 6) {
-      return sendJson(res, 400, { ok: false, message: 'New password must be at least 6 characters' }), true;
-    }
-    driver.passwordHash = hash(newPassword);
-    driver.updatedAt = now();
-    state.passwordResetRequests = (state.passwordResetRequests || []).map((request) => {
-      if (request.driverId !== driver.id || request.status !== 'pending') return request;
-      return { ...request, status: 'reset', updatedAt: now(), adminMessage: text(body.adminMessage) };
-    });
-    saveState();
-    notification({ targetType: 'driver', targetId: driver.id, message: 'Your driver password was reset by admin. Use the new password to log in.' });
-    notification({ targetType: 'admin', message: `Driver password reset: ${driver.name}` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: safeDriver(driver) }), true;
-  }
-
-  const assignRide = routeMatches(pathname, '/api/admin/rides/:rideId/assign-driver');
-  if (assignRide && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const ride = findRide(assignRide.rideId);
-    if (!ride) return sendJson(res, 404, { ok: false, message: 'Ride not found' }), true;
-    if (ride.status !== 'pending' || ride.driverId) {
-      return sendJson(res, 409, { ok: false, message: 'Only pending unassigned rides can be manually assigned' }), true;
-    }
-    const body = await parseJsonBody(req);
-    const driver = findDriver(text(body.driverId));
-    if (!driver) return sendJson(res, 404, { ok: false, message: 'Driver not found' }), true;
-    if (driver.approvalStatus !== 'approved') {
-      return sendJson(res, 409, { ok: false, message: 'Driver is not approved' }), true;
-    }
-    if (!driver.online) {
-      return sendJson(res, 409, { ok: false, message: 'Driver must be online to receive an assigned ride' }), true;
-    }
-    if (driver.currentRideId) {
-      return sendJson(res, 409, { ok: false, message: 'Driver already has an active ride' }), true;
-    }
-    ride.driverId = driver.id;
-    ride.status = 'accepted';
-    ride.updatedAt = now();
-    ride.timeline = { ...(ride.timeline || {}), acceptedAt: now(), assignedByAdminAt: now() };
-    ride.chatMessages = Array.isArray(ride.chatMessages) ? ride.chatMessages : [];
-    driver.currentRideId = ride.id;
-    driver.updatedAt = now();
-    saveState();
-    (ride.notifiedDriverIds || []).filter((driverId) => driverId !== driver.id).forEach((driverId) => {
-      notification({
-        targetType: 'driver',
-        targetId: driverId,
-        message: `Ride ${ride.id} was assigned by dispatch and is no longer available.`,
-        type: 'warning',
-      });
-    });
-    notification({
-      targetType: 'driver',
-      targetId: driver.id,
-      message: `Dispatch assigned ride ${ride.id} to you. Proceed to ${ride.pickup}.`,
-    });
-    notification({
-      targetType: 'customer',
-      targetId: ride.customerId,
-      message: `${driver.name} was assigned by dispatch to your ride ${ride.id}. Call or chat via ${driver.phone}.`,
-    });
-    notification({ targetType: 'admin', message: `${driver.name} was assigned by admin to ride ${ride.id}.` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: publicRide(ride) }), true;
-  }
-
-  const markResetWhatsapp = routeMatches(pathname, '/api/admin/password-reset-requests/:requestId/whatsapp');
-  if (markResetWhatsapp && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const body = await parseJsonBody(req);
-    const request = (state.passwordResetRequests || []).find((item) => item.id === markResetWhatsapp.requestId);
-    if (!request) return sendJson(res, 404, { ok: false, message: 'Password reset request not found' }), true;
-    request.status = body.status === 'sent' ? 'sent' : request.status;
-    request.updatedAt = now();
-    request.adminMessage = text(body.adminMessage, request.adminMessage || '');
-    saveState();
-    notification({ targetType: 'admin', message: `WhatsApp follow-up sent for ${request.driverName}` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: request }), true;
-  }
-
-  const accept = routeMatches(pathname, '/api/rides/:rideId/accept');
-  if (accept && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    const ride = auth ? findRide(accept.rideId) : null;
-    const driver = auth ? findDriver(auth.sub) : null;
-    if (!ride || !driver) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    if (driver.approvalStatus !== 'approved') return sendJson(res, 403, { ok: false, message: 'Driver account is not approved' }), true;
-    if (ride.status !== 'pending' || ride.driverId) return sendJson(res, 409, { ok: false, message: 'Ride is no longer available' }), true;
-    if (!driver.online) return sendJson(res, 409, { ok: false, message: 'Driver must be online to accept rides' }), true;
-    if ((ride.notifiedDriverIds || []).length && !(ride.notifiedDriverIds || []).includes(driver.id)) {
-      return sendJson(res, 403, { ok: false, message: 'This ride request was not assigned to you' }), true;
-    }
-    ride.driverId = driver.id;
-    ride.status = 'accepted';
-    ride.updatedAt = now();
-    ride.timeline.acceptedAt = now();
-    ride.chatMessages = Array.isArray(ride.chatMessages) ? ride.chatMessages : [];
-    driver.currentRideId = ride.id;
-    driver.updatedAt = now();
-    saveState();
-    (ride.notifiedDriverIds || []).filter((driverId) => driverId !== driver.id).forEach((driverId) => {
-      notification({
-        targetType: 'driver',
-        targetId: driverId,
-        message: `Ride ${ride.id} was accepted by another nearby driver and is no longer available.`,
-        type: 'warning',
-      });
-    });
-    notification({ targetType: 'customer', targetId: ride.customerId, message: `${driver.name} accepted your ride ${ride.id}. Call or chat via ${driver.phone}.` });
-    notification({ targetType: 'admin', message: `${driver.name} accepted ride ${ride.id}.` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: publicRide(ride) }), true;
-  }
-
-  const reject = routeMatches(pathname, '/api/rides/:rideId/reject');
-  if (reject && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    const driver = auth ? findDriver(auth.sub) : null;
-    const ride = findRide(reject.rideId);
-    if (!driver || !ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    if (ride.status !== 'pending' || ride.driverId) return sendJson(res, 409, { ok: false, message: 'Ride is no longer available' }), true;
-    ride.rejectedDriverIds = Array.from(new Set([...(ride.rejectedDriverIds || []), driver.id]));
-    const previousNotified = new Set(ride.notifiedDriverIds || []);
-    const nextCandidates = retargetRide(ride);
-    nextCandidates
-      .filter((candidate) => !previousNotified.has(candidate.driver.id))
-      .forEach((candidate) => {
-        notification({
-          targetType: 'driver',
-          targetId: candidate.driver.id,
-          message: candidate.distanceKm === null
-            ? `New ride request available: ${ride.pickup} to ${ride.dropoff}.`
-            : `New nearby ride request available: ${ride.pickup} to ${ride.dropoff} (${candidate.distanceKm.toFixed(1)} km away).`,
-        });
-      });
-    saveState();
-    notification({ targetType: 'admin', message: `${driver.name} skipped ride ${ride.id}.` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true }), true;
-  }
-
-  const statusRoute = routeMatches(pathname, '/api/rides/:rideId/status');
-  if (statusRoute && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'driver');
-    const ride = auth ? findRide(statusRoute.rideId) : null;
-    if (!ride || ride.driverId !== auth.sub) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    const driver = findDriver(auth.sub);
-    const requested = text((await parseJsonBody(req)).status);
-    const allowed = { accepted: ['arrived', 'cancelled'], arrived: ['in-progress', 'cancelled'], 'in-progress': ['completed', 'cancelled'] }[ride.status] || [];
-    if (!allowed.includes(requested)) return sendJson(res, 409, { ok: false, message: 'Invalid ride status transition' }), true;
-    ride.status = requested;
-    ride.updatedAt = now();
-    if (requested === 'arrived') ride.timeline.arrivedAt = now();
-    if (requested === 'in-progress') ride.timeline.startedAt = now();
-    if (requested === 'completed') ride.timeline.completedAt = now();
-    if (requested === 'cancelled') ride.timeline.cancelledAt = now();
-    if (requested === 'completed') {
-      driver.currentRideId = null;
-      driver.earningsToday = money(driver.earningsToday + ride.fare);
-      driver.earningsTotal = money(driver.earningsTotal + ride.fare);
-      driver.ratingCount += 1;
-      driver.rating = Number(((driver.rating * Math.max(driver.ratingCount - 1, 0) + 5) / driver.ratingCount).toFixed(1));
-    }
-    if (requested === 'cancelled') driver.currentRideId = null;
-    driver.updatedAt = now();
-    saveState();
-    notification({ targetType: 'customer', targetId: ride.customerId, message: requested === 'arrived' ? `Your driver has arrived for ride ${ride.id}.` : requested === 'in-progress' ? `Ride ${ride.id} is now in progress.` : requested === 'completed' ? `Ride ${ride.id} completed successfully.` : `Ride ${ride.id} was cancelled.` });
-    notification({ targetType: 'admin', message: `Ride ${ride.id} status changed to ${requested}.` });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: publicRide(ride) }), true;
-  }
-
-  const cancel = routeMatches(pathname, '/api/rides/:rideId/cancel');
-  if (cancel && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    const ride = auth ? findRide(cancel.rideId) : null;
-    if (!ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    if (['completed', 'cancelled'].includes(ride.status)) return sendJson(res, 409, { ok: false, message: 'Ride already closed' }), true;
-    ride.status = 'cancelled';
-    ride.updatedAt = now();
-    ride.timeline.cancelledAt = now();
-    const driver = ride.driverId ? findDriver(ride.driverId) : null;
-    if (driver) { driver.currentRideId = null; driver.updatedAt = now(); }
-    saveState();
-    notification({ targetType: 'customer', targetId: ride.customerId, message: `Ride ${ride.id} was cancelled by dispatch.`, type: 'warning' });
-    notification({ targetType: 'admin', message: `Ride ${ride.id} cancelled by admin.`, type: 'warning' });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: publicRide(ride) }), true;
-  }
-
-  if (pathname === '/api/admin/notifications' && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const body = await parseJsonBody(req);
-    notification({ targetType: text(body.target, 'all'), message: text(body.message), type: text(body.type, 'info') });
-    broadcastState();
-    return sendJson(res, 201, { ok: true, data: true }), true;
-  }
-
-  if (pathname === '/api/admin/settings' && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const body = await parseJsonBody(req);
-    state.settings.baseFare = money(body.baseFare || state.settings.baseFare);
-    state.settings.perKm = money(body.perKm || state.settings.perKm);
-    state.settings.perMin = money(body.perMin || state.settings.perMin);
-    state.settings.cancelFee = money(body.cancelFee || state.settings.cancelFee);
-    state.settings.surge = Math.max(0.5, num(body.surge, state.settings.surge));
-    saveState();
-    notification({ targetType: 'admin', message: 'Platform pricing settings updated.' });
-    broadcastState();
-    return sendJson(res, 200, { ok: true, data: state.settings }), true;
-  }
-
-  if (pathname === '/api/admin/backups/export' && req.method === 'GET') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    try {
-      const backup = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
-      const current = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
-      const payload = backup?.payload || current?.payload;
-      if (!payload) {
-        return sendJson(res, 404, { ok: false, message: 'No backup snapshot found to export' }), true;
-      }
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Content-Disposition': `attachment; filename="teleka-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json"`,
-      });
-      res.end(payload);
-      return true;
-    } catch {
-      return sendJson(res, 500, { ok: false, message: 'Failed to export backup' }), true;
-    }
-  }
-
-  if (pathname === '/api/admin/backups/restore' && req.method === 'POST') {
-    const auth = requireAuth(req, url, 'admin');
-    if (!auth) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    try {
-      const backup = db.prepare('SELECT payload FROM state_backups WHERE id = ?').get('latest');
-      if (!backup?.payload) {
-        return sendJson(res, 404, { ok: false, message: 'No database backup snapshot found to restore' }), true;
-      }
-      const current = db.prepare('SELECT payload FROM state_documents WHERE id = ?').get('root');
-      if (current?.payload) {
-        db.prepare('INSERT INTO state_archives (id, kind, payload, created_at) VALUES (?, ?, ?, ?)')
-          .run(id('archive'), 'pre-restore', current.payload, now());
-      }
-      state = normalizeState(JSON.parse(backup.payload));
-      saveState();
-      notification({ targetType: 'admin', message: 'Platform data restored from backup.', type: 'warning' });
-      broadcastState();
-      return sendJson(res, 200, { ok: true, data: { restored: true } }), true;
-    } catch {
-      return sendJson(res, 500, { ok: false, message: 'Failed to restore backup' }), true;
-    }
-  }
-
-  const chatRoute = routeMatches(pathname, '/api/rides/:rideId/chat');
-  if (chatRoute && req.method === 'GET') {
-    const auth = requireAuth(req, url);
-    const ride = auth ? findRide(chatRoute.rideId) : null;
-    if (!auth || !ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const allowed = auth.role === 'admin'
-      || (auth.role === 'customer' && ride.customerId === auth.sub)
-      || (auth.role === 'driver' && ride.driverId === auth.sub);
-    if (!allowed) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    return sendJson(res, 200, { ok: true, data: { ride: publicRide(ride), messages: Array.isArray(ride.chatMessages) ? ride.chatMessages : [] } }), true;
-  }
-
-  if (chatRoute && req.method === 'POST') {
-    const auth = requireAuth(req, url);
-    const ride = auth ? findRide(chatRoute.rideId) : null;
-    if (!auth || !ride) return sendJson(res, 401, { ok: false, message: 'Authentication required' }), true;
-    const allowed = (auth.role === 'customer' && ride.customerId === auth.sub) || (auth.role === 'driver' && ride.driverId === auth.sub);
-    if (!allowed) return sendJson(res, 403, { ok: false, message: 'Forbidden' }), true;
-    const body = await parseJsonBody(req);
-    const messageText = text(body.message);
-    if (!messageText) return sendJson(res, 400, { ok: false, message: 'Message is required' }), true;
-    ride.chatMessages = Array.isArray(ride.chatMessages) ? ride.chatMessages : [];
-    const senderName = auth.role === 'customer' ? (findCustomer(auth.sub)?.name || 'Customer') : (findDriver(auth.sub)?.name || 'Driver');
-    ride.chatMessages.push({
-      id: id('msg'),
-      senderRole: auth.role,
-      senderId: auth.sub,
-      senderName,
-      message: messageText,
-      createdAt: now(),
-    });
-    ride.updatedAt = now();
-    saveState();
-    if (auth.role === 'customer' && ride.driverId) {
-      notification({ targetType: 'driver', targetId: ride.driverId, message: `New message from rider on ride ${ride.id}.` });
-    }
-    if (auth.role === 'driver') {
-      notification({ targetType: 'customer', targetId: ride.customerId, message: `New message from your driver on ride ${ride.id}.` });
-    }
-    broadcastState();
-    return sendJson(res, 201, { ok: true, data: { ride: publicRide(ride), messages: ride.chatMessages } }), true;
-  }
-
-  return false;
-}
-
-function sendFile(res, filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  fs.readFile(filePath, (error, data) => {
-    if (error) return res.writeHead(500, { 'Content-Type': 'text/plain' }), res.end('500 - Internal Server Error');
-    let output = data;
-    if (ext === '.html') {
-      output = data.toString()
-        .replace(/\{\{GOOGLE_MAPS_API_KEY\}\}/g, GOOGLE_MAPS_API_KEY || '{{GOOGLE_MAPS_API_KEY}}')
-        .replace(/\{\{GOOGLE_CLIENT_ID\}\}/g, GOOGLE_CLIENT_ID || '{{GOOGLE_CLIENT_ID}}');
-    }
-    res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
-    res.end(output);
-  });
-}
-
-function handleStaticFile(pathname, res) {
-  let filePath = path.join(baseDir, pathname);
-  if (pathname === '/' || pathname === '') filePath = path.join(baseDir, 'index.html');
-  if (!filePath.startsWith(baseDir)) return res.writeHead(403, { 'Content-Type': 'text/plain' }), res.end('403 - Forbidden');
-  fs.stat(filePath, (error, stats) => {
-    if (error) return res.writeHead(404, { 'Content-Type': 'text/plain' }), res.end('404 - Not Found');
-    if (stats.isDirectory()) return handleStaticFile(path.join(pathname, 'index.html'), res);
-    sendFile(res, filePath);
-  });
-}
-
-function createServer() {
-  return http.createServer(async (req, res) => {
-    try {
-      setCorsHeaders(req, res);
-      const url = new URL(req.url, `http://${req.headers.host}`);
-      if (url.pathname.startsWith('/api/')) {
-        const handled = await handleApi(req, res, url);
-        if (!handled) sendJson(res, 404, { ok: false, message: 'API route not found' });
-        return;
-      }
-      handleStaticFile(url.pathname, res);
-    } catch (error) {
-      console.error('Server error:', error);
-      sendJson(res, 500, { ok: false, message: error.message || 'Internal server error' });
-    }
-  });
-}
-
-if (!AUTH_SECRET) console.warn('WARNING: AUTH_SECRET is not configured. Set it in .env or deployment environment.');
-if (!configuredDbPath && !persistentVolumeRoot && process.platform !== 'win32') {
-  console.warn('WARNING: No persistent volume configured. SQLite will be stored in the app workspace and may be lost on redeploy.');
-}
-if (configuredDbPath && process.platform !== 'win32' && looksLikeWindowsAbsolutePath(configuredDbPath)) {
-  console.warn(`WARNING: TELEKA_DB_PATH points to a Windows path on ${process.platform}. Falling back to ${databasePath}`);
-}
-if (persistentVolumeRoot) {
-  console.log(`Persistent volume detected: ${persistentVolumeRoot}`);
-}
-
-createServer().listen(port, '0.0.0.0', () => {
-  console.log(`Static server running at http://localhost:${port}`);
-  console.log(`Persistent database: ${databasePath}`);
+app.get('/auth/google', (req, res, next) => {
+  const strategy = pickGoogleStrategy(req.headers.host);
+  passport.authenticate(strategy, { scope: ['profile', 'email'] })(req, res, next);
 });
+
+app.get('/auth/google/callback', (req, res, next) => {
+  const strategy = pickGoogleStrategy(req.headers.host);
+  passport.authenticate(strategy, { failureRedirect: '/index.html' })(req, res, next);
+}, (req, res) => {
+  res.redirect('/index.html');
+});
+
+app.post('/auth/admin/login', (req, res, next) => {
+  passport.authenticate('local', (err, user, info) => {
+    if (err) return sendError(res, 500, 'Server error');
+    if (!user) return sendError(res, 401, info?.message || 'Invalid credentials');
+    req.logIn(user, (loginErr) => {
+      if (loginErr) return sendError(res, 500, 'Login failed');
+      return res.json({ success: true, user });
+    });
+  })(req, res, next);
+});
+
+app.post('/auth/admin/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) return sendError(res, 500, 'Logout failed');
+    return res.json({ success: true });
+  });
+});
+
+app.post('/auth/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) return sendError(res, 500, 'Logout failed');
+    return res.json({ success: true });
+  });
+});
+
+app.post('/auth/driver/register', async (req, res) => {
+  try {
+    const name = sanitizeText(req.body.name, 120);
+    const email = sanitizeText(req.body.email, 160).toLowerCase();
+    const phone = sanitizeText(req.body.phone, 50);
+    const vehicleInfo = sanitizeText(req.body.vehicleInfo, 120);
+    const plate = sanitizeText(req.body.plate, 40);
+    const licenseNumber = sanitizeText(req.body.licenseNumber, 60);
+    const nationalIdNumber = sanitizeText(req.body.nationalIdNumber, 60);
+    const insuranceNumber = sanitizeText(req.body.insuranceNumber, 60);
+    const password = String(req.body.password || '');
+    const docsJson = JSON.stringify(req.body.docs || []);
+
+    if (!name || !email || !phone || !vehicleInfo || !licenseNumber || !password) {
+      return sendError(res, 400, 'Missing required registration fields');
+    }
+    if (password.length < 6) return sendError(res, 400, 'Password must be at least 6 characters');
+
+    const hash = await bcrypt.hash(password, 10);
+    await runQuery(
+      `INSERT INTO drivers (
+        email, name, phone, license_number, vehicle_info, plate_number, national_id_number, insurance_number,
+        status, password_hash, docs_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [email, name, phone, licenseNumber, vehicleInfo, plate, nationalIdNumber, insuranceNumber, hash, docsJson]
+    );
+
+    await createNotification('admin', null, 'Driver registration', `${name} submitted a driver application.`);
+    return res.json({ success: true, message: 'Registration submitted for admin approval' });
+  } catch (error) {
+    if (String(error.message || '').includes('UNIQUE constraint failed: drivers.email')) {
+      return sendError(res, 400, 'Email already registered');
+    }
+    return sendError(res, 500, 'Registration failed');
+  }
+});
+
+app.post('/auth/driver/login', async (req, res) => {
+  try {
+    const email = sanitizeText(req.body.email, 160).toLowerCase();
+    const password = String(req.body.password || '');
+    const driver = await getQuery('SELECT * FROM drivers WHERE email = ? AND status = ?', [email, 'approved']);
+    if (!driver) return sendError(res, 401, 'Invalid credentials or account not approved');
+
+    const isMatch = await bcrypt.compare(password, driver.password_hash || '');
+    if (!isMatch) return sendError(res, 401, 'Invalid credentials');
+
+    const token = jwt.sign({ id: driver.id, email: driver.email, role: 'driver' }, process.env.AUTH_SECRET, { expiresIn: '30d' });
+    return res.json({
+      success: true,
+      token,
+      driver: {
+        id: driver.id,
+        name: driver.name,
+        email: driver.email,
+        phone: driver.phone,
+        vehicleInfo: driver.vehicle_info,
+        isOnline: Boolean(driver.is_online)
+      }
+    });
+  } catch (error) {
+    return sendError(res, 500, 'Server error');
+  }
+});
+
+app.post('/auth/driver/verify', async (req, res) => {
+  try {
+    const token = getDriverToken(req);
+    if (!token) return res.status(401).json({ valid: false });
+    const decoded = jwt.verify(token, process.env.AUTH_SECRET);
+    if (decoded.role !== 'driver') return res.status(401).json({ valid: false });
+
+    const driver = await getQuery(
+      'SELECT id, name, email, phone, vehicle_info, plate_number, is_online FROM drivers WHERE id = ? AND status = ?',
+      [decoded.id, 'approved']
+    );
+    if (!driver) return res.status(401).json({ valid: false });
+    return res.json({ valid: true, driver });
+  } catch (error) {
+    return res.status(401).json({ valid: false });
+  }
+});
+
+app.get('/auth/status', (req, res) => {
+  if (req.isAuthenticated()) return res.json({ authenticated: true, user: req.user });
+  return res.json({ authenticated: false });
+});
+
+app.get('/api/public/config', async (req, res) => {
+  const pricing = await getQuery('SELECT base_fare, per_km, per_min, surge_multiplier, cancellation_fee FROM pricing_settings WHERE id = 1');
+  return res.json({
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+    googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+    pricing
+  });
+});
+
+app.get('/api/customer/snapshot', requireCustomer, async (req, res) => {
+  const snapshot = await getCustomerSnapshot(req.user.id);
+  return res.json({ success: true, ...snapshot });
+});
+
+app.put('/api/customer/profile', requireCustomer, async (req, res) => {
+  const name = sanitizeText(req.body.name, 120);
+  const phone = sanitizeText(req.body.phone, 50);
+  if (!name) return sendError(res, 400, 'Name is required');
+
+  await runQuery(
+    'UPDATE users SET name = ?, phone = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [name, phone, req.user.id]
+  );
+  req.user.name = name;
+  return res.json({ success: true });
+});
+
+app.post('/api/rides/request', requireCustomer, async (req, res) => {
+  try {
+    const pickupLocation = sanitizeText(req.body.pickupLocation, 255);
+    const dropoffLocation = sanitizeText(req.body.dropoffLocation, 255);
+    const scheduledLocal = sanitizeText(req.body.scheduledAt, 64);
+    const requestedCarType = sanitizeText(req.body.carType || 'standard', 40);
+    const paymentMethod = sanitizeText(req.body.paymentMethod || 'cash', 40);
+    const distanceKm = parseNumber(req.body.distanceKm, 0);
+    const durationMin = parseNumber(req.body.durationMin, 0);
+    const clientFare = parseNumber(req.body.estimatedFare, 0);
+    const pickupLat = parseNumber(req.body.pickupLat, null);
+    const pickupLng = parseNumber(req.body.pickupLng, null);
+    const dropoffLat = parseNumber(req.body.dropoffLat, null);
+    const dropoffLng = parseNumber(req.body.dropoffLng, null);
+
+    if (!pickupLocation || !dropoffLocation || !scheduledLocal) {
+      return sendError(res, 400, 'Pickup, destination, and ride date are required');
+    }
+
+    const scheduleDate = new Date(scheduledLocal);
+    if (Number.isNaN(scheduleDate.getTime())) return sendError(res, 400, 'Invalid scheduled date');
+
+    const pricing = await getQuery('SELECT * FROM pricing_settings WHERE id = 1');
+    const estimatedFare = clientFare > 0
+      ? money(clientFare)
+      : calculateEstimatedFare(pricing || {}, distanceKm, durationMin, scheduleDate.toISOString());
+
+    const created = await runQuery(
+      `INSERT INTO rides (
+        customer_id, pickup_location, dropoff_location, pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+        scheduled_at, scheduled_local, requested_car_type, payment_method, distance_km, duration_min, estimated_fare,
+        status, timeline_stage, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'requested', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        req.user.id,
+        pickupLocation,
+        dropoffLocation,
+        Number.isFinite(pickupLat) ? pickupLat : null,
+        Number.isFinite(pickupLng) ? pickupLng : null,
+        Number.isFinite(dropoffLat) ? dropoffLat : null,
+        Number.isFinite(dropoffLng) ? dropoffLng : null,
+        scheduleDate.toISOString(),
+        scheduledLocal,
+        requestedCarType,
+        paymentMethod,
+        distanceKm,
+        durationMin,
+        estimatedFare
+      ]
+    );
+
+    await createNotification('drivers', null, 'New ride request', `${pickupLocation} to ${dropoffLocation}`);
+    await createNotification('admin', null, 'New ride created', `Customer ${req.user.name || req.user.email} requested a ride.`);
+
+    return res.json({ success: true, rideId: created.lastID, estimatedFare });
+  } catch (error) {
+    return sendError(res, 500, 'Failed to create ride');
+  }
+});
+
+app.get('/api/customer/rides/:rideId/messages', requireCustomer, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const ride = await getQuery('SELECT id FROM rides WHERE id = ? AND customer_id = ?', [rideId, req.user.id]);
+  if (!ride) return sendError(res, 404, 'Ride not found');
+
+  const messages = await allQuery(
+    `SELECT id, sender_role, sender_id, message, created_at
+     FROM ride_messages
+     WHERE ride_id = ?
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [rideId]
+  );
+  return res.json({ success: true, messages });
+});
+
+app.post('/api/customer/rides/:rideId/messages', requireCustomer, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const message = sanitizeText(req.body.message, 2000);
+  if (!message) return sendError(res, 400, 'Message is required');
+
+  const ride = await getQuery('SELECT id, driver_id FROM rides WHERE id = ? AND customer_id = ?', [rideId, req.user.id]);
+  if (!ride) return sendError(res, 404, 'Ride not found');
+
+  await runQuery(
+    'INSERT INTO ride_messages (ride_id, sender_role, sender_id, message, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)',
+    [rideId, 'customer', req.user.id, message]
+  );
+
+  if (ride.driver_id) await createNotification('drivers', ride.driver_id, 'Passenger message', message.slice(0, 140));
+  return res.json({ success: true });
+});
+
+app.get('/api/driver/snapshot', requireDriver, async (req, res) => {
+  const snapshot = await getDriverSnapshot(req.driver.id);
+  return res.json({ success: true, ...snapshot });
+});
+
+app.put('/api/driver/status', requireDriver, async (req, res) => {
+  const isOnline = req.body.isOnline ? 1 : 0;
+  await runQuery('UPDATE drivers SET is_online = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [isOnline, req.driver.id]);
+  return res.json({ success: true, isOnline: Boolean(isOnline) });
+});
+
+app.put('/api/driver/profile', requireDriver, async (req, res) => {
+  const name = sanitizeText(req.body.name, 120);
+  const phone = sanitizeText(req.body.phone, 50);
+  const vehicleInfo = sanitizeText(req.body.vehicleInfo, 120);
+  const plate = sanitizeText(req.body.plate, 40);
+  const licenseNumber = sanitizeText(req.body.licenseNumber, 60);
+  const nationalIdNumber = sanitizeText(req.body.nationalIdNumber, 60);
+  const insuranceNumber = sanitizeText(req.body.insuranceNumber, 60);
+  const docsJson = JSON.stringify(req.body.docs || []);
+
+  await runQuery(
+    `UPDATE drivers
+     SET name = COALESCE(NULLIF(?, ''), name),
+         phone = COALESCE(NULLIF(?, ''), phone),
+         vehicle_info = COALESCE(NULLIF(?, ''), vehicle_info),
+         plate_number = COALESCE(NULLIF(?, ''), plate_number),
+         license_number = COALESCE(NULLIF(?, ''), license_number),
+         national_id_number = COALESCE(NULLIF(?, ''), national_id_number),
+         insurance_number = COALESCE(NULLIF(?, ''), insurance_number),
+         docs_json = CASE WHEN ? = '[]' THEN docs_json ELSE ? END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [name, phone, vehicleInfo, plate, licenseNumber, nationalIdNumber, insuranceNumber, docsJson, docsJson, req.driver.id]
+  );
+  return res.json({ success: true });
+});
+
+app.post('/api/driver/rides/:rideId/accept', requireDriver, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const update = await runQuery(
+    `UPDATE rides
+     SET driver_id = ?, status = 'accepted', timeline_stage = 'accepted', updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND status = 'pending'`,
+    [req.driver.id, rideId]
+  );
+  if (!update.changes) return sendError(res, 409, 'Ride is no longer available');
+
+  await runQuery('UPDATE drivers SET current_ride_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [rideId, req.driver.id]);
+  const ride = await getQuery('SELECT customer_id FROM rides WHERE id = ?', [rideId]);
+  await createNotification('customers', ride.customer_id, 'Driver assigned', `${req.driver.name} accepted your ride.`);
+  return res.json({ success: true });
+});
+
+app.post('/api/driver/rides/:rideId/reject', requireDriver, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const ride = await getQuery('SELECT id, status, customer_id, driver_id FROM rides WHERE id = ?', [rideId]);
+  if (!ride) return sendError(res, 404, 'Ride not found');
+
+  if (ride.status === 'accepted' && ride.driver_id === req.driver.id) {
+    await runQuery(
+      `UPDATE rides
+       SET status = 'pending', driver_id = NULL, timeline_stage = 'requested', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [rideId]
+    );
+    await runQuery('UPDATE drivers SET current_ride_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.driver.id]);
+    await createNotification('customers', ride.customer_id, 'Ride reassigned', 'Your driver could not continue, searching for another driver.');
+  }
+
+  return res.json({ success: true });
+});
+
+app.post('/api/driver/rides/:rideId/status', requireDriver, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const action = sanitizeText(req.body.action, 40).toLowerCase();
+  const ride = await getQuery('SELECT * FROM rides WHERE id = ? AND driver_id = ?', [rideId, req.driver.id]);
+  if (!ride) return sendError(res, 404, 'Ride not found');
+
+  const map = {
+    arrived: { status: 'arrived', stage: 'arrived' },
+    start: { status: 'enroute', stage: 'enroute' },
+    enroute: { status: 'enroute', stage: 'enroute' },
+    complete: { status: 'completed', stage: 'completed' },
+    cancel: { status: 'cancelled', stage: 'cancelled' },
+    cancelled: { status: 'cancelled', stage: 'cancelled' }
+  };
+  const next = map[action];
+  if (!next) return sendError(res, 400, 'Unsupported status transition');
+
+  const finalFare = next.status === 'completed'
+    ? money(parseNumber(req.body.finalFare, ride.final_fare || ride.estimated_fare || 0))
+    : ride.final_fare;
+
+  await runQuery(
+    'UPDATE rides SET status = ?, timeline_stage = ?, final_fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND driver_id = ?',
+    [next.status, next.stage, finalFare, rideId, req.driver.id]
+  );
+
+  if (next.status === 'completed' || next.status === 'cancelled') {
+    await runQuery('UPDATE drivers SET current_ride_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.driver.id]);
+  }
+
+  const title = next.status === 'completed' ? 'Trip completed' : `Ride ${next.status}`;
+  await createNotification('customers', ride.customer_id, title, `Driver updated your ride to "${next.status}".`);
+  return res.json({ success: true, status: next.status, finalFare });
+});
+
+app.post('/api/driver/rides/:rideId/messages', requireDriver, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const message = sanitizeText(req.body.message, 2000);
+  if (!message) return sendError(res, 400, 'Message is required');
+
+  const ride = await getQuery('SELECT customer_id FROM rides WHERE id = ? AND driver_id = ?', [rideId, req.driver.id]);
+  if (!ride) return sendError(res, 404, 'Ride not found');
+
+  await runQuery(
+    'INSERT INTO ride_messages (ride_id, sender_role, sender_id, message, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)',
+    [rideId, 'driver', req.driver.id, message]
+  );
+  await createNotification('customers', ride.customer_id, 'Driver message', message.slice(0, 140));
+  return res.json({ success: true });
+});
+
+app.get('/api/admin/snapshot', requireAdmin, async (req, res) => {
+  const snapshot = await getAdminSnapshot();
+  return res.json({ success: true, ...snapshot });
+});
+
+app.put('/api/admin/pricing', requireAdmin, async (req, res) => {
+  const baseFare = parseNumber(req.body.baseFare, 3500);
+  const perKm = parseNumber(req.body.perKm, 1200);
+  const perMin = parseNumber(req.body.perMin, 180);
+  const surgeMultiplier = parseNumber(req.body.surgeMultiplier, 1.15);
+  const cancellationFee = parseNumber(req.body.cancellationFee, 2500);
+
+  await runQuery(
+    `UPDATE pricing_settings
+     SET base_fare = ?, per_km = ?, per_min = ?, surge_multiplier = ?, cancellation_fee = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = 1`,
+    [baseFare, perKm, perMin, surgeMultiplier, cancellationFee]
+  );
+  await createNotification('all', null, 'Pricing updated', 'Fare settings were updated by admin.');
+  return res.json({ success: true });
+});
+
+app.post('/api/admin/notifications', requireAdmin, async (req, res) => {
+  const target = sanitizeText(req.body.target || 'all', 20).toLowerCase();
+  const message = sanitizeText(req.body.message, 2000);
+  const title = sanitizeText(req.body.title || 'Platform update', 120);
+  if (!message) return sendError(res, 400, 'Notification message is required');
+  if (!['all', 'drivers', 'customers'].includes(target)) return sendError(res, 400, 'Invalid target');
+
+  await createNotification(target, null, title, message, 'broadcast');
+  return res.json({ success: true });
+});
+
+app.post('/api/admin/rides/:rideId/status', requireAdmin, async (req, res) => {
+  const rideId = Number(req.params.rideId);
+  const status = sanitizeText(req.body.status, 30).toLowerCase();
+  if (!['pending', 'accepted', 'arrived', 'enroute', 'completed', 'cancelled'].includes(status)) {
+    return sendError(res, 400, 'Invalid status');
+  }
+
+  const ride = await getQuery('SELECT customer_id, driver_id, estimated_fare, final_fare FROM rides WHERE id = ?', [rideId]);
+  if (!ride) return sendError(res, 404, 'Ride not found');
+
+  const finalFare = status === 'completed'
+    ? money(parseNumber(req.body.finalFare, ride.final_fare || ride.estimated_fare || 0))
+    : ride.final_fare;
+
+  await runQuery(
+    'UPDATE rides SET status = ?, final_fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [status, finalFare, rideId]
+  );
+  await createNotification('customers', ride.customer_id, 'Ride update', `Admin updated ride to "${status}".`);
+  if (ride.driver_id) await createNotification('drivers', ride.driver_id, 'Ride update', `Ride #${rideId} is now "${status}".`);
+  return res.json({ success: true });
+});
+
+app.get('/api/admin/export', requireAdmin, async (req, res) => {
+  const tables = ['users', 'drivers', 'rides', 'ride_messages', 'notifications', 'pricing_settings', 'driver_reset_requests'];
+  const backup = { exportedAt: nowIso(), version: 1, data: {} };
+  for (const table of tables) {
+    // eslint-disable-next-line no-await-in-loop
+    backup.data[table] = await allQuery(`SELECT * FROM ${table}`);
+  }
+  const stamp = nowIso().replace(/[:.]/g, '-');
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="teleka-backup-${stamp}.json"`);
+  return res.send(JSON.stringify(backup, null, 2));
+});
+
+app.get('/api/drivers/pending', requireAdmin, async (req, res) => {
+  const drivers = await allQuery(
+    `SELECT id, email, name, phone, license_number, vehicle_info, plate_number, status, docs_json, created_at
+     FROM drivers
+     WHERE status = 'pending'
+     ORDER BY created_at DESC`
+  );
+  return res.json(drivers);
+});
+
+app.post('/api/drivers/approve/:id', requireAdmin, async (req, res) => {
+  const driverId = Number(req.params.id);
+  const update = await runQuery(
+    `UPDATE drivers
+     SET status = 'approved', approved_at = CURRENT_TIMESTAMP, approved_by = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [req.user.id, driverId]
+  );
+  if (!update.changes) return sendError(res, 404, 'Driver not found');
+  await createNotification('drivers', driverId, 'Application approved', 'Your account is approved. You can log in now.');
+  return res.json({ success: true });
+});
+
+app.post('/api/drivers/reject/:id', requireAdmin, async (req, res) => {
+  const driverId = Number(req.params.id);
+  const update = await runQuery(
+    `UPDATE drivers
+     SET status = 'rejected', is_online = 0, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [driverId]
+  );
+  if (!update.changes) return sendError(res, 404, 'Driver not found');
+  await createNotification('drivers', driverId, 'Application update', 'Your application was rejected. Contact support for details.');
+  return res.json({ success: true });
+});
+
+app.get('/api/health', (req, res) => res.json({ success: true, time: nowIso(), dbPath }));
+
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+app.get('/driver', (req, res) => res.sendFile(path.join(__dirname, 'driver.html')));
+
+initDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Database path: ${dbPath}`);
+    });
+  })
+  .catch((error) => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
+  });

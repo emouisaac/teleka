@@ -14,7 +14,7 @@
         <div class="navbar-container">
             <a href="index.html" class="navbar-logo"><img src="ims/ticon.png" alt="Teleka Logo"></a>
             <div id="current-date" class="navbar-date" aria-label="Current date"></div>
-            <button class="navbar-toggle" id="mobile-menu">
+            <button class="navbar-toggle" id="mobile-menu" onclick="toggleMobileMenu()">
                 <span class="bar"></span>
                 <span class="bar"></span>
                 <span class="bar"></span>
@@ -212,7 +212,7 @@
                         <div class="fare-estimate">
                             <div>
                                 <strong>Estimated Fare</strong>
-                                <p class="estimate-subtitle">Based on route distance</p>
+                                <p class="estimate-subtitle" id="fare-breakdown">Type pickup and destination to calculate fare.</p>
                             </div>
                             <div>
                                 <span id="fare-amount">UGX 0</span>
@@ -225,6 +225,20 @@
                     <div class="map-panel">
                         <div id="map"></div>
                         <p class="map-hint">Pickup and dropoff autofill powered by Google Places. Route appears here.</p>
+                        <div class="route-summary" id="route-summary">
+                            <div class="route-metrics">
+                                <div class="route-metric">
+                                    <span>Distance</span>
+                                    <strong id="route-distance">--</strong>
+                                </div>
+                                <div class="route-metric">
+                                    <span>Duration</span>
+                                    <strong id="route-duration">--</strong>
+                                </div>
+                            </div>
+                            <p class="route-point"><strong>From:</strong> <span id="route-from">Waiting for pickup...</span></p>
+                            <p class="route-point"><strong>To:</strong> <span id="route-to">Waiting for destination...</span></p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -412,10 +426,5 @@
         </div>
     </footer>
 
-<script>
-    // Provide Google client ID to the page via JS global (injected by server)
-    window.GOOGLE_CLIENT_ID = '{{GOOGLE_CLIENT_ID}}';
-</script>
 <script src="script.js"></script>
-<script src="https://maps.googleapis.com/maps/api/js?key={{GOOGLE_MAPS_API_KEY}}&libraries=places&callback=initRideRequest" async defer></script>
 </html>
