@@ -193,6 +193,30 @@
       <section id="dashboard" class="driver-section active">
         <div class="section-header">
           <h2>Dashboard</h2>
+        </div>
+
+        <div class="map-card">
+          <div class="map-header">
+            <h4>Live location</h4>
+            <span class="map-tag" id="mapStatus">Offline</span>
+          </div>
+          <div id="driverMap" class="map-placeholder driver-map-canvas" aria-label="Driver location map">
+            <span class="map-placeholder-text">Map ready when online</span>
+          </div>
+          <p class="driver-map-note" id="driverMapNote">Go online and allow location access to show your live map.</p>
+          <div class="driver-map-summary" id="driverMapSummary">
+            <span id="driverMapMode">Waiting for live tracking</span>
+            <strong id="driverMapRoute">No active route</strong>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn outline" id="actionViewRequests">View Requests</button>
+          <button class="btn primary" id="actionGoOnline">Go Online</button>
+        </div>
+
+        <div class="section-header">
+          <h2>Summary</h2>
           <p>Quick summary of your earnings, rides, and active status.</p>
         </div>
 
@@ -221,26 +245,6 @@
               <span>Unread</span> <strong id="statUnreadNotifs">0</strong>
             </div>
           </div>
-        </div>
-
-        <div class="map-card">
-          <div class="map-header">
-            <h4>Live location</h4>
-            <span class="map-tag" id="mapStatus">Offline</span>
-          </div>
-          <div id="driverMap" class="map-placeholder driver-map-canvas" aria-label="Driver location map">
-            <span class="map-placeholder-text">Map ready when online</span>
-          </div>
-          <p class="driver-map-note" id="driverMapNote">Go online and allow location access to show your live map.</p>
-          <div class="driver-map-summary" id="driverMapSummary">
-            <span id="driverMapMode">Waiting for live tracking</span>
-            <strong id="driverMapRoute">No active route</strong>
-          </div>
-        </div>
-
-        <div class="actions-row">
-          <button class="btn primary" id="actionGoOnline">Go Online</button>
-          <button class="btn outline" id="actionViewRequests">View Requests</button>
         </div>
       </section>
 

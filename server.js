@@ -1,12 +1,10 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
@@ -15,99 +13,15 @@ const fs = require('fs');
 const os = require('os');
 require('dotenv').config();
 
+// Import JSON-based storage instead of SQLite
+const { initStorage, runQuery, getQuery, allQuery, dataDir } = require('./storage');
+
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const DATA_RETENTION_DAYS = Math.max(1, parseInt(process.env.TELEKA_RETENTION_DAYS || '180', 10) || 180);
-const SESSION_MAX_AGE_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-const DRIVER_TOKEN_TTL_DAYS = Math.max(1, parseInt(process.env.TELEKA_DRIVER_TOKEN_TTL_DAYS || String(DATA_RETENTION_DAYS), 10) || DATA_RETENTION_DAYS);
+const DRIVER_TOKEN_TTL_DAYS = Math.max(1, parseInt(process.env.TELEKA_DRIVER_TOKEN_TTL_DAYS || '365', 10) || 365);
 const MAX_DRIVER_DISTANCE_KM = Number(process.env.TELEKA_DRIVER_REQUEST_RADIUS_KM || 7);
 const MAX_NEARBY_DRIVERS = Math.max(1, parseInt(process.env.TELEKA_REQUEST_DRIVER_LIMIT || '3', 10) || 3);
 const LOCATION_FRESHNESS_MIN = Math.max(1, parseInt(process.env.TELEKA_DRIVER_LOCATION_FRESHNESS_MIN || '15', 10) || 15);
-const allowRepoStorage = ['1', 'true', 'yes'].includes(String(process.env.TELEKA_ALLOW_REPO_STORAGE || '').trim().toLowerCase());
-const repoRoot = path.resolve(__dirname);
-const appDataRoot = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-const fallbackDataDir = path.join(appDataRoot, 'Teleka');
-const persistenceWarnings = [];
-const sessionDbName = path.basename(process.env.TELEKA_SESSIONS_DB || 'sessions.sqlite');
-
-function isPathInside(parentPath, targetPath) {
-  const relativePath = path.relative(path.resolve(parentPath), path.resolve(targetPath));
-  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
-}
-
-function resolvePersistentLocation(configuredPath, fallbackPath, label) {
-  const targetPath = path.resolve(configuredPath || fallbackPath);
-  if (allowRepoStorage || !isPathInside(repoRoot, targetPath)) return targetPath;
-  const safePath = path.resolve(fallbackPath);
-  persistenceWarnings.push(`${label} was configured inside the repository and has been moved to ${safePath}`);
-  return safePath;
-}
-
-const defaultDataDir = resolvePersistentLocation(process.env.TELEKA_DATA_DIR, fallbackDataDir, 'Persistent data directory');
-const dbPath = resolvePersistentLocation(process.env.TELEKA_DB_PATH, path.join(defaultDataDir, 'teleka.sqlite'), 'Main database');
-const dataDir = path.dirname(dbPath);
-const sessionStoreDir = resolvePersistentLocation(process.env.TELEKA_SESSIONS_DIR, path.join(defaultDataDir, 'sessions'), 'Session database directory');
-const sessionDbPath = path.join(sessionStoreDir, sessionDbName);
-
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-if (!fs.existsSync(sessionStoreDir)) {
-  fs.mkdirSync(sessionStoreDir, { recursive: true });
-}
-
-function seedPersistentFile(sourcePath, targetPath) {
-  try {
-    if (!sourcePath || !targetPath) return false;
-    if (path.resolve(sourcePath) === path.resolve(targetPath)) return false;
-    if (!fs.existsSync(sourcePath)) return false;
-    const sourceStat = fs.statSync(sourcePath);
-    if (!sourceStat.isFile() || sourceStat.size === 0) return false;
-    if (fs.existsSync(targetPath)) {
-      const targetStat = fs.statSync(targetPath);
-      if (targetStat.isFile() && targetStat.size > 0) return false;
-    }
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.copyFileSync(sourcePath, targetPath);
-    return true;
-  } catch (error) {
-    console.warn(`Storage seed skipped for ${sourcePath}:`, error.message);
-    return false;
-  }
-}
-
-const migratedDbFrom = [
-  path.join(__dirname, 'data', 'teleka.sqlite'),
-  path.join(__dirname, 'teleka.sqlite')
-].find((candidate) => seedPersistentFile(candidate, dbPath));
-
-const migratedSessionsFrom = seedPersistentFile(path.join(__dirname, 'sessions.db'), sessionDbPath)
-  ? path.join(__dirname, 'sessions.db')
-  : null;
-
-const db = new sqlite3.Database(dbPath);
-db.configure('busyTimeout', 5000);
-
-const runQuery = (sql, params = []) => new Promise((resolve, reject) => {
-  db.run(sql, params, function onRun(err) {
-    if (err) return reject(err);
-    return resolve({ lastID: this.lastID, changes: this.changes });
-  });
-});
-
-const getQuery = (sql, params = []) => new Promise((resolve, reject) => {
-  db.get(sql, params, (err, row) => {
-    if (err) return reject(err);
-    return resolve(row);
-  });
-});
-
-const allQuery = (sql, params = []) => new Promise((resolve, reject) => {
-  db.all(sql, params, (err, rows) => {
-    if (err) return reject(err);
-    return resolve(rows);
-  });
-});
 
 const sanitizeText = (value, max = 2000) => String(value || '').trim().slice(0, max);
 const parseNumber = (value, fallback = 0) => {
@@ -140,14 +54,6 @@ function getDriverToken(req) {
   return req.body?.token || req.query?.token || req.headers['x-driver-token'];
 }
 
-async function addColumn(table, definition) {
-  try {
-    await runQuery(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
-  } catch (error) {
-    if (!String(error.message || '').includes('duplicate column name')) throw error;
-  }
-}
-
 app.use(cors({
   origin(origin, callback) {
     if (!origin) return callback(null, true);
@@ -165,13 +71,7 @@ app.use(session({
   secret: process.env.AUTH_SECRET,
   resave: false,
   saveUninitialized: false,
-  store: new SQLiteStore({
-    db: sessionDbName,
-    dir: sessionStoreDir,
-    createDirIfNotExists: true,
-    concurrentDb: true
-  }),
-  cookie: { maxAge: SESSION_MAX_AGE_MS }
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -262,210 +162,23 @@ async function assignRideOffers(rideId, options = {}) {
 }
 
 async function purgeExpiredOperationalData() {
-  const cutoff = `datetime('now', '-${DATA_RETENTION_DAYS} day')`;
-  await runQuery(
-    `DELETE FROM ride_messages
-     WHERE created_at < ${cutoff}
-        OR ride_id IN (
-          SELECT id
-          FROM rides
-          WHERE status IN ('completed', 'cancelled')
-            AND COALESCE(updated_at, created_at) < ${cutoff}
-        )`
-  );
-  await runQuery(`DELETE FROM notifications WHERE created_at < ${cutoff}`);
-  await runQuery(`DELETE FROM driver_reset_requests WHERE created_at < ${cutoff}`);
-  await runQuery(
-    `DELETE FROM ride_driver_offers
-     WHERE created_at < ${cutoff}
-        OR ride_id IN (
-          SELECT id
-          FROM rides
-          WHERE status IN ('completed', 'cancelled')
-            AND COALESCE(updated_at, created_at) < ${cutoff}
-        )`
-  );
-  await runQuery(
-    `DELETE FROM rides
-     WHERE status IN ('completed', 'cancelled')
-       AND COALESCE(updated_at, created_at) < ${cutoff}`
-  );
+  // Data retention is disabled - all data is kept indefinitely
+  // Uncomment below if you want to implement retention in the future
 }
 
 function startRetentionCleanup() {
-  purgeExpiredOperationalData().catch((error) => {
-    console.error('Initial retention cleanup failed:', error);
-  });
-  setInterval(() => {
-    purgeExpiredOperationalData().catch((error) => {
-      console.error('Scheduled retention cleanup failed:', error);
-    });
-  }, 24 * 60 * 60 * 1000).unref();
+  // Data retention cleanup is disabled - all data is kept indefinitely
 }
 
 async function initDatabase() {
-  await runQuery(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    role TEXT DEFAULT 'customer',
-    google_id TEXT,
-    password_hash TEXT,
-    phone TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await addColumn('users', 'phone TEXT');
-  await addColumn('users', 'updated_at DATETIME');
-  await runQuery(`UPDATE users
-                  SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
-                  WHERE updated_at IS NULL`);
+  // Initialize storage from JSON files
+  initStorage();
 
-  await runQuery(`CREATE TABLE IF NOT EXISTS drivers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    phone TEXT,
-    license_number TEXT,
-    vehicle_info TEXT,
-    plate_number TEXT,
-    national_id_number TEXT,
-    insurance_number TEXT,
-    status TEXT DEFAULT 'pending',
-    password_hash TEXT,
-    docs_json TEXT,
-    profile_photo_url TEXT,
-    car_photo_url TEXT,
-    is_online INTEGER DEFAULT 0,
-    current_ride_id INTEGER,
-    rating REAL DEFAULT 5,
-    review_count INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    approved_at DATETIME,
-    approved_by INTEGER,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await addColumn('drivers', 'plate_number TEXT');
-  await addColumn('drivers', 'national_id_number TEXT');
-  await addColumn('drivers', 'insurance_number TEXT');
-  await addColumn('drivers', 'docs_json TEXT');
-  await addColumn('drivers', 'profile_photo_url TEXT');
-  await addColumn('drivers', 'car_photo_url TEXT');
-  await addColumn('drivers', 'is_online INTEGER DEFAULT 0');
-  await addColumn('drivers', 'current_ride_id INTEGER');
-  await addColumn('drivers', 'rating REAL DEFAULT 5');
-  await addColumn('drivers', 'review_count INTEGER DEFAULT 0');
-  await addColumn('drivers', 'current_lat REAL');
-  await addColumn('drivers', 'current_lng REAL');
-  await addColumn('drivers', 'location_updated_at DATETIME');
-  await addColumn('drivers', 'updated_at DATETIME');
-  await runQuery(`UPDATE drivers
-                  SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
-                  WHERE updated_at IS NULL`);
-
-  await runQuery(`CREATE TABLE IF NOT EXISTS rides (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_id INTEGER NOT NULL,
-    driver_id INTEGER,
-    pickup_location TEXT NOT NULL,
-    dropoff_location TEXT NOT NULL,
-    pickup_lat REAL,
-    pickup_lng REAL,
-    dropoff_lat REAL,
-    dropoff_lng REAL,
-    scheduled_at TEXT NOT NULL,
-    scheduled_local TEXT,
-    requested_car_type TEXT DEFAULT 'standard',
-    payment_method TEXT DEFAULT 'cash',
-    distance_km REAL DEFAULT 0,
-    duration_min REAL DEFAULT 0,
-    estimated_fare REAL DEFAULT 0,
-    final_fare REAL,
-    status TEXT DEFAULT 'pending',
-    timeline_stage TEXT DEFAULT 'requested',
-    customer_note TEXT,
-    driver_note TEXT,
-    cancel_reason TEXT,
-    customer_rating REAL,
-    customer_review TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await addColumn('rides', 'scheduled_local TEXT');
-  await addColumn('rides', "timeline_stage TEXT DEFAULT 'requested'");
-  await addColumn('rides', 'customer_note TEXT');
-  await addColumn('rides', 'driver_note TEXT');
-  await addColumn('rides', 'cancel_reason TEXT');
-  await addColumn('rides', 'customer_rating REAL');
-  await addColumn('rides', 'customer_review TEXT');
-  await addColumn('rides', 'updated_at DATETIME');
-  await runQuery(`UPDATE rides
-                  SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
-                  WHERE updated_at IS NULL`);
-  await runQuery('CREATE INDEX IF NOT EXISTS idx_rides_status ON rides(status)');
-  await runQuery('CREATE INDEX IF NOT EXISTS idx_rides_customer ON rides(customer_id)');
-  await runQuery('CREATE INDEX IF NOT EXISTS idx_rides_driver ON rides(driver_id)');
-
-  await runQuery(`CREATE TABLE IF NOT EXISTS ride_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ride_id INTEGER NOT NULL,
-    sender_role TEXT NOT NULL,
-    sender_id INTEGER NOT NULL,
-    message TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await runQuery('CREATE INDEX IF NOT EXISTS idx_ride_messages_ride ON ride_messages(ride_id)');
-
-  await runQuery(`CREATE TABLE IF NOT EXISTS notifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    target_role TEXT NOT NULL,
-    target_user_id INTEGER,
-    title TEXT,
-    message TEXT NOT NULL,
-    type TEXT DEFAULT 'info',
-    is_read INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  await runQuery(`CREATE TABLE IF NOT EXISTS pricing_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    base_fare REAL NOT NULL,
-    per_km REAL NOT NULL,
-    per_min REAL NOT NULL,
-    surge_multiplier REAL NOT NULL,
-    cancellation_fee REAL NOT NULL,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await runQuery(
-    `INSERT OR IGNORE INTO pricing_settings (id, base_fare, per_km, per_min, surge_multiplier, cancellation_fee, updated_at)
-     VALUES (1, 3500, 1200, 180, 1.15, 2500, CURRENT_TIMESTAMP)`
-  );
-
-  await runQuery(`CREATE TABLE IF NOT EXISTS driver_reset_requests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    driver_id INTEGER,
-    driver_phone TEXT,
-    whatsapp TEXT,
-    status TEXT DEFAULT 'pending',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  await runQuery(`CREATE TABLE IF NOT EXISTS ride_driver_offers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ride_id INTEGER NOT NULL,
-    driver_id INTEGER NOT NULL,
-    status TEXT DEFAULT 'offered',
-    distance_km REAL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(ride_id, driver_id)
-  )`);
-  await runQuery('CREATE INDEX IF NOT EXISTS idx_ride_driver_offers_driver ON ride_driver_offers(driver_id, status)');
-  await runQuery('CREATE INDEX IF NOT EXISTS idx_ride_driver_offers_ride ON ride_driver_offers(ride_id, status)');
-
+  // Ensure admin user exists
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin3000';
   const existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+  
   if (!existingAdmin) {
     const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
     await runQuery(
@@ -936,6 +649,30 @@ app.post('/auth/driver/register', async (req, res) => {
     }
     if (password.length < 6) return sendError(res, 400, 'Password must be at least 6 characters');
 
+    // Check for duplicate email
+    const existingEmail = await getQuery('SELECT id FROM drivers WHERE email = ?', [email]);
+    if (existingEmail) return sendError(res, 400, 'Email already registered');
+
+    // Check for duplicate phone
+    const existingPhone = await getQuery('SELECT id FROM drivers WHERE phone = ?', [phone]);
+    if (existingPhone) return sendError(res, 400, 'Phone number already registered');
+
+    // Check for duplicate license number
+    const existingLicense = await getQuery('SELECT id FROM drivers WHERE license_number = ?', [licenseNumber]);
+    if (existingLicense) return sendError(res, 400, 'License number already registered');
+
+    // Check for duplicate plate number
+    const existingPlate = await getQuery('SELECT id FROM drivers WHERE plate_number = ?', [plate]);
+    if (existingPlate) return sendError(res, 400, 'Vehicle plate number already registered');
+
+    // Check for duplicate national ID number
+    const existingNationalId = await getQuery('SELECT id FROM drivers WHERE national_id_number = ?', [nationalIdNumber]);
+    if (existingNationalId) return sendError(res, 400, 'National ID number already registered');
+
+    // Check for duplicate insurance number
+    const existingInsurance = await getQuery('SELECT id FROM drivers WHERE insurance_number = ?', [insuranceNumber]);
+    if (existingInsurance) return sendError(res, 400, 'Insurance number already registered');
+
     const hash = await bcrypt.hash(password, 10);
     await runQuery(
       `INSERT INTO drivers (
@@ -948,9 +685,6 @@ app.post('/auth/driver/register', async (req, res) => {
     await createNotification('admin', null, 'Driver registration', `${name} submitted a driver application.`);
     return res.json({ success: true, message: 'Registration submitted for admin approval' });
   } catch (error) {
-    if (String(error.message || '').includes('UNIQUE constraint failed: drivers.email')) {
-      return sendError(res, 400, 'Email already registered');
-    }
     return sendError(res, 500, 'Registration failed');
   }
 });
@@ -1031,6 +765,15 @@ app.put('/api/customer/profile', requireCustomer, async (req, res) => {
   const name = sanitizeText(req.body.name, 120);
   const phone = sanitizeText(req.body.phone, 50);
   if (!name) return sendError(res, 400, 'Name is required');
+
+  // Check for duplicate phone number across all users
+  if (phone) {
+    const existingPhone = await getQuery('SELECT id FROM users WHERE phone = ? AND id != ?', [phone, req.user.id]);
+    if (existingPhone) return sendError(res, 400, 'Phone number already in use');
+
+    const existingDriverPhone = await getQuery('SELECT id FROM drivers WHERE phone = ?', [phone]);
+    if (existingDriverPhone) return sendError(res, 400, 'Phone number already in use');
+  }
 
   await runQuery(
     'UPDATE users SET name = ?, phone = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -1459,11 +1202,10 @@ app.post('/api/drivers/reject/:id', requireAdmin, async (req, res) => {
 app.get('/api/health', (req, res) => res.json({
   success: true,
   time: nowIso(),
-  dbPath,
-  sessionDbPath,
-  retentionDays: DATA_RETENTION_DAYS,
+  dataDir: dataDir,
+  storage: 'json-files',
   driverTokenTtlDays: DRIVER_TOKEN_TTL_DAYS,
-  persistenceWarnings
+  dataRetention: 'indefinite'
 }));
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
@@ -1475,13 +1217,10 @@ initDatabase()
     startRetentionCleanup();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
-      console.log(`Database path: ${dbPath}`);
-      console.log(`Session database path: ${sessionDbPath}`);
-      console.log(`Data retention (days): ${DATA_RETENTION_DAYS}`);
+      console.log(`Data directory (JSON files): ${dataDir}`);
+      console.log(`Storage: JSON-based (no database)`);
+      console.log(`Data retention: Indefinite (all data kept)`);
       console.log(`Driver token TTL (days): ${DRIVER_TOKEN_TTL_DAYS}`);
-      if (migratedDbFrom) console.log(`Seeded persistent database from: ${migratedDbFrom}`);
-      if (migratedSessionsFrom) console.log(`Seeded persistent sessions from: ${migratedSessionsFrom}`);
-      persistenceWarnings.forEach((warning) => console.warn(`Persistence warning: ${warning}`));
     });
   })
   .catch((error) => {
