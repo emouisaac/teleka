@@ -1,6 +1,6 @@
 # Teleka Taxi Service
 
-A full-stack taxi platform with synchronized customer, driver, and admin dashboards backed by SQLite persistence.
+A full-stack taxi platform with synchronized customer, driver, and admin dashboards backed by persistent JSON storage.
 
 ## Features
 
@@ -20,16 +20,16 @@ A full-stack taxi platform with synchronized customer, driver, and admin dashboa
 
 ## Production Persistence
 
-- Main data is stored in SQLite at `TELEKA_DB_PATH`
-- Login sessions are stored in SQLite at `TELEKA_SESSIONS_DIR` / `TELEKA_SESSIONS_DB`
+- Main app data is stored as JSON/NDJSON files under `TELEKA_DATA_DIR` or the default app-data folder
+- Admin/customer login sessions are stored in SQLite at `TELEKA_DATA_DIR\\sessions\\TELEKA_SESSIONS_DB`
 - Driver login tokens are signed to persist for `TELEKA_DRIVER_TOKEN_TTL_DAYS` days by default
-- By default, both databases live outside the repo in the user app-data folder, so git pulls or repo replacements do not wipe panel data
+- By default, both the JSON data store and the session DB live outside the repo in the user app-data folder, so git pulls or repo replacements do not wipe panel data
 - If a repo-local storage path is configured by mistake, the server automatically redirects it back to persistent app-data storage unless `TELEKA_ALLOW_REPO_STORAGE=true`
 - Customer entered ride date/time is saved as:
   - `scheduled_local` (exact entered value)
   - `scheduled_at` (normalized ISO datetime)
 - Completed/cancelled ride history, ride messages, notifications, and reset requests are retained for 180 days by default (`TELEKA_RETENTION_DAYS`)
-- Legacy repo-local `data/teleka.sqlite` and `sessions.db` are auto-seeded into the persistent storage location on first boot when needed
+- Legacy repo-local JSON data files under `data/` are auto-seeded into the persistent storage location on first boot when needed
 - Existing admin credentials are no longer reset on every server start; the default admin account is only seeded when missing
 
 ## Setup
@@ -44,12 +44,10 @@ A full-stack taxi platform with synchronized customer, driver, and admin dashboa
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_MAPS_API_KEY`
-   - `TELEKA_DB_PATH` (optional override for the main persistent DB)
    - `TELEKA_DATA_DIR` (optional base folder for Teleka persistence)
-   - `TELEKA_SESSIONS_DIR` (optional override for the session DB folder)
    - `TELEKA_SESSIONS_DB` (optional session DB filename)
-   - `TELEKA_RETENTION_DAYS` (default `180`)
-   - `TELEKA_DRIVER_TOKEN_TTL_DAYS` (default matches retention, `180`)
+   - `TELEKA_SESSION_TTL_DAYS` (default `180`)
+   - `TELEKA_DRIVER_TOKEN_TTL_DAYS` (default `365`)
    - `TELEKA_ALLOW_REPO_STORAGE` (optional, defaults to `false`)
    - `ALLOWED_ORIGINS`
 

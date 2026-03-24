@@ -5,6 +5,7 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
@@ -14,11 +15,12 @@ const os = require('os');
 require('dotenv').config();
 
 // Import JSON-based storage instead of SQLite
-const { initStorage, runQuery, getQuery, allQuery, dataDir } = require('./storage');
+const { initStorage, runQuery, getQuery, allQuery, dataDir, storageMeta } = require('./storage');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const DRIVER_TOKEN_TTL_DAYS = Math.max(1, parseInt(process.env.TELEKA_DRIVER_TOKEN_TTL_DAYS || '365', 10) || 365);
+const SESSION_TTL_DAYS = Math.max(1, parseInt(process.env.TELEKA_SESSION_TTL_DAYS || '180', 10) || 180);
 const MAX_DRIVER_DISTANCE_KM = Number(process.env.TELEKA_DRIVER_REQUEST_RADIUS_KM || 7);
 const MAX_NEARBY_DRIVERS = Math.max(1, parseInt(process.env.TELEKA_REQUEST_DRIVER_LIMIT || '3', 10) || 3);
 const LOCATION_FRESHNESS_MIN = Math.max(1, parseInt(process.env.TELEKA_DRIVER_LOCATION_FRESHNESS_MIN || '15', 10) || 15);
@@ -31,6 +33,13 @@ const parseNumber = (value, fallback = 0) => {
 const money = (value) => Number(Number(value || 0).toFixed(2));
 const nowIso = () => new Date().toISOString();
 const toRadians = (value) => (Number(value) * Math.PI) / 180;
+const sessionStoreDir = path.join(storageMeta.dataRoot, 'sessions');
+const sessionDbName = process.env.TELEKA_SESSIONS_DB || 'sessions.sqlite';
+const sessionDbPath = path.join(sessionStoreDir, sessionDbName);
+
+if (!fs.existsSync(sessionStoreDir)) {
+  fs.mkdirSync(sessionStoreDir, { recursive: true });
+}
 
 function haversineKm(lat1, lng1, lat2, lng2) {
   if (![lat1, lng1, lat2, lng2].every((value) => Number.isFinite(Number(value)))) return Number.POSITIVE_INFINITY;
@@ -71,7 +80,13 @@ app.use(session({
   secret: process.env.AUTH_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days
+  store: new SQLiteStore({
+    db: sessionDbName,
+    dir: sessionStoreDir,
+    createDirIfNotExists: true,
+    concurrentDB: true
+  }),
+  cookie: { maxAge: SESSION_TTL_DAYS * 24 * 60 * 60 * 1000 }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -1304,9 +1319,14 @@ app.get('/api/health', (req, res) => res.json({
   success: true,
   time: nowIso(),
   dataDir: dataDir,
+  dataRoot: storageMeta.dataRoot,
+  sessionDbPath: sessionDbPath,
   storage: 'json-files',
   driverTokenTtlDays: DRIVER_TOKEN_TTL_DAYS,
-  dataRetention: 'indefinite'
+  sessionTtlDays: SESSION_TTL_DAYS,
+  dataRetention: 'indefinite',
+  persistenceWarnings: storageMeta.persistenceWarnings,
+  migratedDataFiles: storageMeta.migratedDataFiles
 }));
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
@@ -1319,9 +1339,13 @@ initDatabase()
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Data directory (JSON files): ${dataDir}`);
+      console.log(`Session database path: ${sessionDbPath}`);
       console.log(`Storage: JSON-based (no database)`);
       console.log(`Data retention: Indefinite (all data kept)`);
+      console.log(`Session TTL (days): ${SESSION_TTL_DAYS}`);
       console.log(`Driver token TTL (days): ${DRIVER_TOKEN_TTL_DAYS}`);
+      storageMeta.persistenceWarnings.forEach((warning) => console.warn(`Persistence warning: ${warning}`));
+      storageMeta.migratedDataFiles.forEach((fileName) => console.log(`Seeded JSON storage from legacy file: ${fileName}`));
     });
   })
   .catch((error) => {

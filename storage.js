@@ -3,8 +3,28 @@ const path = require('path');
 const os = require('os');
 
 // ============ CONFIGURATION ============
+const repoRoot = path.resolve(__dirname);
+const allowRepoStorage = ['1', 'true', 'yes'].includes(String(process.env.TELEKA_ALLOW_REPO_STORAGE || '').trim().toLowerCase());
 const appDataRoot = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-const dataDir = path.join(appDataRoot, 'Teleka', 'data');
+const fallbackDataRoot = path.join(appDataRoot, 'Teleka');
+const persistenceWarnings = [];
+const migratedDataFiles = [];
+
+function isPathInside(parentPath, targetPath) {
+  const relativePath = path.relative(path.resolve(parentPath), path.resolve(targetPath));
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function resolvePersistentDataRoot(configuredPath) {
+  const preferredPath = path.resolve(configuredPath || fallbackDataRoot);
+  if (allowRepoStorage || !isPathInside(repoRoot, preferredPath)) return preferredPath;
+  const safePath = path.resolve(fallbackDataRoot);
+  persistenceWarnings.push(`Configured JSON data root was inside the repository and has been moved to ${safePath}`);
+  return safePath;
+}
+
+const dataRoot = resolvePersistentDataRoot(process.env.TELEKA_DATA_DIR);
+const dataDir = path.join(dataRoot, 'data');
 
 // Ensure data directory exists
 if (!fs.existsSync(dataDir)) {
@@ -44,6 +64,24 @@ const filePaths = {
   pricing: path.join(dataDir, 'pricing.json'),
   nextIds: path.join(dataDir, 'next-ids.json')
 };
+
+function seedPersistentFile(sourcePath, targetPath) {
+  try {
+    if (!sourcePath || !targetPath) return false;
+    if (path.resolve(sourcePath) === path.resolve(targetPath)) return false;
+    if (!fs.existsSync(sourcePath) || fs.existsSync(targetPath)) return false;
+    fs.copyFileSync(sourcePath, targetPath);
+    migratedDataFiles.push(path.basename(sourcePath));
+    return true;
+  } catch (error) {
+    persistenceWarnings.push(`Failed to seed ${path.basename(sourcePath)} from legacy storage: ${error.message}`);
+    return false;
+  }
+}
+
+Object.values(filePaths).forEach((targetPath) => {
+  seedPersistentFile(path.join(repoRoot, 'data', path.basename(targetPath)), targetPath);
+});
 
 // ============ PERSISTENCE ============
 function saveCollection(collectionName, data) {
@@ -999,5 +1037,10 @@ module.exports = {
   runQuery,
   getQuery,
   allQuery,
-  dataDir
+  dataDir,
+  storageMeta: {
+    dataRoot,
+    persistenceWarnings,
+    migratedDataFiles
+  }
 };
