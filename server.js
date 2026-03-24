@@ -170,26 +170,96 @@ function startRetentionCleanup() {
   // Data retention cleanup is disabled - all data is kept indefinitely
 }
 
+// ============ ADMIN USER MANAGEMENT ============
+
+function generateSecurePassword(length = 16) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+}
+
+async function ensureAdminUser(email = null, password = null) {
+  try {
+    // Use provided credentials or generate secure ones
+    const adminEmail = email || process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
+    const adminPassword = password || process.env.ADMIN_PASSWORD;
+
+    // If no password provided and not in env, generate a secure one
+    const finalPassword = adminPassword || generateSecurePassword();
+
+    console.log(`\n=== ADMIN USER SETUP ===`);
+    console.log(`Email: ${adminEmail}`);
+
+    const existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+
+    if (!existingAdmin) {
+      // Create new admin user
+      const adminHash = await bcrypt.hash(finalPassword, 10);
+      await runQuery(
+        `INSERT INTO users (email, name, role, password_hash, created_at, updated_at)
+         VALUES (?, 'Administrator', 'admin', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [adminEmail, adminHash]
+      );
+      console.log(`✅ Admin user created successfully`);
+      console.log(`🔐 Password: ${finalPassword}`);
+      console.log(`⚠️  IMPORTANT: Save this password securely! It will only be shown once.`);
+    } else if (!existingAdmin.password_hash) {
+      // Update admin user with password
+      const adminHash = await bcrypt.hash(finalPassword, 10);
+      await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [adminHash, existingAdmin.id]);
+      console.log(`✅ Admin user password set successfully`);
+      console.log(`🔐 Password: ${finalPassword}`);
+      console.log(`⚠️  IMPORTANT: Save this password securely! It will only be shown once.`);
+    } else {
+      console.log(`ℹ️  Admin user already exists with password set`);
+      console.log(`📧 Email: ${adminEmail}`);
+    }
+
+    console.log(`========================\n`);
+    return { email: adminEmail, password: finalPassword, created: !existingAdmin };
+  } catch (error) {
+    console.error('❌ Failed to setup admin user:', error);
+    throw error;
+  }
+}
+
+async function resetAdminPassword(email = null) {
+  try {
+    const adminEmail = email || process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
+    const newPassword = generateSecurePassword();
+
+    const existingAdmin = await getQuery('SELECT id FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
+    if (!existingAdmin) {
+      throw new Error('Admin user not found');
+    }
+
+    const adminHash = await bcrypt.hash(newPassword, 10);
+    await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [adminHash, existingAdmin.id]);
+
+    console.log(`\n=== ADMIN PASSWORD RESET ===`);
+    console.log(`📧 Email: ${adminEmail}`);
+    console.log(`🔐 New Password: ${newPassword}`);
+    console.log(`⚠️  IMPORTANT: Save this password securely! It will only be shown once.`);
+    console.log(`===========================\n`);
+
+    return { email: adminEmail, password: newPassword };
+  } catch (error) {
+    console.error('❌ Failed to reset admin password:', error);
+    throw error;
+  }
+}
+
+// ============ DATABASE INITIALIZATION ============
+
 async function initDatabase() {
   // Initialize storage from JSON files
   initStorage();
 
-  // Ensure admin user exists
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin3000';
-  const existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
-  
-  if (!existingAdmin) {
-    const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
-    await runQuery(
-      `INSERT INTO users (email, name, role, password_hash, created_at, updated_at)
-       VALUES (?, 'Administrator', 'admin', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [adminEmail, adminHash]
-    );
-  } else if (!existingAdmin.password_hash) {
-    const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
-    await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [adminHash, existingAdmin.id]);
-  }
+  // Ensure admin user exists with secure credentials
+  await ensureAdminUser();
 }
 
 const googleCallbackLocal = process.env.GOOGLE_CALLBACK_URL_LOCAL || 'http://localhost:3000/auth/google/callback';
@@ -1161,6 +1231,20 @@ app.get('/api/admin/export', requireAdmin, async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Content-Disposition', `attachment; filename="teleka-backup-${stamp}.json"`);
   return res.send(JSON.stringify(backup, null, 2));
+});
+
+app.post('/api/admin/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const result = await resetAdminPassword();
+    return res.json({
+      success: true,
+      message: 'Admin password reset successfully',
+      email: result.email,
+      password: result.password
+    });
+  } catch (error) {
+    return sendError(res, 500, 'Failed to reset admin password');
+  }
 });
 
 app.get('/api/drivers/pending', requireAdmin, async (req, res) => {
