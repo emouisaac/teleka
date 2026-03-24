@@ -26,10 +26,10 @@ const mapState = {
     directionsRenderer: null,
     latestLeg: null,
     latestDirections: null,
-    routeDebounceId: null,
-    routeRequestId: 0,
     scriptRequested: false,
-    isCalculating: false
+    isLoadingRoute: false,
+    routeDebounceId: null,
+    routeRequestId: 0
 };
 
 function showToast(message, type = 'success') {
@@ -96,7 +96,7 @@ function switchSection(sectionId) {
                     mapState.directionsRenderer.setDirections(mapState.latestDirections);
                     fitMapToLatestRoute();
                 } else if (document.getElementById('pickup-location')?.value.trim() && document.getElementById('dropoff-location')?.value.trim()) {
-                    queueRouteCalculation(0);
+                    scheduleRouteEstimate(0);
                 }
             }
         }, 120);
@@ -154,14 +154,14 @@ function setMapHint(message) {
     if (hint) hint.textContent = message;
 }
 
-function setRouteEndpointsPreview() {
+function updateRoutePreviewLabels() {
     const pickup = document.getElementById('pickup-location')?.value.trim();
     const dropoff = document.getElementById('dropoff-location')?.value.trim();
     document.getElementById('route-from').textContent = pickup || 'Waiting for pickup...';
     document.getElementById('route-to').textContent = dropoff || 'Waiting for destination...';
 }
 
-function resetRouteSteps(message = 'Enter pickup and destination to see directions here.', status = 'Waiting for route...') {
+function renderRouteStepsMessage(message, status = 'Waiting for route...') {
     const list = document.getElementById('route-steps-list');
     const statusEl = document.getElementById('route-steps-status');
     if (statusEl) statusEl.textContent = status;
@@ -171,13 +171,13 @@ function resetRouteSteps(message = 'Enter pickup and destination to see directio
     list.replaceChildren(item);
 }
 
-function resetRouteSummary() {
+function resetRouteDisplay() {
     document.getElementById('route-distance').textContent = '--';
     document.getElementById('route-duration').textContent = '--';
-    setRouteEndpointsPreview();
-    document.getElementById('fare-breakdown').textContent = 'Type pickup and destination to calculate fare.';
+    updateRoutePreviewLabels();
+    document.getElementById('fare-breakdown').textContent = 'Enter pickup and destination to get an estimated fare.';
     document.getElementById('fare-amount').textContent = 'UGX 0';
-    resetRouteSteps();
+    renderRouteStepsMessage('Enter pickup and destination to see route suggestions here.');
 }
 
 function getSelectedCarType() {
@@ -191,45 +191,18 @@ function getSelectedCarTypeMultiplier() {
     return Number(multipliers[getSelectedCarType()] || 1);
 }
 
-function syncPricingEstimate() {
-    if (!mapState.latestLeg) return resetRouteSummary();
-    const distanceMeters = mapState.latestLeg.distance?.value || 0;
-    const durationSeconds = mapState.latestLeg.duration_in_traffic?.value || mapState.latestLeg.duration?.value || 0;
-    const pricing = customerState.publicConfig?.pricing || {};
-    const hour = new Date(document.getElementById('ride-date').value || Date.now()).getHours();
-    const surge = (hour >= 22 || hour < 6) ? Number(pricing.surge_multiplier || 1.15) : 1;
-    const base = Number(pricing.base_fare || 3500);
-    const perKm = Number(pricing.per_km || 1200);
-    const perMin = Number(pricing.per_min || 180);
-    const carType = getSelectedCarType();
-    const carTypeMultiplier = getSelectedCarTypeMultiplier();
-    const estimate = Math.max(0, Math.round((base + ((distanceMeters / 1000) * perKm) + ((durationSeconds / 60) * perMin)) * surge * carTypeMultiplier));
-
-    document.getElementById('fare-amount').textContent = formatMoney(estimate);
-    document.getElementById('fare-breakdown').textContent = `${CAR_TYPE_LABELS[carType]} x${carTypeMultiplier.toFixed(2)} | ${formatDistance(distanceMeters)} | ${formatDuration(durationSeconds)}${surge > 1 ? ' | surge applied' : ''}`;
-}
-
-function updateRouteSummary(leg) {
-    document.getElementById('route-distance').textContent = formatDistance(leg.distance?.value || 0);
-    document.getElementById('route-duration').textContent = formatDuration(leg.duration_in_traffic?.value || leg.duration?.value || 0);
-    document.getElementById('route-from').textContent = leg.start_address || 'Pickup selected';
-    document.getElementById('route-to').textContent = leg.end_address || 'Destination selected';
-    syncPricingEstimate();
-}
-
-function decodeInstruction(html) {
+function decodeDirectionStep(html) {
     if (!html) return '';
     const temp = document.createElement('div');
     temp.innerHTML = html;
     return temp.textContent?.replace(/\s+/g, ' ').trim() || '';
 }
 
-function renderRouteSteps(leg) {
+function renderRouteSteps(steps) {
     const list = document.getElementById('route-steps-list');
     const statusEl = document.getElementById('route-steps-status');
     if (!list) return;
-    const steps = leg?.steps || [];
-    if (!steps.length) return resetRouteSteps('Route found, but detailed directions are unavailable.', 'Directions ready');
+    if (!steps?.length) return renderRouteStepsMessage('Route found, but step-by-step suggestions are unavailable.', 'Directions ready');
 
     const items = steps.map((step) => {
         const item = document.createElement('li');
@@ -237,11 +210,12 @@ function renderRouteSteps(leg) {
 
         const instruction = document.createElement('div');
         instruction.className = 'route-step-instruction';
-        instruction.textContent = decodeInstruction(step.instructions) || 'Continue on route';
+        instruction.textContent = decodeDirectionStep(step.instructions) || 'Continue on the suggested route';
 
         const meta = document.createElement('div');
         meta.className = 'route-step-meta';
-        meta.textContent = `${step.distance?.text || ''}${step.duration?.text ? ` | ${step.duration.text}` : ''}`.replace(/^ \| | \| $/g, '');
+        const parts = [step.distance?.text, step.duration?.text].filter(Boolean);
+        meta.textContent = parts.join(' | ');
 
         item.append(instruction);
         if (meta.textContent) item.append(meta);
@@ -252,22 +226,39 @@ function renderRouteSteps(leg) {
     if (statusEl) statusEl.textContent = `${steps.length} step${steps.length === 1 ? '' : 's'} ready`;
 }
 
-function getRouteLocation(key, inputId) {
-    const value = document.getElementById(inputId)?.value.trim();
-    if (!value) return null;
-    const place = customerState.places[key];
-    if (place?.place_id && (place.formatted_address === value || place.name === value)) {
-        return { placeId: place.place_id };
-    }
-    return value;
+function calculateEstimatedFareFromLeg(leg) {
+    const distanceMeters = leg?.distance?.value || 0;
+    const durationSeconds = leg?.duration?.value || 0;
+    const pricing = customerState.publicConfig?.pricing || {};
+    const hour = new Date(document.getElementById('ride-date').value || Date.now()).getHours();
+    const surge = (hour >= 22 || hour < 6) ? Number(pricing.surge_multiplier || 1.15) : 1;
+    const baseFare = Number(pricing.base_fare || 3500);
+    const perKm = Number(pricing.per_km || 1200);
+    const perMin = Number(pricing.per_min || 180);
+    const carType = getSelectedCarType();
+    const multiplier = getSelectedCarTypeMultiplier();
+    const total = (baseFare + ((distanceMeters / 1000) * perKm) + ((durationSeconds / 60) * perMin)) * surge * multiplier;
+    return {
+        amount: Math.max(0, Math.round(total)),
+        breakdown: `${CAR_TYPE_LABELS[carType]} x${multiplier.toFixed(2)} | ${formatDistance(distanceMeters)} | ${formatDuration(durationSeconds)}${surge > 1 ? ' | surge applied' : ''}`
+    };
 }
 
-function setRouteCalculatingState() {
-    mapState.isCalculating = true;
-    setRouteEndpointsPreview();
-    document.getElementById('fare-breakdown').textContent = 'Calculating fare estimate from the live route...';
-    document.getElementById('fare-amount').textContent = 'UGX ...';
-    document.getElementById('route-steps-status').textContent = 'Calculating...';
+function renderRouteAndFare(leg) {
+    document.getElementById('route-distance').textContent = formatDistance(leg.distance?.value || 0);
+    document.getElementById('route-duration').textContent = formatDuration(leg.duration?.value || 0);
+    document.getElementById('route-from').textContent = leg.start_address || document.getElementById('pickup-location').value.trim() || 'Pickup selected';
+    document.getElementById('route-to').textContent = leg.end_address || document.getElementById('dropoff-location').value.trim() || 'Destination selected';
+
+    const fare = calculateEstimatedFareFromLeg(leg);
+    document.getElementById('fare-amount').textContent = formatMoney(fare.amount);
+    document.getElementById('fare-breakdown').textContent = fare.breakdown;
+}
+
+function clearRouteFromMap() {
+    mapState.latestLeg = null;
+    mapState.latestDirections = null;
+    mapState.directionsRenderer?.set('directions', null);
 }
 
 function fitMapToLatestRoute(directions = mapState.latestDirections) {
@@ -276,78 +267,95 @@ function fitMapToLatestRoute(directions = mapState.latestDirections) {
     mapState.map.fitBounds(bounds);
 }
 
-function calculateRoute() {
+function getRouteEndpoint(key, inputId) {
+    const value = document.getElementById(inputId)?.value.trim();
+    if (!value) return null;
+    const place = customerState.places[key];
+    if (place?.place_id && place.formatted_address === value) {
+        return { placeId: place.place_id };
+    }
+    return value;
+}
+
+function setRouteLoadingState() {
+    mapState.isLoadingRoute = true;
+    updateRoutePreviewLabels();
+    document.getElementById('fare-breakdown').textContent = 'Calculating estimated fare...';
+    document.getElementById('fare-amount').textContent = 'UGX ...';
+    renderRouteStepsMessage('Loading route suggestions...', 'Calculating...');
+}
+
+function requestRouteEstimate() {
     if (!mapState.directionsService || !window.google?.maps) return;
-    const pickup = getRouteLocation('pickup', 'pickup-location');
-    const dropoff = getRouteLocation('dropoff', 'dropoff-location');
+
+    const pickup = getRouteEndpoint('pickup', 'pickup-location');
+    const dropoff = getRouteEndpoint('dropoff', 'dropoff-location');
+
     if (!pickup || !dropoff) {
-        mapState.isCalculating = false;
-        mapState.latestLeg = null;
-        mapState.latestDirections = null;
-        mapState.directionsRenderer?.set('directions', null);
-        resetRouteSummary();
+        mapState.isLoadingRoute = false;
+        clearRouteFromMap();
+        resetRouteDisplay();
         return;
     }
+
     const requestId = ++mapState.routeRequestId;
-    setRouteCalculatingState();
+    setRouteLoadingState();
+
     mapState.directionsService.route({
         origin: pickup,
         destination: dropoff,
         travelMode: google.maps.TravelMode.DRIVING,
-        unitSystem: google.maps.UnitSystem.METRIC,
-        drivingOptions: { departureTime: new Date(document.getElementById('ride-date').value || Date.now()) }
+        unitSystem: google.maps.UnitSystem.METRIC
     }, (result, status) => {
         if (requestId !== mapState.routeRequestId) return;
-        mapState.isCalculating = false;
-        if (status !== google.maps.DirectionsStatus.OK || !result?.routes?.[0]?.legs?.[0]) {
-            mapState.latestLeg = null;
-            mapState.latestDirections = null;
-            mapState.directionsRenderer?.set('directions', null);
-            resetRouteSummary();
-            resetRouteSteps('No directions found for those locations. Try a suggested address.', 'Route unavailable');
-            setMapHint('No route found. Use suggested addresses.');
+        mapState.isLoadingRoute = false;
+
+        const leg = result?.routes?.[0]?.legs?.[0];
+        if (status !== google.maps.DirectionsStatus.OK || !leg) {
+            clearRouteFromMap();
+            resetRouteDisplay();
+            renderRouteStepsMessage('No route suggestion found. Try a suggested address from the list.', 'Route unavailable');
+            setMapHint('No route suggestion found. Use a valid pickup and destination.');
             return;
         }
+
         mapState.latestDirections = result;
-        mapState.latestLeg = result.routes[0].legs[0];
+        mapState.latestLeg = leg;
         mapState.directionsRenderer.setDirections(result);
         fitMapToLatestRoute(result);
-        updateRouteSummary(mapState.latestLeg);
-        renderRouteSteps(mapState.latestLeg);
-        setMapHint('Route loaded. Fare updates live.');
+        renderRouteAndFare(leg);
+        renderRouteSteps(leg.steps || []);
+        setMapHint('Route suggestion loaded. Estimated fare updated.');
     });
 }
 
-function queueRouteCalculation(delay = 350) {
+function scheduleRouteEstimate(delay = 300) {
     if (mapState.routeDebounceId) clearTimeout(mapState.routeDebounceId);
-    setRouteEndpointsPreview();
+    updateRoutePreviewLabels();
     if (!mapState.directionsService || !window.google?.maps) {
         ensureRideRequestMapReady();
         return;
     }
     mapState.routeDebounceId = setTimeout(() => {
         mapState.routeDebounceId = null;
-        calculateRoute();
+        requestRouteEstimate();
     }, delay);
 }
 
 function setupAutocomplete(input, key) {
     const autocomplete = new google.maps.places.Autocomplete(input, {
-        fields: ['formatted_address', 'geometry', 'name', 'place_id'],
+        fields: ['formatted_address', 'geometry', 'place_id'],
         componentRestrictions: { country: 'ug' }
     });
     autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
         if (place?.formatted_address) input.value = place.formatted_address;
         customerState.places[key] = place || null;
-        if (place?.geometry?.location && mapState.map) {
-            mapState.map.panTo(place.geometry.location);
-        }
-        queueRouteCalculation(0);
+        scheduleRouteEstimate(0);
     });
     input.addEventListener('input', () => {
         customerState.places[key] = null;
-        queueRouteCalculation();
+        scheduleRouteEstimate();
     });
 }
 
@@ -355,6 +363,7 @@ function initRideRequest() {
     if (mapState.map || !window.google?.maps) return;
     const mapElement = document.getElementById('map');
     if (!mapElement) return;
+
     mapState.map = new google.maps.Map(mapElement, {
         center: DEFAULT_MAP_CENTER,
         zoom: 13,
@@ -362,18 +371,27 @@ function initRideRequest() {
         streetViewControl: false
     });
     mapState.directionsService = new google.maps.DirectionsService();
-    mapState.directionsRenderer = new google.maps.DirectionsRenderer({ map: mapState.map, suppressMarkers: false });
+    mapState.directionsRenderer = new google.maps.DirectionsRenderer({
+        map: mapState.map,
+        suppressMarkers: false
+    });
+
     setupAutocomplete(document.getElementById('pickup-location'), 'pickup');
     setupAutocomplete(document.getElementById('dropoff-location'), 'dropoff');
-    document.getElementById('pickup-location').addEventListener('blur', () => queueRouteCalculation(0));
-    document.getElementById('dropoff-location').addEventListener('blur', () => queueRouteCalculation(0));
-    document.getElementById('ride-date').addEventListener('change', () => queueRouteCalculation(0));
-    document.getElementById('car-type').addEventListener('change', syncPricingEstimate);
-    setRouteEndpointsPreview();
-    resetRouteSteps();
-    setMapHint('Start typing pickup and destination for suggestions and route.');
+    document.getElementById('pickup-location').addEventListener('blur', () => scheduleRouteEstimate(0));
+    document.getElementById('dropoff-location').addEventListener('blur', () => scheduleRouteEstimate(0));
+    document.getElementById('ride-date').addEventListener('change', () => {
+        if (mapState.latestLeg) renderRouteAndFare(mapState.latestLeg);
+    });
+    document.getElementById('car-type').addEventListener('change', () => {
+        if (mapState.latestLeg) renderRouteAndFare(mapState.latestLeg);
+    });
+
+    resetRouteDisplay();
+    setMapHint('Enter pickup and destination to see route suggestions on the map.');
+
     if (document.getElementById('pickup-location').value.trim() && document.getElementById('dropoff-location').value.trim()) {
-        queueRouteCalculation(0);
+        scheduleRouteEstimate(0);
     }
 }
 
@@ -389,8 +407,13 @@ async function loadGoogleMapsScript() {
     if (!document.getElementById('map')) return;
     if (window.google?.maps?.places) return initRideRequest();
     if (mapState.scriptRequested) return;
+
     const config = await getPublicConfig();
-    if (!config.googleMapsApiKey) return setMapHint('Missing Google Maps API key in backend config.');
+    if (!config.googleMapsApiKey) {
+        setMapHint('Missing Google Maps API key in backend config.');
+        return;
+    }
+
     mapState.scriptRequested = true;
     const script = document.createElement('script');
     script.async = true;
@@ -493,12 +516,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Please login as customer to request a ride.', 'error');
             return;
         }
-        if (mapState.isCalculating) {
+        if (mapState.isLoadingRoute) {
             showToast('Please wait for the route suggestion and fare estimate to finish loading.', 'error');
             return;
         }
         if (!mapState.latestLeg) {
-            queueRouteCalculation(0);
+            scheduleRouteEstimate(0);
             showToast('Enter pickup and destination, then wait for the route suggestion and estimated fare to appear.', 'error');
             return;
         }
