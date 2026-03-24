@@ -17,12 +17,15 @@ require('dotenv').config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-
-const defaultDataDir = process.env.TELEKA_DATA_DIR || path.join(os.homedir(), 'AppData', 'Roaming', 'Teleka');
+const DATA_RETENTION_DAYS = Math.max(1, parseInt(process.env.TELEKA_RETENTION_DAYS || '180', 10) || 180);
+const SESSION_MAX_AGE_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const appDataRoot = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+const defaultDataDir = process.env.TELEKA_DATA_DIR || path.join(appDataRoot, 'Teleka');
 const dbPath = process.env.TELEKA_DB_PATH || path.join(defaultDataDir, 'teleka.sqlite');
 const dataDir = path.dirname(dbPath);
-const sessionDbName = process.env.TELEKA_SESSIONS_DB || 'sessions.db';
-const sessionStoreDir = process.env.TELEKA_SESSIONS_DIR || __dirname;
+const sessionDbName = process.env.TELEKA_SESSIONS_DB || 'sessions.sqlite';
+const sessionStoreDir = process.env.TELEKA_SESSIONS_DIR || path.join(defaultDataDir, 'sessions');
+const sessionDbPath = path.join(sessionStoreDir, sessionDbName);
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -30,6 +33,35 @@ if (!fs.existsSync(dataDir)) {
 if (!fs.existsSync(sessionStoreDir)) {
   fs.mkdirSync(sessionStoreDir, { recursive: true });
 }
+
+function seedPersistentFile(sourcePath, targetPath) {
+  try {
+    if (!sourcePath || !targetPath) return false;
+    if (path.resolve(sourcePath) === path.resolve(targetPath)) return false;
+    if (!fs.existsSync(sourcePath)) return false;
+    const sourceStat = fs.statSync(sourcePath);
+    if (!sourceStat.isFile() || sourceStat.size === 0) return false;
+    if (fs.existsSync(targetPath)) {
+      const targetStat = fs.statSync(targetPath);
+      if (targetStat.isFile() && targetStat.size > 0) return false;
+    }
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(sourcePath, targetPath);
+    return true;
+  } catch (error) {
+    console.warn(`Storage seed skipped for ${sourcePath}:`, error.message);
+    return false;
+  }
+}
+
+const migratedDbFrom = [
+  path.join(__dirname, 'data', 'teleka.sqlite'),
+  path.join(__dirname, 'teleka.sqlite')
+].find((candidate) => seedPersistentFile(candidate, dbPath));
+
+const migratedSessionsFrom = seedPersistentFile(path.join(__dirname, 'sessions.db'), sessionDbPath)
+  ? path.join(__dirname, 'sessions.db')
+  : null;
 
 const db = new sqlite3.Database(dbPath);
 db.configure('busyTimeout', 5000);
@@ -98,8 +130,13 @@ app.use(session({
   secret: process.env.AUTH_SECRET,
   resave: false,
   saveUninitialized: false,
-  store: new SQLiteStore({ db: sessionDbName, dir: sessionStoreDir }),
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 }
+  store: new SQLiteStore({
+    db: sessionDbName,
+    dir: sessionStoreDir,
+    createDirIfNotExists: true,
+    concurrentDb: true
+  }),
+  cookie: { maxAge: SESSION_MAX_AGE_MS }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -111,6 +148,38 @@ async function createNotification(targetRole, targetUserId, title, message, type
      VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
     [targetRole, targetUserId ?? null, sanitizeText(title, 120), sanitizeText(message), sanitizeText(type, 40)]
   );
+}
+
+async function purgeExpiredOperationalData() {
+  const cutoff = `datetime('now', '-${DATA_RETENTION_DAYS} day')`;
+  await runQuery(
+    `DELETE FROM ride_messages
+     WHERE created_at < ${cutoff}
+        OR ride_id IN (
+          SELECT id
+          FROM rides
+          WHERE status IN ('completed', 'cancelled')
+            AND COALESCE(updated_at, created_at) < ${cutoff}
+        )`
+  );
+  await runQuery(`DELETE FROM notifications WHERE created_at < ${cutoff}`);
+  await runQuery(`DELETE FROM driver_reset_requests WHERE created_at < ${cutoff}`);
+  await runQuery(
+    `DELETE FROM rides
+     WHERE status IN ('completed', 'cancelled')
+       AND COALESCE(updated_at, created_at) < ${cutoff}`
+  );
+}
+
+function startRetentionCleanup() {
+  purgeExpiredOperationalData().catch((error) => {
+    console.error('Initial retention cleanup failed:', error);
+  });
+  setInterval(() => {
+    purgeExpiredOperationalData().catch((error) => {
+      console.error('Scheduled retention cleanup failed:', error);
+    });
+  }, 24 * 60 * 60 * 1000).unref();
 }
 
 async function initDatabase() {
@@ -1146,7 +1215,13 @@ app.post('/api/drivers/reject/:id', requireAdmin, async (req, res) => {
   return res.json({ success: true });
 });
 
-app.get('/api/health', (req, res) => res.json({ success: true, time: nowIso(), dbPath }));
+app.get('/api/health', (req, res) => res.json({
+  success: true,
+  time: nowIso(),
+  dbPath,
+  sessionDbPath,
+  retentionDays: DATA_RETENTION_DAYS
+}));
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
@@ -1154,9 +1229,14 @@ app.get('/driver', (req, res) => res.sendFile(path.join(__dirname, 'driver.html'
 
 initDatabase()
   .then(() => {
+    startRetentionCleanup();
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Database path: ${dbPath}`);
+      console.log(`Session database path: ${sessionDbPath}`);
+      console.log(`Data retention (days): ${DATA_RETENTION_DAYS}`);
+      if (migratedDbFrom) console.log(`Seeded persistent database from: ${migratedDbFrom}`);
+      if (migratedSessionsFrom) console.log(`Seeded persistent sessions from: ${migratedSessionsFrom}`);
     });
   })
   .catch((error) => {
