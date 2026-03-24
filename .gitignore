@@ -23,6 +23,8 @@ build/
 # Database / data files
 rides.json
 data/
+sessions.db
+teleka.sqlite
 
 # IDE / editor files
 .vscode/

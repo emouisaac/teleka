@@ -19,15 +19,34 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const DATA_RETENTION_DAYS = Math.max(1, parseInt(process.env.TELEKA_RETENTION_DAYS || '180', 10) || 180);
 const SESSION_MAX_AGE_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const DRIVER_TOKEN_TTL_DAYS = Math.max(1, parseInt(process.env.TELEKA_DRIVER_TOKEN_TTL_DAYS || String(DATA_RETENTION_DAYS), 10) || DATA_RETENTION_DAYS);
 const MAX_DRIVER_DISTANCE_KM = Number(process.env.TELEKA_DRIVER_REQUEST_RADIUS_KM || 7);
 const MAX_NEARBY_DRIVERS = Math.max(1, parseInt(process.env.TELEKA_REQUEST_DRIVER_LIMIT || '3', 10) || 3);
 const LOCATION_FRESHNESS_MIN = Math.max(1, parseInt(process.env.TELEKA_DRIVER_LOCATION_FRESHNESS_MIN || '15', 10) || 15);
+const allowRepoStorage = ['1', 'true', 'yes'].includes(String(process.env.TELEKA_ALLOW_REPO_STORAGE || '').trim().toLowerCase());
+const repoRoot = path.resolve(__dirname);
 const appDataRoot = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-const defaultDataDir = process.env.TELEKA_DATA_DIR || path.join(appDataRoot, 'Teleka');
-const dbPath = process.env.TELEKA_DB_PATH || path.join(defaultDataDir, 'teleka.sqlite');
+const fallbackDataDir = path.join(appDataRoot, 'Teleka');
+const persistenceWarnings = [];
+const sessionDbName = path.basename(process.env.TELEKA_SESSIONS_DB || 'sessions.sqlite');
+
+function isPathInside(parentPath, targetPath) {
+  const relativePath = path.relative(path.resolve(parentPath), path.resolve(targetPath));
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function resolvePersistentLocation(configuredPath, fallbackPath, label) {
+  const targetPath = path.resolve(configuredPath || fallbackPath);
+  if (allowRepoStorage || !isPathInside(repoRoot, targetPath)) return targetPath;
+  const safePath = path.resolve(fallbackPath);
+  persistenceWarnings.push(`${label} was configured inside the repository and has been moved to ${safePath}`);
+  return safePath;
+}
+
+const defaultDataDir = resolvePersistentLocation(process.env.TELEKA_DATA_DIR, fallbackDataDir, 'Persistent data directory');
+const dbPath = resolvePersistentLocation(process.env.TELEKA_DB_PATH, path.join(defaultDataDir, 'teleka.sqlite'), 'Main database');
 const dataDir = path.dirname(dbPath);
-const sessionDbName = process.env.TELEKA_SESSIONS_DB || 'sessions.sqlite';
-const sessionStoreDir = process.env.TELEKA_SESSIONS_DIR || path.join(defaultDataDir, 'sessions');
+const sessionStoreDir = resolvePersistentLocation(process.env.TELEKA_SESSIONS_DIR, path.join(defaultDataDir, 'sessions'), 'Session database directory');
 const sessionDbPath = path.join(sessionStoreDir, sessionDbName);
 
 if (!fs.existsSync(dataDir)) {
@@ -446,15 +465,16 @@ async function initDatabase() {
 
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin3000';
-  const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
   const existingAdmin = await getQuery('SELECT id, password_hash FROM users WHERE email = ? AND role = ?', [adminEmail, 'admin']);
   if (!existingAdmin) {
+    const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
     await runQuery(
       `INSERT INTO users (email, name, role, password_hash, created_at, updated_at)
        VALUES (?, 'Administrator', 'admin', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [adminEmail, adminHash]
     );
-  } else if (!existingAdmin.password_hash || existingAdmin.password_hash !== adminHash) {
+  } else if (!existingAdmin.password_hash) {
+    const adminHash = process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(adminPassword, 10);
     await runQuery('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [adminHash, existingAdmin.id]);
   }
 }
@@ -945,7 +965,11 @@ app.post('/auth/driver/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, driver.password_hash || '');
     if (!isMatch) return sendError(res, 401, 'Invalid credentials');
 
-    const token = jwt.sign({ id: driver.id, email: driver.email, role: 'driver' }, process.env.AUTH_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign(
+      { id: driver.id, email: driver.email, role: 'driver' },
+      process.env.AUTH_SECRET,
+      { expiresIn: `${DRIVER_TOKEN_TTL_DAYS}d` }
+    );
     return res.json({
       success: true,
       token,
@@ -1437,7 +1461,9 @@ app.get('/api/health', (req, res) => res.json({
   time: nowIso(),
   dbPath,
   sessionDbPath,
-  retentionDays: DATA_RETENTION_DAYS
+  retentionDays: DATA_RETENTION_DAYS,
+  driverTokenTtlDays: DRIVER_TOKEN_TTL_DAYS,
+  persistenceWarnings
 }));
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
@@ -1452,8 +1478,10 @@ initDatabase()
       console.log(`Database path: ${dbPath}`);
       console.log(`Session database path: ${sessionDbPath}`);
       console.log(`Data retention (days): ${DATA_RETENTION_DAYS}`);
+      console.log(`Driver token TTL (days): ${DRIVER_TOKEN_TTL_DAYS}`);
       if (migratedDbFrom) console.log(`Seeded persistent database from: ${migratedDbFrom}`);
       if (migratedSessionsFrom) console.log(`Seeded persistent sessions from: ${migratedSessionsFrom}`);
+      persistenceWarnings.forEach((warning) => console.warn(`Persistence warning: ${warning}`));
     });
   })
   .catch((error) => {
