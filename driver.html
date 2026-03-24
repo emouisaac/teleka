@@ -561,6 +561,29 @@
       </section>
     </main>
 
+    <div id="driverRequestOverlay" class="driver-request-overlay hidden" aria-live="assertive" aria-modal="true" role="dialog">
+      <div class="driver-request-overlay-card">
+        <span class="driver-request-overlay-kicker">New Ride Request</span>
+        <h3 id="overlayPassenger">Passenger</h3>
+        <p class="muted" id="overlayRoute">Pickup -> Drop-off</p>
+        <div class="driver-request-overlay-meta">
+          <div>
+            <span>Estimated fare</span>
+            <strong id="overlayFare">UGX 0</strong>
+          </div>
+          <div>
+            <span>Distance</span>
+            <strong id="overlayDistance">0 km</strong>
+          </div>
+        </div>
+        <p class="driver-request-overlay-note">This request stays on screen until you accept or reject it.</p>
+        <div class="actions-row">
+          <button class="btn outline" id="overlayRejectRequest">Reject</button>
+          <button class="btn primary" id="overlayAcceptRequest">Accept</button>
+        </div>
+      </div>
+    </div>
+
 
     <footer class="driver-bottom-nav" aria-label="Bottom navigation">
       <button class="bottom-nav-item active" data-section="dashboard">

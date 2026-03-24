@@ -17,6 +17,12 @@ const driverMapState = {
     lastSnapshot: null,
     scriptRequested: false
 };
+const driverAlertState = {
+    audioContext: null,
+    ringtoneIntervalId: null,
+    lastIncomingRideId: null,
+    lastLocationSyncAt: 0
+};
 
 const DOM = {
     sidebar: null,
@@ -64,6 +70,50 @@ function formatDate(value) {
     return date.toLocaleString();
 }
 
+function getDriverAudioContext() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!driverAlertState.audioContext) driverAlertState.audioContext = new AudioCtx();
+    if (driverAlertState.audioContext.state === 'suspended') driverAlertState.audioContext.resume().catch(() => {});
+    return driverAlertState.audioContext;
+}
+
+function playDriverTone(frequency, startAt, duration, gainValue) {
+    const context = getDriverAudioContext();
+    if (!context) return;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(frequency, startAt);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + duration + 0.04);
+}
+
+function playDriverRingtoneBurst() {
+    const context = getDriverAudioContext();
+    if (!context) return;
+    const start = context.currentTime + 0.02;
+    [784, 988, 1175, 988, 784].forEach((frequency, index) => {
+        playDriverTone(frequency, start + (index * 0.28), 0.22, 0.18);
+    });
+}
+
+function startDriverRingtone() {
+    if (driverAlertState.ringtoneIntervalId) return;
+    playDriverRingtoneBurst();
+    driverAlertState.ringtoneIntervalId = setInterval(playDriverRingtoneBurst, 1800);
+}
+
+function stopDriverRingtone() {
+    if (driverAlertState.ringtoneIntervalId) clearInterval(driverAlertState.ringtoneIntervalId);
+    driverAlertState.ringtoneIntervalId = null;
+}
+
 async function driverApi(url, options = {}) {
     if (!driverToken) throw new Error('Missing driver token');
     const response = await fetch(url, {
@@ -102,6 +152,39 @@ function closeDriverMenuOnClickOutside(event) {
     if (!DOM.sidebar || !DOM.sidebar.classList.contains('open') || window.innerWidth > 768) return;
     if (event.target.closest('.driver-sidebar') || event.target.closest('#menuToggle')) return;
     DOM.sidebar.classList.remove('open');
+}
+
+function setDriverRequestOverlayVisible(isVisible) {
+    document.getElementById('driverRequestOverlay')?.classList.toggle('hidden', !isVisible);
+}
+
+function renderIncomingRideDetails(incoming) {
+    document.getElementById('requestEmpty').classList.toggle('hidden', Boolean(incoming));
+    document.getElementById('incomingRequest').classList.toggle('hidden', !incoming);
+    if (!incoming) {
+        setDriverRequestOverlayVisible(false);
+        stopDriverRingtone();
+        driverAlertState.lastIncomingRideId = null;
+        return;
+    }
+
+    const distanceValue = incoming.driver_distance_km ?? incoming.distance_km ?? 0;
+    const distanceText = `${Number(distanceValue).toFixed(1)} km`;
+    document.getElementById('requestPassenger').textContent = incoming.customer_name || 'Passenger';
+    document.getElementById('requestRoute').textContent = `${incoming.pickup_location} -> ${incoming.dropoff_location}`;
+    document.getElementById('requestFare').textContent = formatMoney(incoming.estimated_fare);
+    document.getElementById('requestDistance').textContent = distanceText;
+
+    document.getElementById('overlayPassenger').textContent = incoming.customer_name || 'Passenger';
+    document.getElementById('overlayRoute').textContent = `${incoming.pickup_location} -> ${incoming.dropoff_location}`;
+    document.getElementById('overlayFare').textContent = formatMoney(incoming.estimated_fare);
+    document.getElementById('overlayDistance').textContent = distanceText;
+    setDriverRequestOverlayVisible(true);
+
+    if (driverAlertState.lastIncomingRideId !== incoming.id) {
+        driverAlertState.lastIncomingRideId = incoming.id;
+        startDriverRingtone();
+    }
 }
 
 function getDriverMapElement() {
@@ -248,6 +331,21 @@ function updateDriverPosition(position, centerMap = false) {
     });
     marker.setPosition(position);
     if (centerMap) driverMapState.map.panTo(position);
+}
+
+async function syncDriverLocationToServer(position, force = false) {
+    if (!driverToken || !position || !document.getElementById('onlineToggle')?.checked) return;
+    const now = Date.now();
+    if (!force && now - driverAlertState.lastLocationSyncAt < 8000) return;
+    driverAlertState.lastLocationSyncAt = now;
+    try {
+        await driverApi('/api/driver/location', {
+            method: 'PUT',
+            body: JSON.stringify({ lat: position.lat, lng: position.lng })
+        });
+    } catch (error) {
+        console.error('Driver location sync failed:', error);
+    }
 }
 
 function fitDriverMapBounds(points) {
@@ -422,6 +520,7 @@ function startDriverLocationWatch() {
             lng: position.coords.longitude
         };
         updateDriverPosition(coords, !driverMapState.lastSnapshot?.activeRide);
+        syncDriverLocationToServer(coords);
         refreshDriverMap();
     }, (error) => {
         const message = error.code === error.PERMISSION_DENIED
@@ -494,6 +593,8 @@ function logoutDriver() {
     driverToken = null;
     localStorage.removeItem('driverToken');
     stopDriverLocationWatch();
+    stopDriverRingtone();
+    setDriverRequestOverlayVisible(false);
     showDriverAuth();
 }
 
@@ -542,17 +643,14 @@ function renderSnapshot(snapshot) {
 
     const incoming = snapshot.incomingRequest;
     currentIncomingRideId = incoming?.id || null;
-    document.getElementById('requestEmpty').classList.toggle('hidden', Boolean(incoming));
-    document.getElementById('incomingRequest').classList.toggle('hidden', !incoming);
-    if (incoming) {
-        document.getElementById('requestPassenger').textContent = incoming.customer_name || 'Passenger';
-        document.getElementById('requestRoute').textContent = `${incoming.pickup_location} -> ${incoming.dropoff_location}`;
-        document.getElementById('requestFare').textContent = formatMoney(incoming.estimated_fare);
-        document.getElementById('requestDistance').textContent = `${Number(incoming.distance_km || 0).toFixed(1)} km`;
-    }
+    renderIncomingRideDetails(incoming);
 
     const active = snapshot.activeRide;
     currentActiveRideId = active?.id || null;
+    if (active) {
+        setDriverRequestOverlayVisible(false);
+        stopDriverRingtone();
+    }
     document.getElementById('statActiveRide').textContent = active ? `#${active.id}` : 'None';
     document.getElementById('statDistance').textContent = `${Number(active?.distance_km || snapshot.stats?.active_distance || 0).toFixed(1)} km`;
     document.getElementById('statFare').textContent = formatMoney(active?.final_fare ?? active?.estimated_fare ?? 0);
@@ -625,6 +723,40 @@ function startPolling() {
     clearInterval(pollId);
     loadDriverSnapshot();
     pollId = setInterval(loadDriverSnapshot, 5000);
+}
+
+async function acceptIncomingRequest() {
+    if (!currentIncomingRideId) return;
+    try {
+        stopDriverRingtone();
+        setDriverRequestOverlayVisible(false);
+        await driverApi(`/api/driver/rides/${currentIncomingRideId}/accept`, { method: 'POST' });
+        showNotification('Ride accepted');
+        loadDriverSnapshot();
+        switchSection('activeRide');
+    } catch (error) {
+        if (currentIncomingRideId) {
+            setDriverRequestOverlayVisible(true);
+            startDriverRingtone();
+        }
+        showNotification(error.message, 'error');
+    }
+}
+
+async function rejectIncomingRequest() {
+    if (!currentIncomingRideId) return;
+    try {
+        stopDriverRingtone();
+        setDriverRequestOverlayVisible(false);
+        await driverApi(`/api/driver/rides/${currentIncomingRideId}/reject`, { method: 'POST' });
+        loadDriverSnapshot();
+    } catch (error) {
+        if (currentIncomingRideId) {
+            setDriverRequestOverlayVisible(true);
+            startDriverRingtone();
+        }
+        showNotification(error.message, 'error');
+    }
 }
 
 async function handleLoginSubmit(event) {
@@ -706,8 +838,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const onlineHandler = async () => {
         try {
             const isOnline = document.getElementById('onlineToggle').checked;
-            await driverApi('/api/driver/status', { method: 'PUT', body: JSON.stringify({ isOnline }) });
+            await driverApi('/api/driver/status', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    isOnline,
+                    lat: driverMapState.currentPosition?.lat,
+                    lng: driverMapState.currentPosition?.lng
+                })
+            });
             applyOnlineState(isOnline);
+            if (isOnline && driverMapState.currentPosition) syncDriverLocationToServer(driverMapState.currentPosition, true);
             loadDriverSnapshot();
         } catch (error) { showNotification(error.message, 'error'); }
     };
@@ -719,23 +859,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('actionViewRequests')?.addEventListener('click', () => switchSection('requests'));
 
-    document.getElementById('acceptRequest')?.addEventListener('click', async () => {
-        if (!currentIncomingRideId) return;
-        try {
-            await driverApi(`/api/driver/rides/${currentIncomingRideId}/accept`, { method: 'POST' });
-            showNotification('Ride accepted');
-            loadDriverSnapshot();
-            switchSection('activeRide');
-        } catch (error) { showNotification(error.message, 'error'); }
-    });
-
-    document.getElementById('rejectRequest')?.addEventListener('click', async () => {
-        if (!currentIncomingRideId) return;
-        try {
-            await driverApi(`/api/driver/rides/${currentIncomingRideId}/reject`, { method: 'POST' });
-            loadDriverSnapshot();
-        } catch (error) { showNotification(error.message, 'error'); }
-    });
+    document.getElementById('acceptRequest')?.addEventListener('click', acceptIncomingRequest);
+    document.getElementById('rejectRequest')?.addEventListener('click', rejectIncomingRequest);
+    document.getElementById('overlayAcceptRequest')?.addEventListener('click', acceptIncomingRequest);
+    document.getElementById('overlayRejectRequest')?.addEventListener('click', rejectIncomingRequest);
 
     document.getElementById('rideAction')?.addEventListener('click', async () => {
         if (!currentActiveRideId) return;
@@ -765,5 +892,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) { showNotification(error.message, 'error'); }
     });
 
+    ['click', 'keydown', 'touchstart'].forEach((eventName) => {
+        document.addEventListener(eventName, () => { getDriverAudioContext(); }, { once: true });
+    });
     checkDriverAuth();
 });

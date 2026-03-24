@@ -1,8 +1,55 @@
 const adminState = {
     pollId: null,
     pendingDrivers: new Map(),
-    modalOpen: false
+    modalOpen: false,
+    audioContext: null,
+    seenPendingRideIds: new Set(),
+    hasLoadedSnapshot: false
 };
+
+function getAdminAudioContext() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!adminState.audioContext) adminState.audioContext = new AudioCtx();
+    if (adminState.audioContext.state === 'suspended') adminState.audioContext.resume().catch(() => {});
+    return adminState.audioContext;
+}
+
+function playAdminRequestAlert() {
+    const context = getAdminAudioContext();
+    if (!context) return;
+    const start = context.currentTime + 0.02;
+    [1047, 1319, 1568].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(frequency, start + (index * 0.16));
+        gain.gain.setValueAtTime(0.0001, start + (index * 0.16));
+        gain.gain.exponentialRampToValueAtTime(0.12, start + (index * 0.16) + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + (index * 0.16) + 0.18);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(start + (index * 0.16));
+        oscillator.stop(start + (index * 0.16) + 0.2);
+    });
+}
+
+function handleAdminRideAlerts(snapshot) {
+    const pendingRideIds = new Set((snapshot.latestRides || [])
+        .filter((ride) => ride.status === 'pending')
+        .map((ride) => Number(ride.id))
+        .filter(Number.isFinite));
+
+    if (!adminState.hasLoadedSnapshot) {
+        adminState.seenPendingRideIds = pendingRideIds;
+        adminState.hasLoadedSnapshot = true;
+        return;
+    }
+
+    const hasNewPendingRide = [...pendingRideIds].some((id) => !adminState.seenPendingRideIds.has(id));
+    adminState.seenPendingRideIds = pendingRideIds;
+    if (hasNewPendingRide) playAdminRequestAlert();
+}
 
 function toggleSidebar() {
     const sidebar = document.querySelector('.sidebar');
@@ -78,6 +125,7 @@ function renderTableRows(tbodyId, rowsHtml) {
 }
 
 function renderSnapshot(snapshot) {
+    handleAdminRideAlerts(snapshot);
     renderSummary(snapshot.summary);
 
     renderTableRows('overviewRidesBody', (snapshot.latestRides || []).map((ride) => `
@@ -215,6 +263,9 @@ async function setRideStatus(rideId, status) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    ['click', 'keydown', 'touchstart'].forEach((eventName) => {
+        document.addEventListener(eventName, () => { getAdminAudioContext(); }, { once: true });
+    });
     document.getElementById('adminLoginForm')?.addEventListener('submit', async (event) => {
         event.preventDefault();
         const email = document.getElementById('adminEmail').value;

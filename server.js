@@ -19,6 +19,9 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const DATA_RETENTION_DAYS = Math.max(1, parseInt(process.env.TELEKA_RETENTION_DAYS || '180', 10) || 180);
 const SESSION_MAX_AGE_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const MAX_DRIVER_DISTANCE_KM = Number(process.env.TELEKA_DRIVER_REQUEST_RADIUS_KM || 7);
+const MAX_NEARBY_DRIVERS = Math.max(1, parseInt(process.env.TELEKA_REQUEST_DRIVER_LIMIT || '3', 10) || 3);
+const LOCATION_FRESHNESS_MIN = Math.max(1, parseInt(process.env.TELEKA_DRIVER_LOCATION_FRESHNESS_MIN || '15', 10) || 15);
 const appDataRoot = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
 const defaultDataDir = process.env.TELEKA_DATA_DIR || path.join(appDataRoot, 'Teleka');
 const dbPath = process.env.TELEKA_DB_PATH || path.join(defaultDataDir, 'teleka.sqlite');
@@ -94,6 +97,19 @@ const parseNumber = (value, fallback = 0) => {
 };
 const money = (value) => Number(Number(value || 0).toFixed(2));
 const nowIso = () => new Date().toISOString();
+const toRadians = (value) => (Number(value) * Math.PI) / 180;
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  if (![lat1, lng1, lat2, lng2].every((value) => Number.isFinite(Number(value)))) return Number.POSITIVE_INFINITY;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(Number(lat2) - Number(lat1));
+  const dLng = toRadians(Number(lng2) - Number(lng1));
+  const startLat = toRadians(lat1);
+  const endLat = toRadians(lat2);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(startLat) * Math.cos(endLat) * Math.sin(dLng / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function sendError(res, status, error) {
   return res.status(status).json({ success: false, error });
@@ -150,6 +166,82 @@ async function createNotification(targetRole, targetUserId, title, message, type
   );
 }
 
+async function getNearbyEligibleDrivers(pickupLat, pickupLng, excludeDriverIds = []) {
+  if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) return [];
+  const drivers = await allQuery(
+    `SELECT id, name, phone, current_lat, current_lng
+     FROM drivers
+     WHERE status = 'approved'
+       AND is_online = 1
+       AND current_ride_id IS NULL
+       AND current_lat IS NOT NULL
+       AND current_lng IS NOT NULL
+       AND location_updated_at IS NOT NULL
+       AND datetime(location_updated_at) >= datetime('now', '-${LOCATION_FRESHNESS_MIN} minute')`
+  );
+  const excluded = new Set(excludeDriverIds.map((value) => Number(value)).filter(Number.isFinite));
+  return drivers
+    .map((driver) => ({
+      ...driver,
+      distanceKm: haversineKm(pickupLat, pickupLng, driver.current_lat, driver.current_lng)
+    }))
+    .filter((driver) => Number.isFinite(driver.distanceKm) && driver.distanceKm <= MAX_DRIVER_DISTANCE_KM && !excluded.has(Number(driver.id)))
+    .sort((left, right) => left.distanceKm - right.distanceKm)
+    .slice(0, MAX_NEARBY_DRIVERS);
+}
+
+async function assignRideOffers(rideId, options = {}) {
+  const excludeDriverIds = options.excludeDriverIds || [];
+  const ride = await getQuery(
+    `SELECT id, status, driver_id, pickup_location, dropoff_location, pickup_lat, pickup_lng
+     FROM rides
+     WHERE id = ?`,
+    [rideId]
+  );
+  if (!ride || ride.status !== 'pending' || ride.driver_id) return [];
+
+  const existingOffers = await allQuery(
+    `SELECT driver_id, status
+     FROM ride_driver_offers
+     WHERE ride_id = ?`,
+    [rideId]
+  );
+  const activeDriverIds = existingOffers
+    .filter((offer) => ['offered', 'accepted'].includes(offer.status))
+    .map((offer) => Number(offer.driver_id))
+    .filter(Number.isFinite);
+  const rejectedDriverIds = existingOffers
+    .filter((offer) => offer.status === 'rejected')
+    .map((offer) => Number(offer.driver_id))
+    .filter(Number.isFinite);
+  const remainingSlots = MAX_NEARBY_DRIVERS - activeDriverIds.length;
+  if (remainingSlots <= 0) return [];
+
+  const nearbyDrivers = await getNearbyEligibleDrivers(
+    Number(ride.pickup_lat),
+    Number(ride.pickup_lng),
+    [...excludeDriverIds, ...activeDriverIds, ...rejectedDriverIds]
+  );
+  const selectedDrivers = nearbyDrivers.slice(0, remainingSlots);
+  for (const driver of selectedDrivers) {
+    // eslint-disable-next-line no-await-in-loop
+    await runQuery(
+      `INSERT OR REPLACE INTO ride_driver_offers (ride_id, driver_id, status, distance_km, created_at, updated_at)
+       VALUES (?, ?, 'offered', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [rideId, driver.id, money(driver.distanceKm)]
+    );
+    // eslint-disable-next-line no-await-in-loop
+    await createNotification(
+      'direct',
+      driver.id,
+      'New ride request',
+      `${ride.pickup_location} to ${ride.dropoff_location} (${driver.distanceKm.toFixed(1)} km away)`,
+      'ride_request'
+    );
+  }
+  return selectedDrivers;
+}
+
 async function purgeExpiredOperationalData() {
   const cutoff = `datetime('now', '-${DATA_RETENTION_DAYS} day')`;
   await runQuery(
@@ -164,6 +256,16 @@ async function purgeExpiredOperationalData() {
   );
   await runQuery(`DELETE FROM notifications WHERE created_at < ${cutoff}`);
   await runQuery(`DELETE FROM driver_reset_requests WHERE created_at < ${cutoff}`);
+  await runQuery(
+    `DELETE FROM ride_driver_offers
+     WHERE created_at < ${cutoff}
+        OR ride_id IN (
+          SELECT id
+          FROM rides
+          WHERE status IN ('completed', 'cancelled')
+            AND COALESCE(updated_at, created_at) < ${cutoff}
+        )`
+  );
   await runQuery(
     `DELETE FROM rides
      WHERE status IN ('completed', 'cancelled')
@@ -234,6 +336,9 @@ async function initDatabase() {
   await addColumn('drivers', 'current_ride_id INTEGER');
   await addColumn('drivers', 'rating REAL DEFAULT 5');
   await addColumn('drivers', 'review_count INTEGER DEFAULT 0');
+  await addColumn('drivers', 'current_lat REAL');
+  await addColumn('drivers', 'current_lng REAL');
+  await addColumn('drivers', 'location_updated_at DATETIME');
   await addColumn('drivers', 'updated_at DATETIME');
   await runQuery(`UPDATE drivers
                   SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
@@ -325,6 +430,19 @@ async function initDatabase() {
     status TEXT DEFAULT 'pending',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+
+  await runQuery(`CREATE TABLE IF NOT EXISTS ride_driver_offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ride_id INTEGER NOT NULL,
+    driver_id INTEGER NOT NULL,
+    status TEXT DEFAULT 'offered',
+    distance_km REAL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(ride_id, driver_id)
+  )`);
+  await runQuery('CREATE INDEX IF NOT EXISTS idx_ride_driver_offers_driver ON ride_driver_offers(driver_id, status)');
+  await runQuery('CREATE INDEX IF NOT EXISTS idx_ride_driver_offers_ride ON ride_driver_offers(ride_id, status)');
 
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@telekataxi.com';
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin3000';
@@ -581,14 +699,19 @@ async function getDriverSnapshot(driverId) {
   const incomingRequest = driver?.is_online
     ? await getQuery(
       `SELECT rides.id, rides.pickup_location, rides.dropoff_location, rides.pickup_lat, rides.pickup_lng, rides.dropoff_lat, rides.dropoff_lng,
-              rides.distance_km, rides.duration_min,
+              rides.distance_km, rides.duration_min, offers.distance_km AS driver_distance_km,
               rides.estimated_fare, rides.scheduled_at, rides.scheduled_local,
               users.name AS customer_name, users.phone AS customer_phone
-       FROM rides
+       FROM ride_driver_offers offers
+       JOIN rides ON rides.id = offers.ride_id
        JOIN users ON users.id = rides.customer_id
-       WHERE rides.status = 'pending'
-       ORDER BY datetime(rides.scheduled_at) ASC, rides.created_at ASC
+       WHERE offers.driver_id = ?
+         AND offers.status = 'offered'
+         AND rides.status = 'pending'
+       ORDER BY offers.created_at ASC, datetime(rides.scheduled_at) ASC, rides.created_at ASC
        LIMIT 1`
+      ,
+      [driverId]
     )
     : null;
 
@@ -944,10 +1067,15 @@ app.post('/api/rides/request', requireCustomer, async (req, res) => {
       ]
     );
 
-    await createNotification('drivers', null, 'New ride request', `${pickupLocation} to ${dropoffLocation}`);
+    const nearbyDrivers = await assignRideOffers(created.lastID);
     await createNotification('admin', null, 'New ride created', `Customer ${req.user.name || req.user.email} requested a ride.`);
 
-    return res.json({ success: true, rideId: created.lastID, estimatedFare });
+    return res.json({
+      success: true,
+      rideId: created.lastID,
+      estimatedFare,
+      nearbyDriversReached: nearbyDrivers.length
+    });
   } catch (error) {
     return sendError(res, 500, 'Failed to create ride');
   }
@@ -993,8 +1121,43 @@ app.get('/api/driver/snapshot', requireDriver, async (req, res) => {
 
 app.put('/api/driver/status', requireDriver, async (req, res) => {
   const isOnline = req.body.isOnline ? 1 : 0;
-  await runQuery('UPDATE drivers SET is_online = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [isOnline, req.driver.id]);
+  const lat = parseNumber(req.body.lat, null);
+  const lng = parseNumber(req.body.lng, null);
+  await runQuery(
+    `UPDATE drivers
+     SET is_online = ?,
+         current_lat = CASE WHEN ? IS NULL THEN current_lat ELSE ? END,
+         current_lng = CASE WHEN ? IS NULL THEN current_lng ELSE ? END,
+         location_updated_at = CASE WHEN ? IS NULL OR ? IS NULL THEN location_updated_at ELSE CURRENT_TIMESTAMP END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [
+      isOnline,
+      Number.isFinite(lat) ? lat : null,
+      Number.isFinite(lat) ? lat : null,
+      Number.isFinite(lng) ? lng : null,
+      Number.isFinite(lng) ? lng : null,
+      Number.isFinite(lat) ? lat : null,
+      Number.isFinite(lng) ? lng : null,
+      req.driver.id
+    ]
+  );
   return res.json({ success: true, isOnline: Boolean(isOnline) });
+});
+
+app.put('/api/driver/location', requireDriver, async (req, res) => {
+  const lat = parseNumber(req.body.lat, null);
+  const lng = parseNumber(req.body.lng, null);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return sendError(res, 400, 'Valid driver coordinates are required');
+  }
+  await runQuery(
+    `UPDATE drivers
+     SET current_lat = ?, current_lng = ?, location_updated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [lat, lng, req.driver.id]
+  );
+  return res.json({ success: true, lat, lng });
 });
 
 app.put('/api/driver/profile', requireDriver, async (req, res) => {
@@ -1026,6 +1189,14 @@ app.put('/api/driver/profile', requireDriver, async (req, res) => {
 
 app.post('/api/driver/rides/:rideId/accept', requireDriver, async (req, res) => {
   const rideId = Number(req.params.rideId);
+  const offer = await getQuery(
+    `SELECT id
+     FROM ride_driver_offers
+     WHERE ride_id = ? AND driver_id = ? AND status = 'offered'`,
+    [rideId, req.driver.id]
+  );
+  if (!offer) return sendError(res, 409, 'Ride is no longer assigned to you');
+
   const update = await runQuery(
     `UPDATE rides
      SET driver_id = ?, status = 'accepted', timeline_stage = 'accepted', updated_at = CURRENT_TIMESTAMP
@@ -1035,8 +1206,16 @@ app.post('/api/driver/rides/:rideId/accept', requireDriver, async (req, res) => 
   if (!update.changes) return sendError(res, 409, 'Ride is no longer available');
 
   await runQuery('UPDATE drivers SET current_ride_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [rideId, req.driver.id]);
+  await runQuery(
+    `UPDATE ride_driver_offers
+     SET status = CASE WHEN driver_id = ? THEN 'accepted' ELSE 'expired' END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE ride_id = ? AND status = 'offered'`,
+    [req.driver.id, rideId]
+  );
   const ride = await getQuery('SELECT customer_id FROM rides WHERE id = ?', [rideId]);
   await createNotification('customers', ride.customer_id, 'Driver assigned', `${req.driver.name} accepted your ride.`);
+  await createNotification('admin', null, 'Ride accepted', `${req.driver.name} accepted ride #${rideId}.`, 'ride_accept');
   return res.json({ success: true });
 });
 
@@ -1044,6 +1223,17 @@ app.post('/api/driver/rides/:rideId/reject', requireDriver, async (req, res) => 
   const rideId = Number(req.params.rideId);
   const ride = await getQuery('SELECT id, status, customer_id, driver_id FROM rides WHERE id = ?', [rideId]);
   if (!ride) return sendError(res, 404, 'Ride not found');
+
+  if (ride.status === 'pending') {
+    await runQuery(
+      `UPDATE ride_driver_offers
+       SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+       WHERE ride_id = ? AND driver_id = ? AND status = 'offered'`,
+      [rideId, req.driver.id]
+    );
+    await assignRideOffers(rideId, { excludeDriverIds: [req.driver.id] });
+    return res.json({ success: true });
+  }
 
   if (ride.status === 'accepted' && ride.driver_id === req.driver.id) {
     await runQuery(
@@ -1053,6 +1243,14 @@ app.post('/api/driver/rides/:rideId/reject', requireDriver, async (req, res) => 
       [rideId]
     );
     await runQuery('UPDATE drivers SET current_ride_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.driver.id]);
+    await runQuery(
+      `UPDATE ride_driver_offers
+       SET status = CASE WHEN driver_id = ? THEN 'rejected' ELSE 'expired' END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE ride_id = ?`,
+      [req.driver.id, rideId]
+    );
+    await assignRideOffers(rideId, { excludeDriverIds: [req.driver.id] });
     await createNotification('customers', ride.customer_id, 'Ride reassigned', 'Your driver could not continue, searching for another driver.');
   }
 
@@ -1084,6 +1282,14 @@ app.post('/api/driver/rides/:rideId/status', requireDriver, async (req, res) => 
     'UPDATE rides SET status = ?, timeline_stage = ?, final_fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND driver_id = ?',
     [next.status, next.stage, finalFare, rideId, req.driver.id]
   );
+  if (['completed', 'cancelled'].includes(next.status)) {
+    await runQuery(
+      `UPDATE ride_driver_offers
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE ride_id = ?`,
+      [next.status, rideId]
+    );
+  }
 
   if (next.status === 'completed' || next.status === 'cancelled') {
     await runQuery('UPDATE drivers SET current_ride_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [req.driver.id]);
@@ -1161,13 +1367,24 @@ app.post('/api/admin/rides/:rideId/status', requireAdmin, async (req, res) => {
     'UPDATE rides SET status = ?, final_fare = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     [status, finalFare, rideId]
   );
+  if (['completed', 'cancelled'].includes(status)) {
+    await runQuery(
+      `UPDATE ride_driver_offers
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE ride_id = ?`,
+      [status, rideId]
+    );
+  }
+  if (['completed', 'cancelled'].includes(status) && ride.driver_id) {
+    await runQuery('UPDATE drivers SET current_ride_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [ride.driver_id]);
+  }
   await createNotification('customers', ride.customer_id, 'Ride update', `Admin updated ride to "${status}".`);
   if (ride.driver_id) await createNotification('drivers', ride.driver_id, 'Ride update', `Ride #${rideId} is now "${status}".`);
   return res.json({ success: true });
 });
 
 app.get('/api/admin/export', requireAdmin, async (req, res) => {
-  const tables = ['users', 'drivers', 'rides', 'ride_messages', 'notifications', 'pricing_settings', 'driver_reset_requests'];
+  const tables = ['users', 'drivers', 'rides', 'ride_messages', 'notifications', 'pricing_settings', 'driver_reset_requests', 'ride_driver_offers'];
   const backup = { exportedAt: nowIso(), version: 1, data: {} };
   for (const table of tables) {
     // eslint-disable-next-line no-await-in-loop

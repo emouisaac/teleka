@@ -17,7 +17,11 @@ const customerState = {
     pollId: null,
     publicConfig: null,
     activeRideId: null,
-    places: { pickup: null, dropoff: null }
+    places: { pickup: null, dropoff: null },
+    audioContext: null,
+    lastNotificationId: null,
+    lastActiveRideStatus: null,
+    hasLoadedSnapshot: false
 };
 
 const mapState = {
@@ -41,6 +45,51 @@ function showToast(message, type = 'success') {
         el.classList.add('fade-out');
         setTimeout(() => el.remove(), 250);
     }, 2500);
+}
+
+function getCustomerAudioContext() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!customerState.audioContext) customerState.audioContext = new AudioCtx();
+    if (customerState.audioContext.state === 'suspended') customerState.audioContext.resume().catch(() => {});
+    return customerState.audioContext;
+}
+
+function playCustomerAlert() {
+    const context = getCustomerAudioContext();
+    if (!context) return;
+    const start = context.currentTime + 0.02;
+    [880, 1175].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, start + (index * 0.18));
+        gain.gain.setValueAtTime(0.0001, start + (index * 0.18));
+        gain.gain.exponentialRampToValueAtTime(0.08, start + (index * 0.18) + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + (index * 0.18) + 0.18);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(start + (index * 0.18));
+        oscillator.stop(start + (index * 0.18) + 0.2);
+    });
+}
+
+function handleCustomerAlerts(snapshot) {
+    const latestNotificationId = snapshot.notifications?.[0]?.id || null;
+    const currentRideStatus = snapshot.activeRide?.status || null;
+
+    if (!customerState.hasLoadedSnapshot) {
+        customerState.lastNotificationId = latestNotificationId;
+        customerState.lastActiveRideStatus = currentRideStatus;
+        customerState.hasLoadedSnapshot = true;
+        return;
+    }
+
+    const notificationChanged = latestNotificationId && latestNotificationId !== customerState.lastNotificationId;
+    const rideStatusChanged = currentRideStatus && currentRideStatus !== customerState.lastActiveRideStatus;
+    customerState.lastNotificationId = latestNotificationId;
+    customerState.lastActiveRideStatus = currentRideStatus;
+    if (notificationChanged || rideStatusChanged) playCustomerAlert();
 }
 
 async function api(url, options = {}) {
@@ -427,6 +476,7 @@ async function loadGoogleMapsScript() {
 }
 
 function renderCustomerSnapshot(snapshot) {
+    handleCustomerAlerts(snapshot);
     const profile = snapshot.profile || {};
     const activeRide = snapshot.activeRide || null;
     customerState.activeRideId = activeRide?.id || null;
@@ -496,6 +546,9 @@ async function initializeGoogleSignIn() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    ['click', 'keydown', 'touchstart'].forEach((eventName) => {
+        document.addEventListener(eventName, () => { getCustomerAudioContext(); }, { once: true });
+    });
     await checkAuthStatus();
     const initial = window.location.hash.slice(1);
     switchSection(document.getElementById(initial) ? initial : 'dashboard');
