@@ -21,6 +21,8 @@ const state = {
 
 const elements = {
   banner: document.querySelector("#driverBanner"),
+  siteNav: document.querySelector("#siteNav"),
+  siteNavToggle: document.querySelector("#siteNavToggle"),
   authState: document.querySelector("#driverAuthState"),
   logoutBtn: document.querySelector("#driverLogoutBtn"),
   authPanel: document.querySelector("#driverAuthPanel"),
@@ -51,6 +53,59 @@ const elements = {
   tabButtons: document.querySelectorAll(".tab-btn"),
   tabBodies: document.querySelectorAll(".tab-body")
 };
+
+function closeSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+  elements.siteNav.classList.remove("open");
+  elements.siteNavToggle.setAttribute("aria-expanded", "false");
+}
+
+function toggleSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+  const willOpen = !elements.siteNav.classList.contains("open");
+  elements.siteNav.classList.toggle("open", willOpen);
+  elements.siteNavToggle.setAttribute("aria-expanded", String(willOpen));
+}
+
+function attachSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+
+  elements.siteNavToggle.addEventListener("click", toggleSiteNav);
+
+  elements.siteNav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => {
+      closeSiteNav();
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (
+      elements.siteNav.classList.contains("open") &&
+      !elements.siteNav.contains(event.target) &&
+      !elements.siteNavToggle.contains(event.target)
+    ) {
+      closeSiteNav();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeSiteNav();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 720) {
+      closeSiteNav();
+    }
+  });
+}
 
 function setAuthenticatedUi(active) {
   elements.authPanel.classList.toggle("hidden", active);
@@ -411,6 +466,7 @@ function setupTabs() {
 }
 
 async function bootstrap() {
+  attachSiteNav();
   setupTabs();
   state.auth = await api.authStatus();
   const signedIn = state.auth?.authenticated && state.auth.user.role === "driver";

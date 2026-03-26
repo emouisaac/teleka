@@ -13,15 +13,44 @@
 </head>
 <body>
   <div class="app-shell admin-shell">
+    <header class="site-header" id="topPanel">
+      <a class="site-brand" href="#topPanel">
+        <img src="ims/ticon.png" alt="Teleka Taxi logo">
+        <span>Teleka Taxi</span>
+      </a>
+      <button
+        class="site-nav-toggle"
+        id="siteNavToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="siteNav"
+      >
+        Menu
+      </button>
+      <nav class="site-nav" id="siteNav" aria-label="Admin panels">
+        <ul class="site-nav-list">
+          <li><a href="#topPanel">Home</a></li>
+          <li><a href="#adminLoginPanel">Access</a></li>
+          <li><a href="#adminSummaryPanel">Summary</a></li>
+          <li><a href="#adminMapPanel">Map</a></li>
+          <li><a href="#adminRidesPanel">Rides</a></li>
+          <li><a href="#adminDriversPanel">Drivers</a></li>
+          <li><a href="#adminFarePanel">Pricing</a></li>
+          <li><a href="#adminDocsPanel">Docs</a></li>
+          <li><a href="#adminNotificationsPanel">Alerts</a></li>
+        </ul>
+        <div class="site-nav-meta">
+          <span class="pill" id="adminAuthState">Signed out</span>
+          <button class="ghost-btn" id="adminLogoutBtn" hidden>Logout</button>
+        </div>
+      </nav>
+    </header>
+
     <header class="page-header">
       <div>
         <p class="eyebrow">Admin console</p>
         <h1>Operations, approvals, dispatch, and fare control</h1>
         <p class="page-copy">Admin sessions are seeded from env credentials and persisted in the database-backed session store, so refreshes and deployments do not dump the operator out of the dashboard.</p>
-      </div>
-      <div class="header-actions">
-        <span class="pill" id="adminAuthState">Signed out</span>
-        <button class="ghost-btn" id="adminLogoutBtn" hidden>Logout</button>
       </div>
     </header>
 

@@ -19,6 +19,8 @@ const state = {
 
 const elements = {
   banner: document.querySelector("#adminBanner"),
+  siteNav: document.querySelector("#siteNav"),
+  siteNavToggle: document.querySelector("#siteNavToggle"),
   authState: document.querySelector("#adminAuthState"),
   logoutBtn: document.querySelector("#adminLogoutBtn"),
   loginPanel: document.querySelector("#adminLoginPanel"),
@@ -45,6 +47,59 @@ const elements = {
   fareMinimum: document.querySelector("#fareMinimum"),
   saveFareBtn: document.querySelector("#saveFareBtn")
 };
+
+function closeSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+  elements.siteNav.classList.remove("open");
+  elements.siteNavToggle.setAttribute("aria-expanded", "false");
+}
+
+function toggleSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+  const willOpen = !elements.siteNav.classList.contains("open");
+  elements.siteNav.classList.toggle("open", willOpen);
+  elements.siteNavToggle.setAttribute("aria-expanded", String(willOpen));
+}
+
+function attachSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+
+  elements.siteNavToggle.addEventListener("click", toggleSiteNav);
+
+  elements.siteNav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => {
+      closeSiteNav();
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (
+      elements.siteNav.classList.contains("open") &&
+      !elements.siteNav.contains(event.target) &&
+      !elements.siteNavToggle.contains(event.target)
+    ) {
+      closeSiteNav();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeSiteNav();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 720) {
+      closeSiteNav();
+    }
+  });
+}
 
 function ensureMap() {
   if (state.map || !window.L) {
@@ -394,6 +449,7 @@ async function handleLogin() {
 }
 
 async function bootstrap() {
+  attachSiteNav();
   state.auth = await api.authStatus();
   renderAuth();
   if (state.auth?.authenticated && state.auth.user.role === "admin") {

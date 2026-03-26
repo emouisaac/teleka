@@ -13,15 +13,42 @@
 </head>
 <body>
   <div class="app-shell driver-shell">
+    <header class="site-header" id="topPanel">
+      <a class="site-brand" href="#topPanel">
+        <img src="ims/ticon.png" alt="Teleka Taxi logo">
+        <span>Teleka Taxi</span>
+      </a>
+      <button
+        class="site-nav-toggle"
+        id="siteNavToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="siteNav"
+      >
+        Menu
+      </button>
+      <nav class="site-nav" id="siteNav" aria-label="Driver panels">
+        <ul class="site-nav-list">
+          <li><a href="#topPanel">Home</a></li>
+          <li><a href="#driverAuthPanel">Access</a></li>
+          <li><a href="#driverProfilePanel">Profile</a></li>
+          <li><a href="#driverMapPanel">Map</a></li>
+          <li><a href="#driverAssignedPanel">Rides</a></li>
+          <li><a href="#driverMessagesPanel">Chat</a></li>
+          <li><a href="#driverNotificationsPanel">Alerts</a></li>
+        </ul>
+        <div class="site-nav-meta">
+          <span class="pill" id="driverAuthState">Signed out</span>
+          <button class="ghost-btn" id="driverLogoutBtn" hidden>Logout</button>
+        </div>
+      </nav>
+    </header>
+
     <header class="page-header">
       <div>
         <p class="eyebrow">Driver hub</p>
         <h1>Registration, approval, dispatch, live tracking, and ride earnings</h1>
         <p class="page-copy">Approved drivers can log in, stay online, publish live location, accept assigned rides, and keep their trip data after refresh or server restart.</p>
-      </div>
-      <div class="header-actions">
-        <span class="pill" id="driverAuthState">Signed out</span>
-        <button class="ghost-btn" id="driverLogoutBtn" hidden>Logout</button>
       </div>
     </header>
 

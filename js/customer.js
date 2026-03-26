@@ -76,6 +76,8 @@ const state = {
 
 const elements = {
   banner: document.querySelector("#customerBanner"),
+  siteNav: document.querySelector("#siteNav"),
+  siteNavToggle: document.querySelector("#siteNavToggle"),
   authState: document.querySelector("#customerAuthState"),
   logoutBtn: document.querySelector("#customerLogoutBtn"),
   authCard: document.querySelector("#customerAuthCard"),
@@ -107,7 +109,9 @@ const elements = {
   activeRideStatus: document.querySelector("#activeRideStatus"),
   activeRideSummary: document.querySelector("#activeRideSummary"),
   chatRideBadge: document.querySelector("#chatRideBadge"),
-  useMyLocationBtn: document.querySelector("#useMyLocationBtn")
+  useMyLocationBtn: document.querySelector("#useMyLocationBtn"),
+  requestFormToggleBtn: document.querySelector("#requestFormToggleBtn"),
+  requestMobileShell: document.querySelector("#requestMobileShell")
 };
 
 let googleMapsPromise = null;
@@ -172,6 +176,75 @@ function getSelectedEstimate() {
   );
 }
 
+function getVehiclePreviewImage(option) {
+  const imageByKey = {
+    mini: { src: "ims/Teleka Mini1.png", alt: "Teleka Mini vehicle" },
+    standard: { src: "ims/Standared.png", alt: "Standard vehicle" },
+    premium: { src: "ims/prem.png", alt: "Premium vehicle" },
+    suv: { src: "ims/SUV1.png", alt: "SUV vehicle" }
+  };
+
+  return imageByKey[option.key] || null;
+}
+
+function getVehiclePreviewSvg(option) {
+  const iconByKey = {
+    mini: {
+      fill: "#d88914",
+      bodyPath:
+        "M20 56 L30 43 C34 37 42 33 51 33 H82 C90 33 96 36 102 41 L112 49 H123 C129 49 134 53 134 59 V64 H18 V59 C18 58 19 57 20 56 Z",
+      windowPath: "M42 43 L51 35 H75 V49 H36 Z",
+      rearWindowPath: "M78 35 H91 C96 35 101 38 105 43 L108 49 H78 Z"
+    },
+    standard: {
+      fill: "#0e7969",
+      bodyPath:
+        "M16 56 L27 40 C31 34 40 29 50 29 H98 C108 29 118 33 125 40 L136 48 H148 C154 48 160 53 160 59 V64 H16 Z",
+      windowPath: "M39 40 L50 31 H77 V48 H32 Z",
+      rearWindowPath: "M80 31 H100 C108 31 115 35 121 40 L126 48 H80 Z"
+    },
+    premium: {
+      fill: "#5b6270",
+      bodyPath:
+        "M14 56 L25 39 C30 31 41 25 54 25 H112 C124 25 136 30 145 39 L156 48 H168 C174 48 178 53 178 59 V64 H14 Z",
+      windowPath: "M40 39 L56 28 H86 V48 H31 Z",
+      rearWindowPath: "M90 28 H115 C126 28 134 32 142 39 L148 48 H90 Z"
+    },
+    suv: {
+      fill: "#b7682f",
+      bodyPath:
+        "M16 56 L25 41 C30 34 39 30 49 30 H105 C117 30 126 33 134 40 L145 48 H157 C163 48 168 53 168 59 V64 H16 Z",
+      windowPath: "M38 41 L48 32 H75 V48 H30 Z",
+      rearWindowPath: "M78 32 H103 C112 32 119 35 127 41 L132 48 H78 Z"
+    }
+  };
+
+  const icon = iconByKey[option.key] || iconByKey.standard;
+
+  return `
+    <svg class="vehicle-svg" viewBox="0 0 192 84" aria-hidden="true" focusable="false">
+      <rect x="18" y="18" width="156" height="50" rx="18" fill="rgba(27, 26, 23, 0.05)"></rect>
+      <path d="${icon.bodyPath}" fill="${icon.fill}" stroke="rgba(27, 26, 23, 0.16)" stroke-width="2"></path>
+      <path d="${icon.windowPath}" fill="#e8f2fb"></path>
+      <path d="${icon.rearWindowPath}" fill="#d6e7f6"></path>
+      <circle cx="54" cy="64" r="10" fill="#1d2126"></circle>
+      <circle cx="54" cy="64" r="4" fill="#9ca6b2"></circle>
+      <circle cx="122" cy="64" r="10" fill="#1d2126"></circle>
+      <circle cx="122" cy="64" r="4" fill="#9ca6b2"></circle>
+      <rect x="146" y="52" width="9" height="5" rx="2.5" fill="#fff0b8"></rect>
+      <rect x="21" y="54" width="8" height="4" rx="2" fill="#b53a2d"></rect>
+    </svg>
+  `;
+}
+
+function getVehiclePreviewMarkup(option) {
+  const image = getVehiclePreviewImage(option);
+  if (image) {
+    return `<img class="vehicle-image" src="${image.src}" alt="${image.alt}">`;
+  }
+  return getVehiclePreviewSvg(option);
+}
+
 function toPlacePayload(input, selected) {
   if (selected) {
     return selected;
@@ -220,7 +293,14 @@ function renderVehicleOptions() {
     button.type = "button";
     button.className = `vehicle-card ${option.key === state.selectedVehicleClass ? "selected" : ""}`;
     button.innerHTML = `
-      <span class="vehicle-name">${option.label}</span>
+      <span class="vehicle-card-main">
+        <span class="vehicle-visual" data-vehicle-key="${option.key}">
+          ${getVehiclePreviewMarkup(option)}
+        </span>
+        <span class="vehicle-copy">
+          <span class="vehicle-name">${option.label}</span>
+        </span>
+      </span>
       <strong class="fare">${option.fareUgx ? formatCurrency(option.fareUgx) : "--"}</strong>
     `;
     button.addEventListener("click", () => {
@@ -260,6 +340,95 @@ function renderProfile() {
   updateRequestButton();
 }
 
+function closeSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+  elements.siteNav.classList.remove("open");
+  elements.siteNavToggle.setAttribute("aria-expanded", "false");
+}
+
+function toggleSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+  const willOpen = !elements.siteNav.classList.contains("open");
+  elements.siteNav.classList.toggle("open", willOpen);
+  elements.siteNavToggle.setAttribute("aria-expanded", String(willOpen));
+}
+
+function attachSiteNav() {
+  if (!elements.siteNav || !elements.siteNavToggle) {
+    return;
+  }
+
+  elements.siteNavToggle.addEventListener("click", toggleSiteNav);
+
+  elements.siteNav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => {
+      closeSiteNav();
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (
+      elements.siteNav.classList.contains("open") &&
+      !elements.siteNav.contains(event.target) &&
+      !elements.siteNavToggle.contains(event.target)
+    ) {
+      closeSiteNav();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeSiteNav();
+    }
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 720) {
+      closeSiteNav();
+    }
+  });
+}
+
+function setRequestFormOpen(isOpen) {
+  if (!elements.requestMobileShell || !elements.requestFormToggleBtn) {
+    return;
+  }
+
+  if (window.innerWidth > 720) {
+    elements.requestMobileShell.classList.remove("open");
+    elements.requestFormToggleBtn.setAttribute("aria-expanded", "false");
+    elements.requestFormToggleBtn.textContent = "Request a ride";
+    return;
+  }
+
+  elements.requestMobileShell.classList.toggle("open", isOpen);
+  elements.requestFormToggleBtn.setAttribute("aria-expanded", String(isOpen));
+  elements.requestFormToggleBtn.textContent = isOpen ? "Close request form" : "Request a ride";
+}
+
+function attachRequestFormToggle() {
+  if (!elements.requestMobileShell || !elements.requestFormToggleBtn) {
+    return;
+  }
+
+  setRequestFormOpen(false);
+
+  elements.requestFormToggleBtn.addEventListener("click", () => {
+    const willOpen = !elements.requestMobileShell.classList.contains("open");
+    setRequestFormOpen(willOpen);
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 720) {
+      setRequestFormOpen(false);
+    }
+  });
+}
+
 function renderQuote() {
   const quote = state.selectedQuote;
   const selectedEstimate = getSelectedEstimate();
@@ -288,25 +457,8 @@ function renderRouteSteps(steps = []) {
     return;
   }
 
-  if (!steps.length) {
-    elements.routeSteps.innerHTML =
-      '<div class="route-step-empty">Type pickup and destination to see route directions.</div>';
-    return;
-  }
-
-  elements.routeSteps.innerHTML = steps
-    .map(
-      (step, index) => `
-        <div class="route-step">
-          <span class="route-step-index">${index + 1}</span>
-          <div>
-            <p>${step.instructions}</p>
-            <small>${step.distanceText} ${step.durationText ? `| ${step.durationText}` : ""}</small>
-          </div>
-        </div>
-      `
-    )
-    .join("");
+  elements.routeSteps.hidden = true;
+  elements.routeSteps.innerHTML = "";
 }
 
 function renderRecentPlaces() {
@@ -1085,6 +1237,8 @@ async function bootstrap() {
   state.config = await api.publicConfig();
   state.settings = await api.publicSettings().catch(() => null);
 
+  attachSiteNav();
+  attachRequestFormToggle();
   attachLocationInputs();
   renderVehicleOptions();
   renderQuote();
