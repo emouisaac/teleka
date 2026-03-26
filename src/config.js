@@ -8,6 +8,34 @@ const projectRoot = process.cwd();
 const environment = process.env.NODE_ENV || "development";
 const isProduction = environment === "production";
 
+function normalizeUrl(input) {
+  if (!input) {
+    return "";
+  }
+
+  try {
+    return new URL(input).toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function extractHostname(input) {
+  if (!input) {
+    return "";
+  }
+
+  try {
+    return new URL(input).hostname;
+  } catch {
+    return String(input)
+      .trim()
+      .replace(/^[a-z]+:\/\//i, "")
+      .replace(/\/.*$/, "")
+      .replace(/:\d+$/, "");
+  }
+}
+
 const defaultDbPath = path.join(projectRoot, "data", "teleka.sqlite");
 const dbPath = process.env.TELEKA_DB_PATH || defaultDbPath;
 const sessionDir =
@@ -20,10 +48,12 @@ fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 fs.mkdirSync(sessionDir, { recursive: true });
 fs.mkdirSync(uploadRoot, { recursive: true });
 
-const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3000}`;
+const appUrl =
+  normalizeUrl(process.env.APP_URL) || `http://localhost:${process.env.PORT || 3000}`;
+const rawCookieDomain = extractHostname(process.env.APP_DOMAIN) || extractHostname(appUrl);
 const cookieDomain =
-  isProduction && process.env.APP_DOMAIN && !process.env.APP_DOMAIN.includes("localhost")
-    ? process.env.APP_DOMAIN.replace(/^www\./, "")
+  isProduction && rawCookieDomain && !rawCookieDomain.includes("localhost")
+    ? rawCookieDomain.replace(/^www\./, "")
     : undefined;
 
 export const config = {
