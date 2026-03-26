@@ -10,11 +10,13 @@ import {
 
 const state = {
   auth: null,
+  config: null,
   dashboard: null,
   notifications: [],
   socket: null,
   map: null,
-  markers: new Map()
+  markers: new Map(),
+  infoWindow: null
 };
 
 const elements = {
@@ -47,6 +49,8 @@ const elements = {
   fareMinimum: document.querySelector("#fareMinimum"),
   saveFareBtn: document.querySelector("#saveFareBtn")
 };
+
+let googleMapsPromise = null;
 
 function closeSiteNav() {
   if (!elements.siteNav || !elements.siteNavToggle) {
@@ -101,15 +105,42 @@ function attachSiteNav() {
   });
 }
 
+function loadGoogleMaps(apiKey) {
+  if (!apiKey) {
+    return Promise.resolve(false);
+  }
+  if (window.google?.maps) {
+    return Promise.resolve(true);
+  }
+  if (googleMapsPromise) {
+    return googleMapsPromise;
+  }
+
+  googleMapsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => reject(new Error("Unable to load Google Maps"));
+    document.head.appendChild(script);
+  });
+
+  return googleMapsPromise;
+}
+
 function ensureMap() {
-  if (state.map || !window.L) {
+  if (state.map || !window.google?.maps) {
     return;
   }
-  state.map = L.map("adminMap", { zoomControl: false }).setView([0.3136, 32.5811], 11);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap"
-  }).addTo(state.map);
+  state.map = new google.maps.Map(document.getElementById("adminMap"), {
+    center: { lat: 0.3136, lng: 32.5811 },
+    zoom: 11,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false
+  });
+  state.infoWindow = new google.maps.InfoWindow();
 }
 
 function renderAuth() {
@@ -165,12 +196,17 @@ function renderFareSettings() {
 }
 
 function syncMap() {
+  if (!state.config?.googleMapsApiKey) {
+    setText(elements.mapSummary, "Google Maps is not configured for the admin live map yet.");
+    return;
+  }
+
   ensureMap();
   if (!state.map) {
     return;
   }
 
-  state.markers.forEach((marker) => marker.remove());
+  state.markers.forEach((marker) => marker.setMap(null));
   state.markers.clear();
 
   const drivers = state.dashboard?.drivers || [];
@@ -179,21 +215,46 @@ function syncMap() {
   drivers
     .filter((driver) => Number.isFinite(driver.currentLat) && Number.isFinite(driver.currentLng))
     .forEach((driver) => {
-      const marker = L.circleMarker([driver.currentLat, driver.currentLng], {
-        radius: 9,
-        color: driver.isOnline ? "#1f7a42" : "#b53a2d",
-        fillColor: "#ef9b28",
-        fillOpacity: 0.9
-      }).addTo(state.map);
-      marker.bindPopup(`${driver.fullName}<br>${driver.vehicle}<br>${driver.approvalStatus}`);
+      const position = { lat: driver.currentLat, lng: driver.currentLng };
+      const marker = new google.maps.Marker({
+        map: state.map,
+        position,
+        title: driver.fullName,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: "#ef9b28",
+          fillOpacity: 0.95,
+          strokeColor: driver.isOnline ? "#1f7a42" : "#b53a2d",
+          strokeWeight: 3
+        }
+      });
+      marker.addListener("click", () => {
+        state.infoWindow?.setContent(
+          `<strong>${driver.fullName}</strong><br>${driver.vehicle}<br>${driver.approvalStatus}`
+        );
+        state.infoWindow?.open({
+          anchor: marker,
+          map: state.map
+        });
+      });
       state.markers.set(driver.id, marker);
-      points.push([driver.currentLat, driver.currentLng]);
+      points.push(position);
     });
 
   if (points.length) {
-    state.map.fitBounds(points, { padding: [40, 40] });
+    if (points.length === 1) {
+      state.map.setCenter(points[0]);
+      state.map.setZoom(14);
+    } else {
+      const bounds = new google.maps.LatLngBounds();
+      points.forEach((point) => bounds.extend(point));
+      state.map.fitBounds(bounds, 80);
+    }
     setText(elements.mapSummary, `${points.length} driver locations plotted.`);
   } else {
+    state.map.setCenter({ lat: 0.3136, lng: 32.5811 });
+    state.map.setZoom(11);
     setText(elements.mapSummary, "No live driver coordinates available yet.");
   }
 }
@@ -450,6 +511,15 @@ async function handleLogin() {
 
 async function bootstrap() {
   attachSiteNav();
+  state.config = await api.publicConfig().catch(() => null);
+  if (state.config?.googleMapsApiKey) {
+    try {
+      await loadGoogleMaps(state.config.googleMapsApiKey);
+      ensureMap();
+    } catch (error) {
+      showBanner(elements.banner, error.message, "warning");
+    }
+  }
   state.auth = await api.authStatus();
   renderAuth();
   if (state.auth?.authenticated && state.auth.user.role === "admin") {
