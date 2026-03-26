@@ -34,10 +34,10 @@ export const api = {
   markNotificationRead: (id) =>
     request(`/api/auth/notifications/${id}/read`, { method: "POST" }),
   publicConfig: () => request("/api/public/config"),
+  publicSettings: () => request("/api/public/settings"),
   autocompletePlaces: (query) =>
     request(`/api/public/places/autocomplete?q=${encodeURIComponent(query)}`),
   customerDashboard: () => request("/api/customer/dashboard"),
-  customerQuote: (body) => request("/api/customer/quote", { method: "POST", body }),
   createRide: (body) => request("/api/customer/rides", { method: "POST", body }),
   customerRideMessages: (rideId) => request(`/api/customer/rides/${rideId}/messages`),
   customerSendRideMessage: (rideId, body) =>

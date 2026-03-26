@@ -253,7 +253,7 @@ function renderRides() {
         <tr>
           <td>${ride.id.slice(0, 8)}</td>
           <td>${ride.customerName}<br><small>${ride.customerPhone || ""}</small></td>
-          <td>${ride.originLabel}<br><small>${ride.destinationLabel}</small></td>
+          <td>${ride.originLabel}<br><small>${ride.destinationLabel}</small><br><small>${ride.requestedVehicleClass || "standard"}</small></td>
           <td>${ride.status}</td>
           <td>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)}</td>
           <td>${ride.driverName || "Unassigned"}</td>

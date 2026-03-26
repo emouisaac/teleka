@@ -42,6 +42,7 @@ function getAdminDashboard() {
           rides.status,
           rides.origin_label AS originLabel,
           rides.destination_label AS destinationLabel,
+          rides.requested_vehicle_class AS requestedVehicleClass,
           rides.quoted_fare_ugx AS quotedFareUgx,
           rides.final_fare_ugx AS finalFareUgx,
           rides.requested_at AS requestedAt,

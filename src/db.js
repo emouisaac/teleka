@@ -94,6 +94,7 @@ function createTables() {
       destination_place_id TEXT,
       destination_lat REAL NOT NULL,
       destination_lng REAL NOT NULL,
+      requested_vehicle_class TEXT NOT NULL DEFAULT 'standard',
       distance_meters REAL NOT NULL,
       duration_seconds REAL NOT NULL,
       quoted_fare_ugx INTEGER NOT NULL,
@@ -384,6 +385,7 @@ function migrateLegacyRides() {
         destination_place_id TEXT,
         destination_lat REAL NOT NULL,
         destination_lng REAL NOT NULL,
+        requested_vehicle_class TEXT NOT NULL DEFAULT 'standard',
         distance_meters REAL NOT NULL,
         duration_seconds REAL NOT NULL,
         quoted_fare_ugx INTEGER NOT NULL,
@@ -407,7 +409,7 @@ function migrateLegacyRides() {
         id, customer_id, driver_id, status, origin_label, origin_address,
         origin_place_id, origin_lat, origin_lng, destination_label,
         destination_address, destination_place_id, destination_lat,
-        destination_lng, distance_meters, duration_seconds, quoted_fare_ugx,
+        destination_lng, requested_vehicle_class, distance_meters, duration_seconds, quoted_fare_ugx,
         final_fare_ugx, payment_method, customer_notes, driver_notes,
         requested_at, accepted_at, picked_up_at, completed_at, cancelled_at,
         current_lat, current_lng
@@ -430,6 +432,7 @@ function migrateLegacyRides() {
         NULL,
         0,
         0,
+        'standard',
         COALESCE(distance, 0),
         0,
         CAST(ROUND(COALESCE(estimated_fare, actual_fare, 0)) AS INTEGER),
@@ -547,6 +550,14 @@ function migrateLegacySchema() {
   migrateLegacyNotifications();
 }
 
+function migrateRidesVehicleClass() {
+  if (hasTable("rides") && !hasColumn("rides", "requested_vehicle_class")) {
+    database.exec(
+      "ALTER TABLE rides ADD COLUMN requested_vehicle_class TEXT NOT NULL DEFAULT 'standard';"
+    );
+  }
+}
+
 const defaultSettings = {
   fare: {
     baseFareUgx: 5000,
@@ -608,6 +619,7 @@ function seedAdmin() {
 export function initializeDatabase() {
   createTables();
   migrateLegacySchema();
+  migrateRidesVehicleClass();
   createIndexes();
   seedSettings();
   seedAdmin();

@@ -62,6 +62,7 @@ export function getRideSnapshot(rideId) {
           rides.destination_address AS destinationAddress,
           rides.destination_lat AS destinationLat,
           rides.destination_lng AS destinationLng,
+          rides.requested_vehicle_class AS requestedVehicleClass,
           rides.distance_meters AS distanceMeters,
           rides.duration_seconds AS durationSeconds,
           rides.quoted_fare_ugx AS quotedFareUgx,

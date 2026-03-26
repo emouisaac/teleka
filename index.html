@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/png" href="ims/t2icon.png">
 </head>
@@ -30,7 +29,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Live booking</p>
           <h2>Dispatch-ready ride requests with real route pricing</h2>
-          <p>Pickup suggestions, remembered addresses, quoted fares, and realtime status updates are all driven from the server, not browser storage.</p>
+          <p>Google Maps search, live route previews, vehicle-class estimates, and realtime trip tracking all run from the customer workspace.</p>
         </div>
         <div class="auth-card" id="customerAuthCard">
           <h3 id="customerAccessTitle">Customer access</h3>
@@ -52,20 +51,21 @@
             <p class="eyebrow">Request ride</p>
             <h2>Create a trip</h2>
           </div>
-          <button class="ghost-btn" id="useMyLocationBtn">Use my location</button>
+          <div class="header-actions">
+            <span class="pill" id="estimateState">Waiting for route</span>
+            <button class="ghost-btn" id="useMyLocationBtn">Use my location</button>
+          </div>
         </div>
         <div class="request-form">
           <label>Pickup</label>
-          <div class="input-stack">
-            <input id="pickupInput" type="text" placeholder="Search pickup point">
-            <div class="suggestions" id="pickupSuggestions"></div>
-          </div>
+          <input id="pickupInput" type="text" placeholder="Search pickup point" autocomplete="off">
 
           <label>Destination</label>
-          <div class="input-stack">
-            <input id="destinationInput" type="text" placeholder="Search destination">
-            <div class="suggestions" id="destinationSuggestions"></div>
-          </div>
+          <input id="destinationInput" type="text" placeholder="Search destination" autocomplete="off">
+
+          <label>Vehicle</label>
+          <div class="vehicle-grid" id="vehicleOptions"></div>
+          <p class="input-help" id="selectedVehicleHint">Choose pickup and destination to see live estimates.</p>
 
           <label>Payment</label>
           <select id="paymentMethod">
@@ -78,8 +78,7 @@
           <textarea id="customerNotes" rows="3" placeholder="Gate number, landmark, luggage, or airport pickup note"></textarea>
 
           <div class="action-row">
-            <button class="primary-btn" id="quoteRideBtn">Calculate fare</button>
-            <button class="secondary-btn" id="submitRideBtn">Request ride</button>
+            <button class="primary-btn" id="submitRideBtn">Request ride</button>
           </div>
         </div>
         <div class="quote-card" id="quoteCard">
@@ -92,7 +91,7 @@
             <strong id="quoteDuration">-</strong>
           </div>
           <div>
-            <p>Estimate</p>
+            <p>Selected estimate</p>
             <strong id="quoteFare">UGX 0</strong>
           </div>
         </div>
@@ -109,6 +108,9 @@
         </div>
         <div id="customerMap" class="map-surface"></div>
         <div class="map-summary" id="activeRideSummary">Your active ride route, driver marker, and latest status will appear here.</div>
+        <div class="route-steps" id="customerRouteSteps">
+          <div class="route-step-empty">Type pickup and destination to see route directions.</div>
+        </div>
       </section>
 
       <section class="panel wide-panel">
@@ -151,7 +153,6 @@
   <div class="banner" id="customerBanner" data-tone="neutral">Loading customer workspace</div>
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="js/customer.js"></script>
 </body>

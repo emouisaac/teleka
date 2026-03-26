@@ -1,5 +1,44 @@
 import { config } from "../config.js";
 
+const vehicleClassCatalog = [
+  {
+    key: "mini",
+    label: "Teleka Mini",
+    description: "1300cc and below",
+    capacity: "Compact city rides",
+    fareMultiplier: 0.84,
+    minimumMultiplier: 0.9
+  },
+  {
+    key: "standard",
+    label: "Standard",
+    description: "5-seater, 1500cc+",
+    capacity: "Everyday comfort",
+    fareMultiplier: 1,
+    minimumMultiplier: 1
+  },
+  {
+    key: "premium",
+    label: "Premium",
+    description: "Business class comfort",
+    capacity: "Executive rides",
+    fareMultiplier: 1.55,
+    minimumMultiplier: 1.45
+  },
+  {
+    key: "suv",
+    label: "SUV",
+    description: "7-seater family ride",
+    capacity: "Extra seats and luggage room",
+    fareMultiplier: 1.34,
+    minimumMultiplier: 1.25
+  }
+];
+
+const vehicleClassLookup = Object.fromEntries(
+  vehicleClassCatalog.map((vehicleClass) => [vehicleClass.key, vehicleClass])
+);
+
 function toNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -127,6 +166,31 @@ export function calculateFare(distanceMeters, durationSeconds, fareSettings) {
   return Math.max(fareSettings.minimumFareUgx, Math.round(rawFare));
 }
 
+export function isVehicleClass(value) {
+  return Boolean(vehicleClassLookup[value]);
+}
+
+export function listVehicleClasses() {
+  return vehicleClassCatalog.map(({ fareMultiplier, minimumMultiplier, ...vehicleClass }) => ({
+    ...vehicleClass
+  }));
+}
+
+export function buildVehicleEstimates(distanceMeters, durationSeconds, fareSettings) {
+  const standardFareUgx = calculateFare(distanceMeters, durationSeconds, fareSettings);
+
+  return vehicleClassCatalog.map((vehicleClass) => ({
+    key: vehicleClass.key,
+    label: vehicleClass.label,
+    description: vehicleClass.description,
+    capacity: vehicleClass.capacity,
+    fareUgx: Math.max(
+      Math.round(fareSettings.minimumFareUgx * vehicleClass.minimumMultiplier),
+      Math.round(standardFareUgx * vehicleClass.fareMultiplier)
+    )
+  }));
+}
+
 async function getGoogleDirections(origin, destination) {
   const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
   url.searchParams.set("origin", `${origin.lat},${origin.lng}`);
@@ -160,17 +224,30 @@ async function getOsrmDirections(origin, destination) {
   };
 }
 
-export async function buildQuote(originInput, destinationInput, fareSettings) {
+export async function buildQuote(
+  originInput,
+  destinationInput,
+  fareSettings,
+  selectedVehicleClass = "standard"
+) {
   const origin = await geocodePlace(originInput);
   const destination = await geocodePlace(destinationInput);
   const route = config.googleMapsApiKey
     ? await getGoogleDirections(origin, destination)
     : await getOsrmDirections(origin, destination);
+  const estimates = buildVehicleEstimates(route.distanceMeters, route.durationSeconds, fareSettings);
+  const selectedEstimate =
+    estimates.find((estimate) => estimate.key === selectedVehicleClass) ||
+    estimates.find((estimate) => estimate.key === "standard") ||
+    estimates[0];
+
   return {
     origin,
     destination,
     distanceMeters: route.distanceMeters,
     durationSeconds: route.durationSeconds,
-    fareUgx: calculateFare(route.distanceMeters, route.durationSeconds, fareSettings)
+    vehicleClass: selectedEstimate.key,
+    fareUgx: selectedEstimate.fareUgx,
+    estimates
   };
 }

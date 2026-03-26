@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 
 import { database, getSettings, nowIso } from "../db.js";
-import { buildQuote } from "../services/maps.js";
+import { buildQuote, isVehicleClass } from "../services/maps.js";
 import { createNotification } from "../services/notifications.js";
 import { sendOutboundNotice } from "../services/outbound.js";
 import {
@@ -30,6 +30,7 @@ function listCustomerRides(customerId) {
           rides.destination_address AS destinationAddress,
           rides.destination_lat AS destinationLat,
           rides.destination_lng AS destinationLng,
+          rides.requested_vehicle_class AS requestedVehicleClass,
           rides.distance_meters AS distanceMeters,
           rides.duration_seconds AS durationSeconds,
           rides.quoted_fare_ugx AS quotedFareUgx,
@@ -83,16 +84,6 @@ export function createCustomerRouter() {
     });
   });
 
-  router.post("/quote", async (req, res, next) => {
-    try {
-      const settings = getSettings();
-      const quote = await buildQuote(req.body.origin, req.body.destination, settings.fare);
-      res.json({ quote });
-    } catch (error) {
-      next(apiError(400, error.message || "Unable to calculate quote"));
-    }
-  });
-
   router.get("/places/recent", (req, res) => {
     res.json({
       places: listRecentPlaces("customer", req.session.user.id)
@@ -101,14 +92,17 @@ export function createCustomerRouter() {
 
   router.post("/rides", async (req, res, next) => {
     try {
-      const { origin, destination, paymentMethod, customerNotes } = req.body;
-      if (!origin || !destination || !paymentMethod) {
-        throw apiError(400, "Pickup, destination, and payment method are required");
+      const { origin, destination, paymentMethod, customerNotes, vehicleClass } = req.body;
+      if (!origin || !destination || !paymentMethod || !vehicleClass) {
+        throw apiError(400, "Pickup, destination, vehicle type, and payment method are required");
+      }
+      if (!isVehicleClass(vehicleClass)) {
+        throw apiError(400, "Invalid vehicle type selected");
       }
 
       const customerId = req.session.user.id;
       const settings = getSettings();
-      const quote = await buildQuote(origin, destination, settings.fare);
+      const quote = await buildQuote(origin, destination, settings.fare, vehicleClass);
       const rideId = randomUUID();
       const timestamp = nowIso();
 
@@ -118,11 +112,11 @@ export function createCustomerRouter() {
             INSERT INTO rides (
               id, customer_id, status, origin_label, origin_address, origin_place_id,
               origin_lat, origin_lng, destination_label, destination_address,
-              destination_place_id, destination_lat, destination_lng,
+              destination_place_id, destination_lat, destination_lng, requested_vehicle_class,
               distance_meters, duration_seconds, quoted_fare_ugx, payment_method,
               customer_notes, requested_at
             )
-            VALUES (?, ?, 'pending_admin', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 'pending_admin', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .run(
@@ -138,6 +132,7 @@ export function createCustomerRouter() {
           quote.destination.placeId || null,
           quote.destination.lat,
           quote.destination.lng,
+          quote.vehicleClass,
           quote.distanceMeters,
           quote.durationSeconds,
           quote.fareUgx,
