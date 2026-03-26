@@ -1,624 +1,160 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Teleka Taxi - Driver Dashboard</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teleka Taxi | Driver Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/png" href="ims/t2icon.png">
 </head>
-<body class="driver-page">
-  <div class="driver-app">
-    <header class="driver-topbar">
-      <div class="driver-topbar-left">
-        <button class="icon-btn" id="menuToggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="driverSidebar" title="Menu">
-          <i class="fas fa-bars"></i>
-        </button>
-        <img class="driver-avatar" id="driverAvatar" src="https://ui-avatars.com/api/?name=Driver&background=667eea&color=fff&rounded=true&size=80" alt="Driver profile" />
-        <div class="driver-intro">
-          <div class="driver-name" id="driverName">Driver</div>
-          <div class="driver-status" id="driverStatus">
-            <span class="status-dot offline"></span>
-            <span class="status-text">Offline</span>
-          </div>
-        </div>
+<body>
+  <div class="app-shell driver-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Driver hub</p>
+        <h1>Registration, approval, dispatch, live tracking, and ride earnings</h1>
+        <p class="page-copy">Approved drivers can log in, stay online, publish live location, accept assigned rides, and keep their trip data after refresh or server restart.</p>
       </div>
-
-      <div class="driver-topbar-right">
-        <div class="toggle-wrapper">
-          <div class="toggle-label" id="onlineLabel">Go Online</div>
-          <label class="switch">
-            <input id="onlineToggle" type="checkbox" />
-            <span class="slider"></span>
-          </label>
-        </div>
-        <button class="icon-btn" id="notifBtn" aria-label="Notifications">
-          <i class="fas fa-bell"></i>
-          <span class="badge" id="notifCount">0</span>
-        </button>
+      <div class="header-actions">
+        <span class="pill" id="driverAuthState">Signed out</span>
+        <button class="ghost-btn" id="driverLogoutBtn" hidden>Logout</button>
       </div>
     </header>
 
-    <aside class="driver-sidebar" id="driverSidebar" aria-label="Primary navigation">
-      <div class="sidebar-inner">
-        <button class="nav-link" data-section="driverAuthPanel">
-          <i class="fas fa-sign-in-alt"></i>
-          <span>Access</span>
-        </button>
-        <button class="nav-link active" data-section="dashboard">
-          <i class="fas fa-home"></i>
-          <span>Dashboard</span>
-        </button>
-        <button class="nav-link" data-section="requests">
-          <i class="fas fa-bell"></i>
-          <span>Requests</span>
-        </button>
-        <button class="nav-link" data-section="activeRide">
-          <i class="fas fa-route"></i>
-          <span>Active Ride</span>
-        </button>
-        <button class="nav-link" data-section="earnings">
-          <i class="fas fa-wallet"></i>
-          <span>Earnings</span>
-        </button>
-        <button class="nav-link" data-section="history">
-          <i class="fas fa-history"></i>
-          <span>History</span>
-        </button>
-        <button class="nav-link" data-section="ratings">
-          <i class="fas fa-star"></i>
-          <span>Ratings</span>
-        </button>
-        <button class="nav-link" data-section="profile">
-          <i class="fas fa-user"></i>
-          <span>Profile</span>
-        </button>
-        <button class="nav-link" data-section="settings">
-          <i class="fas fa-cog"></i>
-          <span>Settings</span>
-        </button>
-        <button class="nav-link" data-section="notifications">
-          <i class="fas fa-envelope"></i>
-          <span>Notifications</span>
-        </button>
-        <button class="nav-link" data-section="chat">
-          <i class="fas fa-comments"></i>
-          <span>Chat</span>
-        </button>
-        <button class="nav-link" id="sidebarLogoutBtn" type="button">
-          <i class="fas fa-sign-out-alt"></i>
-          <span>Logout</span>
-        </button>
-      </div>
-    </aside>
-
-    <main class="driver-main">
-      <section id="driverAuthPanel" class="driver-section">
-        <div class="section-header">
-          <h2>Driver Access</h2>
-          <p>Log in if your account is approved, or submit a registration for admin review.</p>
+    <main class="grid-layout">
+      <section class="panel auth-panel" id="driverAuthPanel">
+        <div class="tabs">
+          <button class="tab-btn active" data-target="driverLoginTab">Driver login</button>
+          <button class="tab-btn" data-target="driverRegisterTab">Register</button>
         </div>
-
-        <div class="driver-auth-shell">
-          <div class="driver-auth-hero">
-            <span class="driver-auth-kicker">Teleka Driver</span>
-            <h3>LOGIN</h3>
-            <p>Access your approved driver account, go online, receive requests, and manage live rides from one secure workspace.</p>
-            <div class="driver-auth-points">
-              <span><i class="fas fa-shield-check"></i> Admin approved accounts only</span>
-              <span><i class="fas fa-route"></i> Live dispatch and ride tracking</span>
-              <span><i class="fas fa-comments"></i> Direct rider communication</span>
-            </div>
-          </div>
-
-          <div class="driver-auth-stack">
-            <div class="driver-auth-card driver-auth-card--login">
-              <div class="driver-auth-card-head">
-                <span class="driver-auth-label">LOGIN</span>
-                <h3>Welcome back</h3>
-                <p>Use your approved driver credentials to enter the dashboard.</p>
-              </div>
-              <form id="driverLoginForm" class="profile-form driver-auth-form">
-                <div class="form-grid">
-                  <label>Email</label>
-                  <input id="driverLoginEmail" type="email" placeholder="your@email.com" required />
-                  <label>Password</label>
-                  <input id="driverLoginPassword" type="password" placeholder="Enter your password" required />
-                </div>
-                <div class="actions-row">
-                  <button type="submit" class="btn primary">LOGIN</button>
-                </div>
-                <button type="button" class="driver-auth-toggle" id="showRegisterForm" aria-expanded="false" aria-controls="driverRegisterCard">
-                  No account? Register
-                </button>
-                <p class="muted">Forgot password? <a href="chat.html?mode=reset&role=driver" class="driver-auth-inline-link">request reset</a></p>
-              </form>
-            </div>
-
-            <div class="driver-auth-card driver-auth-card--register hidden" id="driverRegisterCard">
-              <div class="driver-auth-card-head">
-                <span class="driver-auth-label">No account? Register</span>
-                <h3>Submit driver application</h3>
-                <p>Create your account request and wait for admin review, document verification, and approval. Duplicate accounts, vehicles, and document uploads are not accepted. For more, contact admin: 256788408032.</p>
-              </div>
-              <form id="driverRegisterForm" class="profile-form driver-auth-form">
-                <div class="form-grid">
-                  <label>Full Name</label>
-                  <input id="registerName" type="text" required />
-                  <label>Email</label>
-                  <input id="registerEmail" type="email" required />
-                  <label>Phone</label>
-                  <input id="registerPhone" type="tel" required />
-                  <label>Vehicle</label>
-                  <input id="registerVehicle" type="text" required />
-                  <label>License Plate</label>
-                  <input id="registerPlate" type="text" required />
-                  <label>Password</label>
-                  <input id="registerPassword" type="password" minlength="6" required />
-                  <label>License Number</label>
-                  <input id="registerLicenseNumber" type="text" required />
-                  <label>National ID Number</label>
-                  <input id="registerNationalIdNumber" type="text" required />
-                  <label>Insurance Number</label>
-                  <input id="registerInsuranceNumber" type="text" required />
-                  <label>Face Photo</label>
-                  <div class="capture-field">
-                    <video id="registerFaceVideo" class="capture-video hidden" autoplay playsinline muted></video>
-                    <img id="registerFacePreview" class="capture-preview hidden" alt="Driver face preview" />
-                    <div class="actions-row">
-                      <button type="button" class="btn outline" id="startFaceCamera">Open Camera</button>
-                      <button type="button" class="btn primary hidden" id="captureFacePhoto">Capture Face</button>
-                      <button type="button" class="btn outline hidden" id="retakeFacePhoto">Retake</button>
-                    </div>
-                    <p class="muted">Use the front camera and take a clear face photo. Gallery photos are not used here.</p>
-                  </div>
-                  <label>Car Photo</label>
-                  <input id="registerCarPhoto" type="file" accept="image/*" capture="environment" />
-                  <img id="registerCarPreview" class="capture-preview hidden" alt="Car photo preview" />
-                  <label>Supporting Documents</label>
-                  <input id="registerDocs" type="file" accept="application/pdf,image/*" capture="environment" multiple />
-                  <div id="registerDocsPreview" class="upload-preview-list"></div>
-                  <p class="muted">Include clear document photos. Reused document files are rejected.</p>
-                </div>
-                <div class="actions-row">
-                  <button type="submit" class="btn primary">Submit Application</button>
-                  <button type="button" class="btn outline" id="showLoginForm">Login</button>
-                </div>
-              </form>
-            </div>
+        <div class="tab-body active" id="driverLoginTab">
+          <div class="request-form">
+            <label>Email</label>
+            <input id="driverLoginEmail" type="email" placeholder="driver@teleka.com">
+            <label>Password</label>
+            <input id="driverLoginPassword" type="password" placeholder="Password">
+            <button class="primary-btn" id="driverLoginBtn">Log in</button>
           </div>
         </div>
-      </section>
-
-      <section id="dashboard" class="driver-section active">
-        <div class="section-header">
-          <h2>Dashboard</h2>
-        </div>
-
-        <div class="map-card">
-          <div class="map-header">
-            <h4>Live location</h4>
-            <span class="map-tag" id="mapStatus">Offline</span>
-          </div>
-          <div id="driverMap" class="map-placeholder driver-map-canvas" aria-label="Driver location map">
-            <span class="map-placeholder-text">Map ready when online</span>
-          </div>
-          <p class="driver-map-note" id="driverMapNote">Go online and allow location access to show your live map.</p>
-          <div class="driver-map-summary" id="driverMapSummary">
-            <span id="driverMapMode">Waiting for live tracking</span>
-            <strong id="driverMapRoute">No active route</strong>
-          </div>
-        </div>
-
-        <div class="actions-row">
-          <button class="btn outline" id="actionViewRequests">View Requests</button>
-          <button class="btn primary" id="actionGoOnline">Go Online</button>
-        </div>
-
-        <div class="section-header">
-          <h2>Summary</h2>
-          <p>Quick summary of your earnings, rides, and active status.</p>
-        </div>
-
-        <div class="summary-cards driver-cards">
-          <div class="card">
-            <h3>Today’s earnings</h3>
-            <p class="stat" id="statEarnings">$0</p>
-            <div class="card-meta">
-              <span>Trips</span> <strong id="statTrips">0</strong>
-              <span>Rating</span> <strong id="statRating">0.0</strong>
-            </div>
-          </div>
-          <div class="card">
-            <h3>Active ride</h3>
-            <p class="stat" id="statActiveRide">None</p>
-            <div class="card-meta">
-              <span>Distance</span> <strong id="statDistance">0 km</strong>
-              <span>Fare</span> <strong id="statFare">$0</strong>
-            </div>
-          </div>
-          <div class="card">
-            <h3>Notifications</h3>
-            <p class="stat" id="statNotifications">0</p>
-            <div class="card-meta">
-              <span>New</span> <strong id="statNewNotifs">0</strong>
-              <span>Unread</span> <strong id="statUnreadNotifs">0</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="requests" class="driver-section">
-        <div class="section-header">
-          <h2>Ride Requests</h2>
-          <p>Accept or reject live ride requests as they arrive.</p>
-        </div>
-
-        <div class="request-panel" id="requestPanel">
-          <div class="request-empty" id="requestEmpty">
-            <p>No ride requests right now. Stay online to receive new requests.</p>
-          </div>
-
-          <div class="request-card hidden" id="incomingRequest">
-            <div class="request-top">
-              <div>
-                <h3 id="requestPassenger">Passenger Name</h3>
-                <p class="muted" id="requestRoute">Pickup → Drop-off</p>
-              </div>
-              <div class="request-timer" id="requestTimer">15</div>
-            </div>
-
-            <div class="request-meta">
-              <div>
-                <span class="meta-label">Estimated fare</span>
-                <span class="meta-value" id="requestFare">$0</span>
-              </div>
-              <div>
-                <span class="meta-label">Distance</span>
-                <span class="meta-value" id="requestDistance">0 km</span>
-              </div>
-            </div>
-
-            <div class="request-actions">
-              <button class="btn outline" id="rejectRequest">Reject</button>
-              <button class="btn primary" id="acceptRequest">Accept</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="activeRide" class="driver-section">
-        <div class="section-header">
-          <h2>Active Ride</h2>
-          <p>Control and track the current ride in real time.</p>
-        </div>
-
-        <div class="active-ride-panel" id="activeRidePanel">
-          <div class="active-ride-header">
-            <div>
-              <h3 id="activePassenger">Passenger</h3>
-              <p class="muted" id="activeRoute">Pickup → Drop-off</p>
-            </div>
-            <span class="badge" id="activeStatus">Waiting</span>
-          </div>
-
-          <div class="active-ride-details">
-            <div class="detail-row">
-              <span class="detail-label">Distance</span>
-              <span class="detail-value" id="activeDistance">0 km</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Fare</span>
-              <span class="detail-value" id="activeFare">$0</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Elapsed</span>
-              <span class="detail-value" id="activeElapsed">00:00</span>
-            </div>
-          </div>
-
-          <div class="actions-row">
-            <a class="btn outline" id="navButton" target="_blank" rel="noreferrer"><i class="fas fa-map-marked-alt"></i> Navigate</a>
-            <a class="btn outline" id="chatButton" href="chat.html?role=driver">Chat Passenger</a>
-            <button class="btn primary" id="rideAction">Arrived</button>
-          </div>
-
-          <div class="ride-timeline" id="rideTimeline">
-            <div class="timeline-step" data-step="pickup">
-              <div class="timeline-dot"></div>
-              <div>
-                <h4>Pickup</h4>
-                <p class="muted" id="timelinePickup">Waiting</p>
-              </div>
-            </div>
-            <div class="timeline-step" data-step="enroute">
-              <div class="timeline-dot"></div>
-              <div>
-                <h4>En route</h4>
-                <p class="muted" id="timelineEnroute">Not started</p>
-              </div>
-            </div>
-            <div class="timeline-step" data-step="complete">
-              <div class="timeline-dot"></div>
-              <div>
-                <h4>Complete</h4>
-                <p class="muted" id="timelineComplete">Not started</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="active-ride-empty" id="activeRideEmpty">
-          <p>No active ride right now. Accept a ride request to start driving.</p>
-        </div>
-      </section>
-
-      <section id="earnings" class="driver-section">
-        <div class="section-header">
-          <h2>Earnings</h2>
-          <p>Track your daily and weekly revenue at a glance.</p>
-        </div>
-
-        <div class="summary-cards driver-cards">
-          <div class="card">
-            <h3>Today</h3>
-            <p class="stat" id="earningsToday">$0</p>
-          </div>
-          <div class="card">
-            <h3>This week</h3>
-            <p class="stat" id="earningsWeek">$0</p>
-          </div>
-          <div class="card">
-            <h3>Total trips</h3>
-            <p class="stat" id="earningsTrips">0</p>
-          </div>
-        </div>
-
-        <div class="chart-panel">
-          <div class="chart-header">
-            <h4>Earnings trend</h4>
-            <div class="chart-controls">
-              <button class="btn tiny active" data-range="week">Week</button>
-              <button class="btn tiny" data-range="month">Month</button>
-            </div>
-          </div>
-          <canvas id="earningsChart" aria-label="Earnings chart" role="img"></canvas>
-        </div>
-
-        <div class="breakdown-cards">
-          <div class="card">
-            <h4>Base fare</h4>
-            <p class="stat" id="breakdownBase">$0</p>
-          </div>
-          <div class="card">
-            <h4>Distance fare</h4>
-            <p class="stat" id="breakdownDistance">$0</p>
-          </div>
-          <div class="card">
-            <h4>Commission</h4>
-            <p class="stat" id="breakdownCommission">$0</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="history" class="driver-section">
-        <div class="section-header">
-          <h2>Ride History</h2>
-          <p>Review completed trips and earnings.</p>
-        </div>
-
-        <div class="history-controls">
-          <div class="filter-group">
-            <label>Filter</label>
-            <select id="historyFilter">
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-              <option value="all">All</option>
-            </select>
-          </div>
-          <div class="search-group">
-            <input id="historySearch" type="search" placeholder="Search passenger or ride ID" />
-            <button class="icon-btn" id="historySearchClear" aria-label="Clear search"><i class="fas fa-times"></i></button>
-          </div>
-        </div>
-
-        <div class="history-list" id="historyList">
-          <div class="history-empty">
-            <p>No rides completed yet. Complete a ride to see it here.</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="ratings" class="driver-section">
-        <div class="section-header">
-          <h2>Ratings & Feedback</h2>
-          <p>Keep your rating high by delivering great service.</p>
-        </div>
-
-        <div class="rating-summary">
-          <div class="rating-score">
-            <div class="rating-value" id="ratingValue">0.0</div>
-            <div class="rating-stars" id="ratingStars">★★★★★</div>
-          </div>
-          <p class="muted" id="ratingCount">0 reviews</p>
-        </div>
-
-        <div class="reviews" id="reviewList">
-          <div class="review-empty">
-            <p>No reviews yet. Keep driving to earn feedback.</p>
-          </div>
-        </div>
-      </section>
-
-      <section id="profile" class="driver-section">
-        <div class="section-header">
-          <h2>Profile</h2>
-          <p>Manage your personal & vehicle information.</p>
-        </div>
-
-        <form id="profileForm" class="profile-form">
-          <div class="form-grid">
-            <label>Driver Name</label>
-            <input id="profileName" type="text" required />
-
+        <div class="tab-body" id="driverRegisterTab">
+          <form id="driverRegisterForm" class="request-form" enctype="multipart/form-data">
+            <label>Full name</label>
+            <input name="fullName" type="text" required>
+            <label>Email</label>
+            <input name="email" type="email" required>
             <label>Phone</label>
-            <input id="profilePhone" type="tel" required />
-
+            <input name="phone" type="tel" required>
+            <label>Password</label>
+            <input name="password" type="password" minlength="6" required>
             <label>Vehicle</label>
-            <input id="profileVehicle" type="text" required />
-
-            <label>License Plate</label>
-            <input id="profilePlate" type="text" required />
-
-            <label>Upload photo</label>
-            <input id="profilePhoto" type="file" accept="image/*" />
-            <img id="profilePhotoPreview" class="capture-preview hidden" alt="Profile photo preview" />
-
+            <input name="vehicle" type="text" placeholder="Toyota Premio" required>
+            <label>Plate number</label>
+            <input name="plateNumber" type="text" required>
+            <label>License number</label>
+            <input name="licenseNumber" type="text" required>
+            <label>National ID number</label>
+            <input name="nationalIdNumber" type="text" required>
+            <label>Insurance number</label>
+            <input name="insuranceNumber" type="text" required>
+            <label>Face photo</label>
+            <input name="facePhoto" type="file" accept="image/*" capture="user">
             <label>Car photo</label>
-            <input id="profileCarPhoto" type="file" accept="image/*" capture="environment" />
-            <img id="profileCarPreview" class="capture-preview hidden" alt="Profile car photo preview" />
-
-            <label>Upload documents</label>
-            <input id="profileDocs" type="file" accept="application/pdf,image/*" capture="environment" multiple />
-            <div id="profileDocsPreview" class="upload-preview-list"></div>
-          </div>
-
-          <div class="actions-row">
-            <button type="submit" class="btn primary">Save Profile</button>
-            <button type="button" class="btn outline" id="resetProfile">Reset</button>
-          </div>
-        </form>
+            <input name="carPhoto" type="file" accept="image/*" capture="environment">
+            <label>Supporting documents</label>
+            <input name="documents" type="file" accept="application/pdf,image/*" multiple>
+            <button class="primary-btn" type="submit">Submit driver application</button>
+          </form>
+        </div>
       </section>
 
-      <section id="settings" class="driver-section">
-        <div class="section-header">
-          <h2>Settings</h2>
-          <p>Control app behavior and preferences.</p>
+      <section class="panel hidden" id="driverProfilePanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Driver profile</p>
+            <h2 id="driverNameHeading">Driver</h2>
+          </div>
+          <label class="switcher">
+            <span>Go online</span>
+            <input id="driverOnlineToggle" type="checkbox">
+          </label>
         </div>
-
-        <div class="settings-grid">
-          <div class="setting-card">
-            <div class="setting-head">
-              <h4>Notifications</h4>
-              <label class="switch small">
-                <input id="settingNotifications" type="checkbox" checked />
-                <span class="slider"></span>
-              </label>
-            </div>
-            <p class="muted">Toggle ride request and system alerts.</p>
+        <div class="profile-grid">
+          <div class="profile-card">
+            <strong>Vehicle</strong>
+            <p id="driverVehicleText">-</p>
           </div>
-
-          <div class="setting-card">
-            <div class="setting-head">
-              <h4>Sound alerts</h4>
-              <label class="switch small">
-                <input id="settingSound" type="checkbox" checked />
-                <span class="slider"></span>
-              </label>
-            </div>
-            <p class="muted">Play a sound when a new ride arrives.</p>
+          <div class="profile-card">
+            <strong>Plate</strong>
+            <p id="driverPlateText">-</p>
           </div>
-
-          <div class="setting-card">
-            <div class="setting-head">
-              <h4>Auto-accept</h4>
-              <label class="switch small">
-                <input id="settingAutoAccept" type="checkbox" />
-                <span class="slider"></span>
-              </label>
-            </div>
-            <p class="muted">Automatically accept requests when online.</p>
+          <div class="profile-card">
+            <strong>Status</strong>
+            <p id="driverApprovalText">-</p>
           </div>
-
-          <div class="setting-card">
-            <div class="setting-head">
-              <h4>Logout</h4>
-              <button class="btn outline" id="logoutBtn">Sign Out</button>
-            </div>
-            <p class="muted">Securely exit the driver dashboard.</p>
+          <div class="profile-card">
+            <strong>Earnings</strong>
+            <p id="driverEarningsText">UGX 0</p>
           </div>
         </div>
       </section>
 
-      <section id="notifications" class="driver-section">
-        <div class="section-header">
-          <h2>Notifications</h2>
-          <p>Latest alerts and messages.</p>
-        </div>
-
-        <div class="notifications-list" id="notificationsList">
-          <div class="notification-empty">
-            <p>No notifications yet. Stay online to receive updates.</p>
+      <section class="panel map-panel hidden" id="driverMapPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Live location</p>
+            <h2>Driver map and active trip</h2>
           </div>
+          <span class="pill" id="driverRideStatus">No active ride</span>
+        </div>
+        <div id="driverMap" class="map-surface"></div>
+        <div class="map-summary" id="driverMapSummary">Go online to publish live location updates for dispatch and active customers.</div>
+      </section>
+
+      <section class="panel wide-panel hidden" id="driverAssignedPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Dispatch</p>
+            <h2>Assigned and historical rides</h2>
+          </div>
+        </div>
+        <div id="driverRides" class="ride-list"></div>
+      </section>
+
+      <section class="panel hidden" id="driverMessagesPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Ride chat</p>
+            <h2>Customer coordination</h2>
+          </div>
+          <span class="pill" id="driverChatBadge">No ride selected</span>
+        </div>
+        <div id="driverMessages" class="message-list"></div>
+        <div class="composer">
+          <textarea id="driverMessageInput" rows="2" placeholder="Send an update to the customer"></textarea>
+          <button class="primary-btn" id="driverSendMessageBtn">Send</button>
         </div>
       </section>
 
-      <section id="chat" class="driver-section">
-        <div class="section-header">
-          <h2>Chat</h2>
-          <p>Open the live ride chat to communicate directly with your passenger.</p>
+      <section class="panel hidden" id="driverNotificationsPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Alerts</p>
+            <h2>Dispatch notifications</h2>
+          </div>
         </div>
-        <div class="actions-row">
-          <a class="btn primary" href="chat.html?role=driver">Open Driver Chat</a>
-        </div>
+        <div id="driverNotifications" class="notification-list"></div>
       </section>
     </main>
-
-    <div id="driverRequestOverlay" class="driver-request-overlay hidden" aria-live="assertive" aria-modal="true" role="dialog">
-      <div class="driver-request-overlay-card">
-        <span class="driver-request-overlay-kicker">New Ride Request</span>
-        <h3 id="overlayPassenger">Passenger</h3>
-        <p class="muted" id="overlayRoute">Pickup -> Drop-off</p>
-        <div class="driver-request-overlay-meta">
-          <div>
-            <span>Estimated fare</span>
-            <strong id="overlayFare">UGX 0</strong>
-          </div>
-          <div>
-            <span>Distance</span>
-            <strong id="overlayDistance">0 km</strong>
-          </div>
-        </div>
-        <p class="driver-request-overlay-note">This request stays on screen until you accept or reject it.</p>
-        <div class="actions-row">
-          <button class="btn outline" id="overlayRejectRequest">Reject</button>
-          <button class="btn primary" id="overlayAcceptRequest">Accept</button>
-        </div>
-      </div>
-    </div>
-
-
-    <footer class="driver-bottom-nav" aria-label="Bottom navigation">
-      <button class="bottom-nav-item active" data-section="dashboard">
-        <i class="fas fa-home"></i>
-        <span>Home</span>
-      </button>
-      <button class="bottom-nav-item" data-section="requests">
-        <i class="fas fa-bell"></i>
-        <span>Requests</span>
-      </button>
-      <button class="bottom-nav-item" data-section="activeRide">
-        <i class="fas fa-route"></i>
-        <span>Ride</span>
-      </button>
-      <button class="bottom-nav-item" data-section="earnings">
-        <i class="fas fa-wallet"></i>
-        <span>Earnings</span>
-      </button>
-      <button class="bottom-nav-item" data-section="notifications">
-        <i class="fas fa-envelope"></i>
-        <span>Alerts</span>
-      </button>
-      <button class="bottom-nav-item" data-section="chat">
-        <i class="fas fa-comments"></i>
-        <span>Chat</span>
-      </button>
-    </footer>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="driver.js"></script>
+  <div class="banner" id="driverBanner" data-tone="neutral">Driver workspace offline</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/driver.js"></script>
 </body>
 </html>

@@ -1,440 +1,136 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Teleka Taxi - Admin Dashboard</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teleka Taxi | Admin Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/png" href="ims/t2icon.png">
 </head>
 <body>
-  <div class="dashboard-container">
-    <aside class="sidebar hidden" aria-label="Main navigation">
-      <div class="sidebar-header">
-        <img src="ims/ticon.png" alt="Teleka Logo" class="sidebar-logo" />
-        <span class="sidebar-title">Teleka Admin</span>
+  <div class="app-shell admin-shell">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Admin console</p>
+        <h1>Operations, approvals, dispatch, and fare control</h1>
+        <p class="page-copy">Admin sessions are seeded from env credentials and persisted in the database-backed session store, so refreshes and deployments do not dump the operator out of the dashboard.</p>
       </div>
-
-      <ul class="sidebar-menu" role="menu">
-        <li class="sidebar-item active" data-section="overview" role="menuitem" tabindex="0">
-          <i class="fas fa-chart-pie"></i>
-          <span>Overview</span>
-        </li>
-        <li class="sidebar-item" data-section="users" role="menuitem" tabindex="0">
-          <i class="fas fa-users"></i>
-          <span>Customers</span>
-        </li>
-        <li class="sidebar-item" data-section="drivers" role="menuitem" tabindex="0">
-          <i class="fas fa-car-side"></i>
-          <span>Drivers</span>
-        </li>
-        <li class="sidebar-item" data-section="rides" role="menuitem" tabindex="0">
-          <i class="fas fa-route"></i>
-          <span>Rides</span>
-        </li>
-        <li class="sidebar-item" data-section="earnings" role="menuitem" tabindex="0">
-          <i class="fas fa-wallet"></i>
-          <span>Earnings</span>
-        </li>
-        <li class="sidebar-item" data-section="notifications" role="menuitem" tabindex="0">
-          <i class="fas fa-bell"></i>
-          <span>Notifications</span>
-        </li>
-        <li class="sidebar-item" data-section="settings" role="menuitem" tabindex="0">
-          <i class="fas fa-sliders-h"></i>
-          <span>Settings</span>
-        </li>
-        <li class="sidebar-item" id="adminSidebarLogout" role="menuitem" tabindex="0">
-          <i class="fas fa-sign-out-alt"></i>
-          <span>Logout</span>
-        </li>
-      </ul>
-
-      <div class="sidebar-footer">
-        <button class="btn small" id="toggleSidebar" aria-label="Toggle sidebar" onclick="toggleSidebar()">
-          <i class="fas fa-angle-left"></i>
-          <span class="toggle-label">Collapse</span>
-        </button>
+      <div class="header-actions">
+        <span class="pill" id="adminAuthState">Signed out</span>
+        <button class="ghost-btn" id="adminLogoutBtn" hidden>Logout</button>
       </div>
-    </aside>
+    </header>
 
-      <header class="topbar hidden">
-          <div class="topbar-content">
-            <button id="adminSidebarToggle" class="sidebar-toggle-btn" type="button" onclick="toggleSidebar()" aria-label="Toggle admin menu">
-              <i class="fas fa-bars"></i>
-            </button>
-            <h1>Teleka Admin Panel</h1>
-          </div>
-      </header>
-    
-
-    <!-- Login Panel - Always visible when not authenticated -->
-    <div id="adminAuthPanel" class="auth-overlay">
-      <div class="auth-container">
-        <div class="section-header">
-          <h2>Admin Sign In</h2>
-          <p>Authenticated admin access is required for operational data and platform controls.</p>
-        </div>
-
-        <div class="panel">
-          <form class="settings-form" id="adminLoginForm">
-            <div class="form-grid">
-              <div class="form-row">
-                <label>Email</label>
-                <input id="adminEmail" type="email" required />
-              </div>
-              <div class="form-row">
-                <label>Password</label>
-                <input id="adminPassword" type="password" required />
-              </div>
-            </div>
-            <div class="form-actions">
-              <button class="btn" type="submit">Sign In</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <main class="content hidden" role="main">
-
-        <section id="overview" class="section active">
-          <div class="section-header">
-            <h2>Real-time Overview</h2>
-            <p>Live platform activity across requests, assignments, completed trips, and revenue.</p>
-          </div>
-
-          <div class="summary-cards">
-            <div class="card">
-              <h3>Customers</h3>
-              <p id="summaryCustomers">0</p>
-            </div>
-            <div class="card">
-              <h3>Drivers online</h3>
-              <p id="summaryDriversOnline">0</p>
-            </div>
-            <div class="card">
-              <h3>Pending rides</h3>
-              <p id="summaryPendingRides">0</p>
-            </div>
-            <div class="card">
-              <h3>Active rides</h3>
-              <p id="summaryActiveRides">0</p>
-            </div>
-            <div class="card">
-              <h3>Completed rides</h3>
-              <p id="summaryCompletedRides">0</p>
-            </div>
-            <div class="card">
-              <h3>Revenue</h3>
-              <p id="summaryRevenue">UGX 0</p>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Latest rides</h3>
-              <span class="panel-subtitle">Newest requests and ride status changes.</span>
-            </div>
-            <div class="table-responsive">
-              <table class="table" aria-label="Latest rides">
-                <thead>
-                  <tr>
-                    <th>Ride ID</th>
-                    <th>Customer</th>
-                    <th>Driver</th>
-                    <th>Route</th>
-                    <th>Status</th>
-                    <th>Fare</th>
-                  </tr>
-                </thead>
-                <tbody id="overviewRidesBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Backup Recovery</h3>
-              <span class="panel-subtitle">Admin-only export and restore for operational data.</span>
-            </div>
-            <div class="actions-row">
-              <button class="btn" id="exportBackupBtn" type="button">Export Backup</button>
-              <button class="btn secondary" id="restoreBackupBtn" type="button">Restore Backup</button>
-            </div>
-          </div>
-        </section>
-
-        <section id="users" class="section">
-          <div class="section-header">
-            <h2>Customers</h2>
-            <p>Registered riders and their current activity.</p>
-          </div>
-
-          <div class="panel">
-            <div class="table-responsive">
-              <table class="table" aria-label="Customer list">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody id="usersTableBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section id="drivers" class="section">
-          <div class="section-header">
-            <h2>Drivers</h2>
-            <p>Driver applications, document verification, approvals, and live driver operations.</p>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Pending Applications</h3>
-              <span class="panel-subtitle">Review submitted documents and approve or reject onboarding.</span>
-            </div>
-            <div class="table-responsive">
-              <table class="table" aria-label="Driver applications">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Vehicle</th>
-                    <th>Documents</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="driverApplicationsBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Password Reset Requests</h3>
-              <span class="panel-subtitle">Review driver WhatsApp reset requests and send follow-up details.</span>
-            </div>
-            <div class="table-responsive">
-              <table class="table" aria-label="Driver password reset requests">
-                <thead>
-                  <tr>
-                    <th>Driver</th>
-                    <th>Registered Phone</th>
-                    <th>WhatsApp</th>
-                    <th>Status</th>
-                    <th>Requested</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="driverResetRequestsBody"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Approved Drivers</h3>
-              <span class="panel-subtitle">Drivers who can log in, go online, and receive rides.</span>
-            </div>
-            <div class="table-responsive">
-              <table class="table" aria-label="Driver list">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Phone</th>
-                    <th>Vehicle</th>
-                    <th>Status</th>
-                    <th>Verification</th>
-                    <th>Current Ride</th>
-                    <th>Earnings</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="driversTableBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <div class="modal hidden" id="driverDocsModal" aria-hidden="true">
-          <div class="modal-backdrop"></div>
-          <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="driverDocsTitle">
-            <div class="modal-header">
-              <h3 id="driverDocsTitle">Driver Documents</h3>
-              <button class="btn small secondary" id="closeDriverDocsModal" type="button">Close</button>
-            </div>
-            <div class="modal-body">
-              <div id="driverDocsModalBody"></div>
-            </div>
+    <main class="grid-layout">
+      <section class="panel auth-panel" id="adminLoginPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Secure access</p>
+            <h2>Admin sign in</h2>
           </div>
         </div>
+        <div class="request-form">
+          <label>Email</label>
+          <input id="adminEmailInput" type="email" placeholder="Admin email">
+          <label>Password</label>
+          <input id="adminPasswordInput" type="password" placeholder="Admin password">
+          <button class="primary-btn" id="adminLoginBtn">Sign in</button>
+        </div>
+      </section>
 
-        <section id="rides" class="section">
-          <div class="section-header">
-            <h2>Rides</h2>
-            <p>End-to-end view of all customer requests and dispatch progress.</p>
+      <section class="panel wide-panel hidden" id="adminSummaryPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Summary</p>
+            <h2>Realtime platform health</h2>
           </div>
+        </div>
+        <div class="stats-grid" id="adminStatsGrid"></div>
+      </section>
 
-          <div class="panel">
-            <div class="table-responsive">
-              <table class="table" aria-label="Ride list">
-                <thead>
-                  <tr>
-                    <th>Ride ID</th>
-                    <th>Customer</th>
-                    <th>Driver</th>
-                    <th>Pickup</th>
-                    <th>Dropoff</th>
-                    <th>Status</th>
-                    <th>Fare</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="ridesTableBody"></tbody>
-              </table>
-            </div>
+      <section class="panel map-panel hidden" id="adminMapPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Driver map</p>
+            <h2>Live approved driver positions</h2>
           </div>
-        </section>
+        </div>
+        <div id="adminMap" class="map-surface"></div>
+        <div class="map-summary" id="adminMapSummary">Online driver markers will update here in realtime.</div>
+      </section>
 
-        <section id="earnings" class="section">
-          <div class="section-header">
-            <h2>Earnings</h2>
-            <p>Revenue and driver payout visibility from completed trips.</p>
+      <section class="panel wide-panel hidden" id="adminRidesPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Dispatch queue</p>
+            <h2>Rides awaiting action</h2>
           </div>
+        </div>
+        <div id="adminRides" class="table-shell"></div>
+      </section>
 
-          <div class="summary-cards">
-            <div class="card">
-              <h3>Total revenue</h3>
-              <p id="earningsRevenue">UGX 0</p>
-            </div>
-            <div class="card">
-              <h3>Completed trips</h3>
-              <p id="earningsCompletedTrips">0</p>
-            </div>
-            <div class="card">
-              <h3>Cancelled trips</h3>
-              <p id="earningsCancelledTrips">0</p>
-            </div>
+      <section class="panel wide-panel hidden" id="adminDriversPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Driver operations</p>
+            <h2>Applications and availability</h2>
           </div>
+        </div>
+        <div id="adminDrivers" class="table-shell"></div>
+      </section>
 
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Driver earnings</h3>
-              <span class="panel-subtitle">Current cumulative earnings by driver.</span>
-            </div>
-            <div class="table-responsive">
-              <table class="table" aria-label="Driver earnings">
-                <thead>
-                  <tr>
-                    <th>Driver</th>
-                    <th>Trips</th>
-                    <th>Today</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody id="driverEarningsBody"></tbody>
-              </table>
-            </div>
+      <section class="panel hidden" id="adminFarePanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Pricing</p>
+            <h2>Fare settings</h2>
           </div>
-        </section>
+        </div>
+        <div class="request-form compact-form">
+          <label>Base fare</label>
+          <input id="fareBase" type="number" min="0">
+          <label>Booking fee</label>
+          <input id="fareBooking" type="number" min="0">
+          <label>Per kilometre</label>
+          <input id="farePerKm" type="number" min="0">
+          <label>Per minute</label>
+          <input id="farePerMinute" type="number" min="0">
+          <label>Minimum fare</label>
+          <input id="fareMinimum" type="number" min="0">
+          <button class="primary-btn" id="saveFareBtn">Save fare settings</button>
+        </div>
+      </section>
 
-        <section id="notifications" class="section">
-          <div class="section-header">
-            <h2>Notifications</h2>
-            <p>Broadcast platform announcements and review dispatch events.</p>
+      <section class="panel hidden" id="adminDocsPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Documents</p>
+            <h2>Driver application files</h2>
           </div>
+        </div>
+        <div id="adminDocuments" class="document-list">Choose a driver application to inspect uploaded files.</div>
+      </section>
 
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Send notification</h3>
-            </div>
-
-            <form class="send-form" id="notificationForm">
-              <div class="form-row">
-                <label>Target</label>
-                <select id="notificationTarget" class="select" required>
-                  <option value="all">All users</option>
-                  <option value="drivers">Drivers</option>
-                  <option value="customers">Customers</option>
-                </select>
-              </div>
-              <div class="form-row">
-                <label>Message</label>
-                <textarea id="notificationMessage" rows="3" placeholder="Write a message..." required></textarea>
-              </div>
-              <button class="btn" type="submit">Send notification</button>
-            </form>
+      <section class="panel hidden" id="adminNotificationsPanel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Notifications</p>
+            <h2>Operational alerts</h2>
           </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3>Notification history</h3>
-            </div>
-            <div class="table-responsive">
-              <table class="table" aria-label="Notification history">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Target</th>
-                    <th>Type</th>
-                    <th>Message</th>
-                  </tr>
-                </thead>
-                <tbody id="notificationsBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section id="settings" class="section">
-          <div class="section-header">
-            <h2>Pricing Settings</h2>
-            <p>Server-side fare configuration applied to new rides.</p>
-          </div>
-
-          <div class="panel">
-            <form class="settings-form" id="pricingForm">
-              <div class="form-grid">
-                <div class="form-row">
-                  <label>Base fare</label>
-                  <input id="settingBaseFare" type="number" min="0" step="1" required />
-                </div>
-                <div class="form-row">
-                  <label>Cost per km</label>
-                  <input id="settingPerKm" type="number" min="0" step="1" required />
-                </div>
-                <div class="form-row">
-                  <label>Cost per minute</label>
-                  <input id="settingPerMin" type="number" min="0" step="1" required />
-                </div>
-                <div class="form-row">
-                  <label>Surge multiplier</label>
-                  <input id="settingSurge" type="number" min="0.5" step="0.1" required />
-                </div>
-                <div class="form-row">
-                  <label>Cancellation fee</label>
-                  <input id="settingCancelFee" type="number" min="0" step="1" required />
-                </div>
-              </div>
-
-              <div class="form-actions">
-                <button class="btn" type="submit">Save settings</button>
-              </div>
-            </form>
-          </div>
-        </section>
-      </div>
+        </div>
+        <div id="adminNotifications" class="notification-list"></div>
+      </section>
     </main>
   </div>
 
-  <script src="app.js"></script>
+  <div class="banner" id="adminBanner" data-tone="neutral">Admin console offline</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/admin.js"></script>
 </body>
 </html>

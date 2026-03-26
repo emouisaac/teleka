@@ -1,31 +1,24 @@
 {
-  "name": "teleka-taxi",
+  "name": "teleka-fullstack",
   "version": "1.0.0",
-  "description": "Teleka Taxi Service Application",
+  "description": "Teleka Taxi full-stack platform",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "sqlite3": "^5.1.6",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
-    "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0",
-    "passport-local": "^1.0.0",
-    "express-session": "^1.17.3",
-    "connect-sqlite3": "^0.9.13",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "body-parser": "^1.20.2",
-    "cookie-parser": "^1.4.6"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "keywords": ["taxi", "service", "teleka"],
-  "author": "Teleka",
-  "license": "ISC"
+    "compression": "^1.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "google-auth-library": "^9.15.1",
+    "helmet": "^8.0.0",
+    "multer": "^2.0.2",
+    "nodemailer": "^6.10.0",
+    "socket.io": "^4.8.1",
+    "twilio": "^5.4.2"
+  }
 }
