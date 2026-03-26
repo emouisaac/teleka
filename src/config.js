@@ -7,6 +7,7 @@ dotenv.config();
 const projectRoot = process.cwd();
 const environment = process.env.NODE_ENV || "development";
 const isProduction = environment === "production";
+const allowEphemeralStorage = String(process.env.TELEKA_ALLOW_EPHEMERAL_STORAGE || "").toLowerCase() === "true";
 
 function normalizeUrl(input) {
   if (!input) {
@@ -36,13 +37,29 @@ function extractHostname(input) {
   }
 }
 
-const defaultDbPath = path.join(projectRoot, "data", "teleka.sqlite");
-const dbPath = process.env.TELEKA_DB_PATH || defaultDbPath;
-const sessionDir =
-  process.env.TELEKA_SESSIONS_DIR || path.join(projectRoot, "data", "sessions");
+function resolveStoragePath(inputPath, fallbackPath) {
+  const value = inputPath || fallbackPath;
+  return path.isAbsolute(value) ? path.normalize(value) : path.resolve(projectRoot, value);
+}
+
+function isWithinPath(parentPath, targetPath) {
+  const relative = path.relative(parentPath, targetPath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+const dataRoot = resolveStoragePath(process.env.TELEKA_DATA_DIR, path.join(projectRoot, "data"));
+const defaultDbPath = path.join(dataRoot, "teleka.sqlite");
+const dbPath = resolveStoragePath(process.env.TELEKA_DB_PATH, defaultDbPath);
+const sessionDir = resolveStoragePath(
+  process.env.TELEKA_SESSIONS_DIR,
+  path.join(dataRoot, "sessions")
+);
 const sessionDbName = process.env.TELEKA_SESSIONS_DB || "sessions.sqlite";
 const sessionDbPath = path.join(sessionDir, sessionDbName);
-const uploadRoot = path.join(projectRoot, "data", "uploads");
+const uploadRoot = resolveStoragePath(
+  process.env.TELEKA_UPLOAD_ROOT,
+  path.join(dataRoot, "uploads")
+);
 
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 fs.mkdirSync(sessionDir, { recursive: true });
@@ -56,16 +73,98 @@ const cookieDomain =
     ? rawCookieDomain.replace(/^www\./, "")
     : undefined;
 
+const persistenceWarnings = [];
+const storageTargets = [
+  ["database", dbPath],
+  ["session database", sessionDbPath],
+  ["upload storage", uploadRoot]
+];
+
+if (isProduction) {
+  const projectRootTargets = storageTargets.filter(([, targetPath]) =>
+    isWithinPath(projectRoot, targetPath)
+  );
+
+  if (projectRootTargets.length) {
+    persistenceWarnings.push(
+      `Production storage points inside the app directory: ${projectRootTargets
+        .map(([label, targetPath]) => `${label}=${targetPath}`)
+        .join(", ")}`
+    );
+  }
+
+  if (
+    !process.env.TELEKA_DATA_DIR &&
+    !process.env.TELEKA_DB_PATH &&
+    !process.env.TELEKA_SESSIONS_DIR &&
+    !process.env.TELEKA_UPLOAD_ROOT
+  ) {
+    persistenceWarnings.push(
+      "No explicit persistent storage env vars are configured. Set TELEKA_DATA_DIR or TELEKA_DB_PATH, TELEKA_SESSIONS_DIR, and TELEKA_UPLOAD_ROOT to paths on persistent disk."
+    );
+  }
+}
+
+if (isProduction && persistenceWarnings.length && !allowEphemeralStorage) {
+  throw new Error(
+    `Unsafe production persistence configuration.\n${persistenceWarnings
+      .map((warning) => `- ${warning}`)
+      .join("\n")}\nSet persistent paths before deploying, or set TELEKA_ALLOW_EPHEMERAL_STORAGE=true only if you intentionally accept data loss.`
+  );
+}
+
+function toStoredUploadPath(filePath) {
+  if (!filePath) {
+    return null;
+  }
+
+  const absolutePath = path.resolve(filePath);
+  const relativeToUploadRoot = path.relative(uploadRoot, absolutePath);
+  if (
+    relativeToUploadRoot &&
+    relativeToUploadRoot !== "" &&
+    !relativeToUploadRoot.startsWith("..") &&
+    !path.isAbsolute(relativeToUploadRoot)
+  ) {
+    return relativeToUploadRoot.replaceAll("\\", "/");
+  }
+
+  return absolutePath;
+}
+
+function resolveStoredUploadPath(storedPath) {
+  if (!storedPath) {
+    return "";
+  }
+
+  if (path.isAbsolute(storedPath)) {
+    return storedPath;
+  }
+
+  const uploadCandidate = path.join(uploadRoot, storedPath);
+  if (fs.existsSync(uploadCandidate)) {
+    return uploadCandidate;
+  }
+
+  return path.join(projectRoot, storedPath);
+}
+
 export const config = {
   environment,
   isProduction,
   projectRoot,
+  dataRoot,
   appUrl,
   port: Number(process.env.PORT || 3000),
   dbPath,
   sessionDir,
   sessionDbPath,
   uploadRoot,
+  allowEphemeralStorage,
+  persistenceWarnings,
+  persistenceReady: persistenceWarnings.length === 0,
+  toStoredUploadPath,
+  resolveStoredUploadPath,
   authSecret: process.env.AUTH_SECRET || "teleka-dev-secret",
   adminEmail: process.env.ADMIN_EMAIL || "admin@example.com",
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",

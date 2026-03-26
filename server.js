@@ -71,7 +71,11 @@ app.get("/api/health", (_req, res) => {
     success: true,
     env: config.environment,
     dbPath: config.dbPath,
-    sessionDbPath: config.sessionDbPath
+    sessionDbPath: config.sessionDbPath,
+    uploadRoot: config.uploadRoot,
+    dataRoot: config.dataRoot,
+    persistenceReady: config.persistenceReady,
+    persistenceWarnings: config.persistenceWarnings
   });
 });
 
@@ -94,4 +98,12 @@ app.use((err, _req, res, _next) => {
 
 server.listen(config.port, () => {
   console.log(`Teleka listening on ${config.appUrl}`);
+  console.log(
+    `Persistence: db=${config.dbPath}; sessions=${config.sessionDbPath}; uploads=${config.uploadRoot}`
+  );
+  if (config.persistenceWarnings.length) {
+    config.persistenceWarnings.forEach((warning) => {
+      console.warn(`Persistence warning: ${warning}`);
+    });
+  }
 });

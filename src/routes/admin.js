@@ -1,7 +1,6 @@
-import path from "node:path";
-
 import express from "express";
 
+import { config } from "../config.js";
 import { database, getSettings, nowIso, setSetting } from "../db.js";
 import { createNotification } from "../services/notifications.js";
 import { sendOutboundNotice } from "../services/outbound.js";
@@ -156,7 +155,7 @@ export function createAdminRouter() {
         throw apiError(404, "Document not found");
       }
 
-      res.download(path.join(process.cwd(), document.filePath), document.originalName);
+      res.download(config.resolveStoredUploadPath(document.filePath), document.originalName);
     } catch (error) {
       next(error);
     }

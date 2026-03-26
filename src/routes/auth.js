@@ -275,8 +275,8 @@ export function createAuthRouter() {
             licenseNumber.trim(),
             nationalIdNumber.trim(),
             insuranceNumber.trim(),
-            facePhoto ? path.relative(config.projectRoot, facePhoto.path) : null,
-            carPhoto ? path.relative(config.projectRoot, carPhoto.path) : null,
+            facePhoto ? config.toStoredUploadPath(facePhoto.path) : null,
+            carPhoto ? config.toStoredUploadPath(carPhoto.path) : null,
             timestamp,
             timestamp
           );
@@ -294,7 +294,7 @@ export function createAuthRouter() {
             driverId,
             asset.originalname,
             asset.filename,
-            path.relative(config.projectRoot, asset.path),
+            config.toStoredUploadPath(asset.path),
             asset.mimetype,
             timestamp
           );
@@ -306,7 +306,7 @@ export function createAuthRouter() {
             driverId,
             document.originalname,
             document.filename,
-            path.relative(config.projectRoot, document.path),
+            config.toStoredUploadPath(document.path),
             document.mimetype,
             timestamp
           );
