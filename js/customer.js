@@ -30,6 +30,7 @@ const elements = {
   authState: document.querySelector("#customerAuthState"),
   logoutBtn: document.querySelector("#customerLogoutBtn"),
   authCard: document.querySelector("#customerAuthCard"),
+  accessTitle: document.querySelector("#customerAccessTitle"),
   authMessage: document.querySelector("#customerAuthMessage"),
   googleLoginMount: document.querySelector("#googleLoginMount"),
   profileMini: document.querySelector("#customerProfileMini"),
@@ -58,6 +59,18 @@ const elements = {
   chatRideBadge: document.querySelector("#chatRideBadge"),
   useMyLocationBtn: document.querySelector("#useMyLocationBtn")
 };
+
+const authCopy = {
+  guest: "Sign in with Google to request rides and keep your account active across refreshes.",
+  signedIn: "You are signed in and ready to request, track, and manage rides."
+};
+
+function getCustomerDisplayName(user) {
+  if (!user) {
+    return "Customer";
+  }
+  return user.fullName || user.email || "Customer";
+}
 
 function toPlacePayload(input, selected) {
   if (selected) {
@@ -260,20 +273,26 @@ function renderProfile() {
   const user = state.auth?.user;
   const signedIn = state.auth?.authenticated && user?.role === "customer";
 
+  elements.authCard.classList.toggle("hidden", signedIn);
   elements.profileMini.classList.toggle("hidden", !signedIn);
   elements.logoutBtn.hidden = !signedIn;
   if (!signedIn) {
     setText(elements.authState, "Guest");
+    setText(elements.accessTitle, "Customer access");
+    elements.authMessage.textContent = authCopy.guest;
+    elements.googleLoginMount.classList.remove("hidden");
     return;
   }
 
-  setText(elements.authState, "Signed in");
-  setText(elements.name, user.fullName || "Customer");
+  setText(elements.authState, getCustomerDisplayName(user));
+  setText(elements.accessTitle, "Customer ready");
+  setText(elements.name, getCustomerDisplayName(user));
   setText(elements.email, user.email || "");
   if (user.avatarUrl) {
     elements.avatar.src = user.avatarUrl;
   }
-  elements.authMessage.textContent = "Your session is active and stored server-side. Refreshing this page will keep you signed in.";
+  elements.authMessage.textContent = authCopy.signedIn;
+  elements.googleLoginMount.classList.add("hidden");
 }
 
 function renderQuote() {
@@ -416,11 +435,14 @@ function initSocket() {
 async function handleGoogleCredential(response) {
   try {
     showBanner(elements.banner, "Signing in with Google", "neutral");
-    state.auth = await api.request("/api/auth/google", {
+    await api.request("/api/auth/google", {
       method: "POST",
       body: { credential: response.credential }
     });
-    state.auth.authenticated = true;
+    state.auth = await api.authStatus();
+    if (!state.auth?.authenticated || state.auth.user?.role !== "customer") {
+      throw new Error("Google sign-in completed, but the customer session was not restored");
+    }
     renderProfile();
     initSocket();
     await loadDashboard();
@@ -439,6 +461,7 @@ function initGoogleButton() {
 
   window.google.accounts.id.initialize({
     client_id: state.config.googleClientId,
+    ux_mode: "popup",
     callback: handleGoogleCredential
   });
   window.google.accounts.id.renderButton(elements.googleLoginMount, {
