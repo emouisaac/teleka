@@ -49,7 +49,7 @@
       <div>
         <p class="eyebrow">Admin console</p>
         <h1>Operations, approvals, dispatch, and fare control</h1>
-        <p class="page-copy">Admin sessions are seeded from env credentials and persisted in the database-backed session store, so refreshes and deployments do not dump the operator out of the dashboard.</p>
+        <p class="page-copy">Admin sessions and platform records are stored in SQLite on the backend, and hosted deployments now refuse unsafe ephemeral storage unless a persistent disk path is configured.</p>
       </div>
     </header>
 
@@ -74,7 +74,7 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Summary</p>
-            <h2>Realtime platform health</h2>
+            <h2>Real-time platform health</h2>
           </div>
         </div>
         <div class="stats-grid" id="adminStatsGrid"></div>
@@ -88,7 +88,7 @@
           </div>
         </div>
         <div id="adminMap" class="map-surface"></div>
-        <div class="map-summary" id="adminMapSummary">Online driver markers will update here in realtime.</div>
+        <div class="map-summary" id="adminMapSummary">Online driver markers will update here in real time.</div>
       </section>
 
       <section class="panel wide-panel hidden" id="adminRidesPanel">

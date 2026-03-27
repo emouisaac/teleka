@@ -195,6 +195,26 @@ function renderFareSettings() {
   elements.fareMinimum.value = fare.minimumFareUgx;
 }
 
+function formatAdminStatus(value) {
+  const labels = {
+    pending_admin: "Pending Review",
+    assigned: "Assigned",
+    accepted: "Accepted",
+    in_progress: "In Progress",
+    completed: "Completed",
+    cancelled: "Cancelled",
+    approved: "Approved",
+    rejected: "Rejected",
+    pending: "Pending"
+  };
+
+  return labels[value] || String(value || "").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatVehicleClass(value) {
+  return String(value || "standard").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function syncMap() {
   if (!state.config?.googleMapsApiKey) {
     setText(elements.mapSummary, "Google Maps is not configured for the admin live map yet.");
@@ -231,7 +251,7 @@ function syncMap() {
       });
       marker.addListener("click", () => {
         state.infoWindow?.setContent(
-          `<strong>${driver.fullName}</strong><br>${driver.vehicle}<br>${driver.approvalStatus}`
+          `<strong>${driver.fullName}</strong><br>${driver.vehicle}<br>${formatAdminStatus(driver.approvalStatus)}`
         );
         state.infoWindow?.open({
           anchor: marker,
@@ -293,7 +313,7 @@ function renderDrivers() {
         <tr>
           <td>${driver.fullName}<br><small>${driver.email}</small></td>
           <td>${driver.vehicle}<br><small>${driver.plateNumber}</small></td>
-          <td>${driver.approvalStatus}</td>
+          <td>${formatAdminStatus(driver.approvalStatus)}</td>
           <td>${driver.isOnline ? "Online" : "Offline"}</td>
           <td>${driver.documentCount}</td>
           <td>
@@ -361,7 +381,7 @@ function renderRides() {
       const options = approvedDrivers
         .map(
           (driver) =>
-            `<option value="${driver.id}" ${ride.driverId === driver.id ? "selected" : ""}>${driver.fullName} • ${driver.vehicle}</option>`
+            `<option value="${driver.id}" ${ride.driverId === driver.id ? "selected" : ""}>${driver.fullName} - ${driver.vehicle}</option>`
         )
         .join("");
 
@@ -369,8 +389,8 @@ function renderRides() {
         <tr>
           <td>${ride.id.slice(0, 8)}</td>
           <td>${ride.customerName}<br><small>${ride.customerPhone || ""}</small></td>
-          <td>${ride.originLabel}<br><small>${ride.destinationLabel}</small><br><small>${ride.requestedVehicleClass || "standard"}</small></td>
-          <td>${ride.status}</td>
+          <td>${ride.originLabel}<br><small>${ride.destinationLabel}</small><br><small>${formatVehicleClass(ride.requestedVehicleClass)}</small></td>
+          <td>${formatAdminStatus(ride.status)}</td>
           <td>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)}</td>
           <td>${ride.driverName || "Unassigned"}</td>
           <td>
