@@ -5,10 +5,12 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const projectRoot = process.cwd();
+const runtimePlatform = process.env.TELEKA_RUNTIME_PLATFORM || process.platform;
 const environment = process.env.NODE_ENV || "development";
 const isProduction = environment === "production";
 const allowEphemeralStorage = String(process.env.TELEKA_ALLOW_EPHEMERAL_STORAGE || "").toLowerCase() === "true";
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+const invalidStorageEnvWarnings = [];
 
 function normalizeUrl(input) {
   if (!input) {
@@ -38,6 +40,38 @@ function extractHostname(input) {
   }
 }
 
+function isWindowsAbsolutePath(value) {
+  return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
+}
+
+function isCompatibleAbsolutePath(value) {
+  if (!value) {
+    return false;
+  }
+
+  if (runtimePlatform === "win32") {
+    return isWindowsAbsolutePath(value);
+  }
+
+  return value.startsWith("/");
+}
+
+function getStorageEnvValue(name) {
+  const rawValue = String(process.env[name] || "").trim();
+  if (!rawValue) {
+    return "";
+  }
+
+  if (!isCompatibleAbsolutePath(rawValue)) {
+    invalidStorageEnvWarnings.push(
+      `Ignoring ${name}=${rawValue} because it is not a valid absolute path on ${runtimePlatform}.`
+    );
+    return "";
+  }
+
+  return rawValue;
+}
+
 function resolveStoragePath(inputPath, fallbackPath) {
   const value = inputPath || fallbackPath;
   if (!value) {
@@ -57,6 +91,13 @@ function isLocalHostname(hostname) {
 
 function firstNonEmptyValue(candidates) {
   return candidates.find((candidate) => String(candidate || "").trim());
+}
+
+function firstExistingDirectory(candidates) {
+  return candidates.find((candidate) => {
+    const value = String(candidate || "").trim();
+    return value && fs.existsSync(value);
+  });
 }
 
 function readPositiveInteger(name, fallbackValue) {
@@ -93,9 +134,12 @@ function detectHostingProvider() {
 }
 
 const appUrl =
-  normalizeUrl(process.env.APP_URL) || `http://localhost:${process.env.PORT || 3000}`;
+  normalizeUrl(process.env.APP_URL) ||
+  normalizeUrl(process.env.RENDER_EXTERNAL_URL) ||
+  `http://localhost:${process.env.PORT || 3000}`;
 const appHostname = extractHostname(appUrl);
-const domainHostname = extractHostname(process.env.APP_DOMAIN);
+const domainHostname =
+  extractHostname(process.env.APP_DOMAIN) || extractHostname(process.env.RENDER_EXTERNAL_HOSTNAME);
 const hostingProvider = detectHostingProvider();
 const hostedDeployment =
   isProduction ||
@@ -103,8 +147,15 @@ const hostedDeployment =
   (Boolean(process.env.APP_URL) && !isLocalHostname(appHostname)) ||
   (Boolean(process.env.APP_DOMAIN) && !isLocalHostname(domainHostname) && Boolean(hostingProvider));
 
+const detectedMountedDataRoot = firstExistingDirectory([
+  runtimePlatform !== "win32" ? "/var/data" : "",
+  runtimePlatform !== "win32" ? "/data" : "",
+  runtimePlatform !== "win32" ? "/storage" : ""
+]);
+
 const inferredPlatformDataRoot = firstNonEmptyValue([
   process.env.TELEKA_PLATFORM_DATA_DIR,
+  detectedMountedDataRoot,
   process.env.RENDER_DISK_MOUNT_PATH && path.join(process.env.RENDER_DISK_MOUNT_PATH, "teleka"),
   process.env.RAILWAY_VOLUME_MOUNT_PATH && path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "teleka"),
   process.env.FLY_VOLUME_DIR && path.join(process.env.FLY_VOLUME_DIR, "teleka"),
@@ -112,21 +163,25 @@ const inferredPlatformDataRoot = firstNonEmptyValue([
   process.env.STORAGE_DIR && path.join(process.env.STORAGE_DIR, "teleka"),
   process.env.DATA_DIR && path.join(process.env.DATA_DIR, "teleka")
 ]);
+const configuredDataDir = getStorageEnvValue("TELEKA_DATA_DIR");
+const configuredDbPath = getStorageEnvValue("TELEKA_DB_PATH");
+const configuredSessionsDir = getStorageEnvValue("TELEKA_SESSIONS_DIR");
+const configuredUploadRoot = getStorageEnvValue("TELEKA_UPLOAD_ROOT");
 
 const dataRoot = resolveStoragePath(
-  process.env.TELEKA_DATA_DIR,
+  configuredDataDir,
   inferredPlatformDataRoot || path.join(projectRoot, "data")
 );
 const defaultDbPath = path.join(dataRoot, "teleka.sqlite");
-const dbPath = resolveStoragePath(process.env.TELEKA_DB_PATH, defaultDbPath);
+const dbPath = resolveStoragePath(configuredDbPath, defaultDbPath);
 const sessionDir = resolveStoragePath(
-  process.env.TELEKA_SESSIONS_DIR,
+  configuredSessionsDir,
   path.join(dataRoot, "sessions")
 );
 const sessionDbName = process.env.TELEKA_SESSIONS_DB || "sessions.sqlite";
 const sessionDbPath = path.join(sessionDir, sessionDbName);
 const uploadRoot = resolveStoragePath(
-  process.env.TELEKA_UPLOAD_ROOT,
+  configuredUploadRoot,
   path.join(dataRoot, "uploads")
 );
 
@@ -140,6 +195,7 @@ const cookieDomain =
     ? rawCookieDomain.replace(/^www\./, "")
     : undefined;
 
+const configWarnings = [...invalidStorageEnvWarnings];
 const persistenceWarnings = [];
 const storageTargets = [
   ["database", dbPath],
@@ -147,10 +203,10 @@ const storageTargets = [
   ["upload storage", uploadRoot]
 ];
 const hasExplicitPersistentStorageEnv =
-  Boolean(process.env.TELEKA_DATA_DIR) ||
-  Boolean(process.env.TELEKA_DB_PATH) ||
-  Boolean(process.env.TELEKA_SESSIONS_DIR) ||
-  Boolean(process.env.TELEKA_UPLOAD_ROOT);
+  Boolean(configuredDataDir) ||
+  Boolean(configuredDbPath) ||
+  Boolean(configuredSessionsDir) ||
+  Boolean(configuredUploadRoot);
 const storageMode = hasExplicitPersistentStorageEnv
   ? "explicit"
   : inferredPlatformDataRoot
@@ -236,6 +292,7 @@ export const config = {
   uploadRoot,
   storageMode,
   allowEphemeralStorage,
+  configWarnings,
   persistenceWarnings,
   persistenceReady: persistenceWarnings.length === 0,
   toStoredUploadPath,

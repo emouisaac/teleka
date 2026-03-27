@@ -578,6 +578,10 @@ async function loadNotifications() {
   renderNotifications();
 }
 
+async function refreshPublicSettings() {
+  state.settings = await api.publicSettings().catch(() => state.settings);
+}
+
 async function loadDashboard() {
   if (!state.auth?.authenticated || state.auth.user.role !== "customer") {
     state.dashboard = null;
@@ -1079,6 +1083,14 @@ function initSocket() {
       playTone("default");
     }
     await loadDashboard();
+  });
+
+  state.socket.on("settings:updated", async (payload) => {
+    if (payload?.key !== "fare") {
+      return;
+    }
+    await refreshPublicSettings();
+    await refreshQuote({ silentErrors: true });
   });
 
   state.socket.on("message:new", async (message) => {

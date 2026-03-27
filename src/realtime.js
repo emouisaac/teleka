@@ -48,6 +48,10 @@ export function createRealtimeServer(server, sessionMiddleware) {
     io.to(`role:${role}:${id}`).emit(event, payload);
   }
 
+  function emitToRole(role, event, payload) {
+    io.to(`role:${role}`).emit(event, payload);
+  }
+
   function emitToAdmins(event, payload) {
     io.to("admins").emit(event, payload);
   }
@@ -59,6 +63,7 @@ export function createRealtimeServer(server, sessionMiddleware) {
   return {
     io,
     emitToUser,
+    emitToRole,
     emitToAdmins,
     emitToRide
   };

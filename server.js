@@ -78,6 +78,7 @@ app.get("/api/health", (_req, res) => {
     dataRoot: config.dataRoot,
     storageMode: config.storageMode,
     sessionTtlDays: config.sessionTtlDays,
+    configWarnings: config.configWarnings,
     persistenceReady: config.persistenceReady,
     persistenceWarnings: config.persistenceWarnings
   });
@@ -105,6 +106,11 @@ server.listen(config.port, () => {
   console.log(
     `Persistence: mode=${config.storageMode}; db=${config.dbPath}; sessions=${config.sessionDbPath}; uploads=${config.uploadRoot}; ttlDays=${config.sessionTtlDays}`
   );
+  if (config.configWarnings.length) {
+    config.configWarnings.forEach((warning) => {
+      console.warn(`Config warning: ${warning}`);
+    });
+  }
   if (config.persistenceWarnings.length) {
     config.persistenceWarnings.forEach((warning) => {
       console.warn(`Persistence warning: ${warning}`);

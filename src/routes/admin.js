@@ -2,6 +2,7 @@ import express from "express";
 
 import { config } from "../config.js";
 import { database, getSettings, nowIso, setSetting } from "../db.js";
+import { buildVehicleEstimates } from "../services/maps.js";
 import { createNotification } from "../services/notifications.js";
 import { sendOutboundNotice } from "../services/outbound.js";
 import { emitRideSnapshot } from "../services/rides.js";
@@ -95,6 +96,54 @@ function getAdminDashboard() {
     drivers,
     settings: getSettings()
   };
+}
+
+function calculateRideQuoteForFareSettings(ride, fareSettings) {
+  const estimates = buildVehicleEstimates(
+    Number(ride.distanceMeters || 0),
+    Number(ride.durationSeconds || 0),
+    fareSettings
+  );
+  const matchingEstimate =
+    estimates.find((estimate) => estimate.key === ride.requestedVehicleClass) ||
+    estimates.find((estimate) => estimate.key === "standard") ||
+    estimates[0];
+
+  return matchingEstimate?.fareUgx || Number(ride.quotedFareUgx || 0);
+}
+
+function repriceOpenRides(fareSettings) {
+  const openRides = database
+    .prepare(
+      `
+        SELECT
+          id,
+          distance_meters AS distanceMeters,
+          duration_seconds AS durationSeconds,
+          requested_vehicle_class AS requestedVehicleClass,
+          quoted_fare_ugx AS quotedFareUgx
+        FROM rides
+        WHERE status IN ('pending_admin', 'assigned', 'accepted', 'in_progress')
+          AND final_fare_ugx IS NULL
+      `
+    )
+    .all();
+
+  const updateRideFare = database.prepare(
+    "UPDATE rides SET quoted_fare_ugx = ? WHERE id = ?"
+  );
+  const updatedRideIds = [];
+
+  for (const ride of openRides) {
+    const nextFare = calculateRideQuoteForFareSettings(ride, fareSettings);
+    if (nextFare === Number(ride.quotedFareUgx || 0)) {
+      continue;
+    }
+    updateRideFare.run(nextFare, ride.id);
+    updatedRideIds.push(ride.id);
+  }
+
+  return updatedRideIds;
 }
 
 export function createAdminRouter() {
@@ -386,7 +435,19 @@ export function createAdminRouter() {
         minimumFareUgx: Number(fare.minimumFareUgx)
       });
 
-      res.json({ success: true, settings: getSettings() });
+      const settings = getSettings();
+      const updatedRideIds = repriceOpenRides(settings.fare);
+      const realtime = req.app.locals.realtime;
+
+      updatedRideIds.forEach((rideId) => {
+        emitRideSnapshot(realtime, rideId);
+      });
+
+      realtime.emitToAdmins("settings:updated", { key: "fare" });
+      realtime.emitToRole("customer", "settings:updated", { key: "fare" });
+      realtime.emitToRole("driver", "settings:updated", { key: "fare" });
+
+      res.json({ success: true, settings });
     } catch (error) {
       next(error);
     }

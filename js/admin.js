@@ -15,8 +15,16 @@ const state = {
   notifications: [],
   socket: null,
   map: null,
+  trafficLayer: null,
   markers: new Map(),
-  infoWindow: null
+  infoWindow: null,
+  pendingActions: {
+    approvingDrivers: new Set(),
+    rejectingDrivers: new Set(),
+    assigningRides: new Set(),
+    cancellingRides: new Set(),
+    savingFare: false
+  }
 };
 
 const elements = {
@@ -136,11 +144,16 @@ function ensureMap() {
   state.map = new google.maps.Map(document.getElementById("adminMap"), {
     center: { lat: 0.3136, lng: 32.5811 },
     zoom: 11,
-    mapTypeControl: false,
-    streetViewControl: false,
-    fullscreenControl: false
+    mapTypeId: google.maps.MapTypeId.ROADMAP,
+    mapTypeControl: true,
+    streetViewControl: true,
+    fullscreenControl: true,
+    zoomControl: true,
+    gestureHandling: "greedy"
   });
   state.infoWindow = new google.maps.InfoWindow();
+  state.trafficLayer = new google.maps.TrafficLayer();
+  state.trafficLayer.setMap(state.map);
 }
 
 function renderAuth() {
@@ -193,6 +206,10 @@ function renderFareSettings() {
   elements.farePerKm.value = fare.perKmUgx;
   elements.farePerMinute.value = fare.perMinuteUgx;
   elements.fareMinimum.value = fare.minimumFareUgx;
+  elements.saveFareBtn.disabled = state.pendingActions.savingFare;
+  elements.saveFareBtn.textContent = state.pendingActions.savingFare
+    ? "Saving fare settings..."
+    : "Save fare settings";
 }
 
 function formatAdminStatus(value) {
@@ -215,9 +232,120 @@ function formatVehicleClass(value) {
   return String(value || "standard").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function isRideDispatchEditable(status) {
+  return ["pending_admin", "assigned"].includes(status);
+}
+
+function isRideCancellable(status) {
+  return !["completed", "cancelled"].includes(status);
+}
+
+function getDriverActionMarkup(driver) {
+  const isApproving = state.pendingActions.approvingDrivers.has(driver.id);
+  const isRejecting = state.pendingActions.rejectingDrivers.has(driver.id);
+
+  if (isApproving) {
+    return `
+      <div class="table-actions">
+        <button class="secondary-btn" data-docs="${driver.id}">Docs</button>
+        <button class="primary-btn" type="button" disabled>Approving...</button>
+      </div>
+    `;
+  }
+
+  if (isRejecting) {
+    return `
+      <div class="table-actions">
+        <button class="secondary-btn" data-docs="${driver.id}">Docs</button>
+        <button class="ghost-btn" type="button" disabled>Rejecting...</button>
+      </div>
+    `;
+  }
+
+  if (driver.approvalStatus === "approved") {
+    return `
+      <div class="table-actions">
+        <button class="secondary-btn" data-docs="${driver.id}">Docs</button>
+        <span class="pill">Approved</span>
+      </div>
+    `;
+  }
+
+  if (driver.approvalStatus === "rejected") {
+    return `
+      <div class="table-actions">
+        <button class="secondary-btn" data-docs="${driver.id}">Docs</button>
+        <button class="primary-btn" data-approve="${driver.id}">Approve</button>
+        <span class="pill">Rejected</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="table-actions">
+      <button class="secondary-btn" data-docs="${driver.id}">Docs</button>
+      <button class="primary-btn" data-approve="${driver.id}">Approve</button>
+      <button class="ghost-btn" data-reject="${driver.id}">Reject</button>
+    </div>
+  `;
+}
+
+function getRideDispatchMarkup(ride, options) {
+  const isAssigning = state.pendingActions.assigningRides.has(ride.id);
+  const isCancelling = state.pendingActions.cancellingRides.has(ride.id);
+  const assignLabel = ride.driverId ? "Reassign" : "Assign";
+  const canAssign = isRideDispatchEditable(ride.status);
+  const canCancel = isRideCancellable(ride.status);
+
+  if (isAssigning) {
+    return `
+      <div class="table-actions">
+        <button class="primary-btn" type="button" disabled>Assigning...</button>
+      </div>
+    `;
+  }
+
+  if (isCancelling) {
+    return `
+      <div class="table-actions">
+        <button class="ghost-btn" type="button" disabled>Cancelling...</button>
+      </div>
+    `;
+  }
+
+  if (!canAssign && !canCancel) {
+    return `
+      <div class="table-actions">
+        <span class="pill">${formatAdminStatus(ride.status)}</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="table-actions">
+      ${
+        canAssign
+          ? `
+            <select data-driver-select="${ride.id}">
+              <option value="">Select driver</option>
+              ${options}
+            </select>
+            <button class="primary-btn" data-assign="${ride.id}">${assignLabel}</button>
+          `
+          : `<span class="pill">${formatAdminStatus(ride.status)}</span>`
+      }
+      ${
+        canCancel
+          ? `<button class="ghost-btn" data-cancel="${ride.id}">Cancel</button>`
+          : ""
+      }
+    </div>
+  `;
+}
+
 function syncMap() {
   if (!state.config?.googleMapsApiKey) {
-    setText(elements.mapSummary, "Google Maps is not configured for the admin live map yet.");
+    setText(elements.mapSummary, "Add a Google Maps API key to enable the Google live driver map.");
     return;
   }
 
@@ -271,11 +399,11 @@ function syncMap() {
       points.forEach((point) => bounds.extend(point));
       state.map.fitBounds(bounds, 80);
     }
-    setText(elements.mapSummary, `${points.length} driver locations plotted.`);
+    setText(elements.mapSummary, `Google live map tracking ${points.length} approved driver location${points.length === 1 ? "" : "s"}.`);
   } else {
     state.map.setCenter({ lat: 0.3136, lng: 32.5811 });
     state.map.setZoom(11);
-    setText(elements.mapSummary, "No live driver coordinates available yet.");
+    setText(elements.mapSummary, "Google live map is ready, but no approved drivers have shared coordinates yet.");
   }
 }
 
@@ -316,13 +444,7 @@ function renderDrivers() {
           <td>${formatAdminStatus(driver.approvalStatus)}</td>
           <td>${driver.isOnline ? "Online" : "Offline"}</td>
           <td>${driver.documentCount}</td>
-          <td>
-            <div class="table-actions">
-              <button class="secondary-btn" data-docs="${driver.id}">Docs</button>
-              <button class="primary-btn" data-approve="${driver.id}">Approve</button>
-              <button class="ghost-btn" data-reject="${driver.id}">Reject</button>
-            </div>
-          </td>
+          <td>${getDriverActionMarkup(driver)}</td>
         </tr>
       `
     )
@@ -350,17 +472,35 @@ function renderDrivers() {
 
   elements.drivers.querySelectorAll("[data-approve]").forEach((button) => {
     button.addEventListener("click", async () => {
+      const driverId = button.dataset.approve;
       const notes = window.prompt("Approval notes (optional)") || "";
-      await api.adminApproveDriver(button.dataset.approve, { notes });
-      await refreshAll();
+      state.pendingActions.approvingDrivers.add(driverId);
+      renderDrivers();
+      try {
+        await api.adminApproveDriver(driverId, { notes });
+      } catch (error) {
+        showBanner(elements.banner, error.message, "danger");
+      } finally {
+        state.pendingActions.approvingDrivers.delete(driverId);
+        await refreshAll();
+      }
     });
   });
 
   elements.drivers.querySelectorAll("[data-reject]").forEach((button) => {
     button.addEventListener("click", async () => {
+      const driverId = button.dataset.reject;
       const notes = window.prompt("Rejection reason") || "Application needs updates before approval.";
-      await api.adminRejectDriver(button.dataset.reject, { notes });
-      await refreshAll();
+      state.pendingActions.rejectingDrivers.add(driverId);
+      renderDrivers();
+      try {
+        await api.adminRejectDriver(driverId, { notes });
+      } catch (error) {
+        showBanner(elements.banner, error.message, "danger");
+      } finally {
+        state.pendingActions.rejectingDrivers.delete(driverId);
+        await refreshAll();
+      }
     });
   });
 }
@@ -393,16 +533,7 @@ function renderRides() {
           <td>${formatAdminStatus(ride.status)}</td>
           <td>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)}</td>
           <td>${ride.driverName || "Unassigned"}</td>
-          <td>
-            <div class="table-actions">
-              <select data-driver-select="${ride.id}">
-                <option value="">Select driver</option>
-                ${options}
-              </select>
-              <button class="primary-btn" data-assign="${ride.id}">Assign</button>
-              <button class="ghost-btn" data-cancel="${ride.id}">Cancel</button>
-            </div>
-          </td>
+          <td>${getRideDispatchMarkup(ride, options)}</td>
         </tr>
       `;
     })
@@ -433,15 +564,33 @@ function renderRides() {
         showBanner(elements.banner, "Select a driver first", "warning");
         return;
       }
-      await api.adminAssignRide(button.dataset.assign, { driverId });
-      await refreshAll();
+      const rideId = button.dataset.assign;
+      state.pendingActions.assigningRides.add(rideId);
+      renderRides();
+      try {
+        await api.adminAssignRide(rideId, { driverId });
+      } catch (error) {
+        showBanner(elements.banner, error.message, "danger");
+      } finally {
+        state.pendingActions.assigningRides.delete(rideId);
+        await refreshAll();
+      }
     });
   });
 
   elements.rides.querySelectorAll("[data-cancel]").forEach((button) => {
     button.addEventListener("click", async () => {
-      await api.adminUpdateRideStatus(button.dataset.cancel, { status: "cancelled" });
-      await refreshAll();
+      const rideId = button.dataset.cancel;
+      state.pendingActions.cancellingRides.add(rideId);
+      renderRides();
+      try {
+        await api.adminUpdateRideStatus(rideId, { status: "cancelled" });
+      } catch (error) {
+        showBanner(elements.banner, error.message, "danger");
+      } finally {
+        state.pendingActions.cancellingRides.delete(rideId);
+        await refreshAll();
+      }
     });
   });
 }
@@ -509,6 +658,11 @@ function initSocket() {
   state.socket.on("driver:updated", async () => {
     await refreshAll();
   });
+  state.socket.on("settings:updated", async (payload) => {
+    if (payload?.key === "fare") {
+      await refreshAll();
+    }
+  });
 }
 
 async function handleLogin() {
@@ -555,6 +709,8 @@ async function bootstrap() {
 elements.loginBtn.addEventListener("click", handleLogin);
 elements.saveFareBtn.addEventListener("click", async () => {
   try {
+    state.pendingActions.savingFare = true;
+    renderFareSettings();
     await api.adminFareSettings({
       baseFareUgx: Number(elements.fareBase.value),
       bookingFeeUgx: Number(elements.fareBooking.value),
@@ -566,6 +722,9 @@ elements.saveFareBtn.addEventListener("click", async () => {
     showBanner(elements.banner, "Fare settings saved", "success");
   } catch (error) {
     showBanner(elements.banner, error.message, "danger");
+  } finally {
+    state.pendingActions.savingFare = false;
+    renderFareSettings();
   }
 });
 elements.logoutBtn.addEventListener("click", async () => {
