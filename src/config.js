@@ -48,6 +48,20 @@ function readPositiveInteger(name, fallbackValue) {
   return Math.floor(parsed);
 }
 
+function readSessionTtlMs() {
+  const hoursValue = String(process.env.TELEKA_SESSION_TTL_HOURS || "").trim();
+  if (hoursValue) {
+    return readPositiveInteger("TELEKA_SESSION_TTL_HOURS", 12) * 60 * 60 * 1000;
+  }
+
+  const legacyDaysValue = String(process.env.TELEKA_SESSION_TTL_DAYS || "").trim();
+  if (legacyDaysValue) {
+    return readPositiveInteger("TELEKA_SESSION_TTL_DAYS", 1) * 24 * 60 * 60 * 1000;
+  }
+
+  return 12 * 60 * 60 * 1000;
+}
+
 function detectHostingProvider() {
   if (process.env.RENDER === "true" || process.env.RENDER_SERVICE_ID) {
     return "render";
@@ -127,6 +141,7 @@ const cookieDomain =
 const configWarnings = [];
 const persistenceWarnings = [];
 const storageMode = "supabase-storage";
+const sessionTtlMs = readSessionTtlMs();
 
 export const config = {
   environment,
@@ -153,7 +168,8 @@ export const config = {
   adminPassword: process.env.ADMIN_PASSWORD || "change-me",
   googleClientId: process.env.GOOGLE_CLIENT_ID || "",
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || "",
-  sessionTtlDays: readPositiveInteger("TELEKA_SESSION_TTL_DAYS", 3650),
+  sessionTtlMs,
+  sessionTtlHours: Math.round(sessionTtlMs / (60 * 60 * 1000)),
   retentionDays: readPositiveInteger("TELEKA_RETENTION_DAYS", 180),
   email: {
     host: process.env.EMAIL_HOST,

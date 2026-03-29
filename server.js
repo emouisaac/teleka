@@ -37,7 +37,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
   const sessionStore = new PostgresSessionStore({
-    ttlDays: config.sessionTtlDays
+    ttlMs: config.sessionTtlMs
   });
 
   const sessionMiddleware = session({
@@ -51,7 +51,7 @@ async function startServer() {
       httpOnly: true,
       sameSite: "lax",
       secure: config.isProduction,
-      maxAge: config.sessionTtlDays * 24 * 60 * 60 * 1000,
+      maxAge: config.sessionTtlMs,
       domain: config.cookieDomain
     }
   });
@@ -82,7 +82,7 @@ async function startServer() {
       uploadRoot: config.uploadRoot,
       dataRoot: config.dataRoot,
       storageMode: config.storageMode,
-      sessionTtlDays: config.sessionTtlDays,
+      sessionTtlHours: config.sessionTtlHours,
       configWarnings: config.configWarnings,
       persistenceReady: config.persistenceReady,
       persistenceWarnings: config.persistenceWarnings
@@ -109,7 +109,7 @@ async function startServer() {
   server.listen(config.port, () => {
     console.log(`Teleka listening on ${config.appUrl}`);
     console.log(
-      `Persistence: db=postgres@${config.databaseHost}; uploads=supabase@${config.supabaseUploadBucket}; mode=${config.storageMode}; ttlDays=${config.sessionTtlDays}`
+      `Persistence: db=postgres@${config.databaseHost}; uploads=supabase@${config.supabaseUploadBucket}; mode=${config.storageMode}; ttlHours=${config.sessionTtlHours}`
     );
     if (config.configWarnings.length) {
       config.configWarnings.forEach((warning) => {

@@ -15,9 +15,9 @@ export async function initializeSessionStoreSchema() {
 }
 
 export class PostgresSessionStore extends session.Store {
-  constructor({ ttlDays = 30 }) {
+  constructor({ ttlMs = 12 * 60 * 60 * 1000 } = {}) {
     super();
-    this.ttlDays = ttlDays;
+    this.ttlMs = ttlMs;
     void this.cleanupExpired();
   }
 
@@ -62,9 +62,10 @@ export class PostgresSessionStore extends session.Store {
 
   touch(sid, sess, callback = () => {}) {
     (async () => {
+      const expiresAt = this.resolveExpiry(sess);
       await database
-        .prepare('UPDATE sessions SET expires_at = ?, updated_at = ? WHERE sid = ?')
-        .run(this.resolveExpiry(sess), nowIso(), sid);
+        .prepare('UPDATE sessions SET sess = ?, expires_at = ?, updated_at = ? WHERE sid = ?')
+        .run(JSON.stringify(sess), expiresAt, nowIso(), sid);
       callback(null);
     })().catch((error) => callback(error));
   }
@@ -85,9 +86,7 @@ export class PostgresSessionStore extends session.Store {
       return cookieExpiry;
     }
 
-    return new Date(
-      Date.now() + this.ttlDays * 24 * 60 * 60 * 1000
-    ).toISOString();
+    return new Date(Date.now() + this.ttlMs).toISOString();
   }
 
   async cleanupExpired() {

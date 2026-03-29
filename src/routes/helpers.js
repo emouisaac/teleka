@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { database } from "../db.js";
 
 export function apiError(statusCode, publicMessage) {
@@ -24,6 +25,7 @@ export function getSessionUser(req) {
 
 export function setSessionUser(req, user) {
   req.session.user = user;
+  req.session.cookie.maxAge = config.sessionTtlMs;
   return new Promise((resolve, reject) => {
     req.session.save((error) => {
       if (error) {
