@@ -126,9 +126,9 @@ const schemaSql = `
     password_hash TEXT NOT NULL,
     vehicle TEXT NOT NULL,
     plate_number TEXT NOT NULL UNIQUE,
-    license_number TEXT NOT NULL,
-    national_id_number TEXT NOT NULL,
-    insurance_number TEXT NOT NULL,
+    license_number TEXT NOT NULL UNIQUE,
+    national_id_number TEXT NOT NULL UNIQUE,
+    insurance_number TEXT NOT NULL UNIQUE,
     face_photo_path TEXT,
     car_photo_path TEXT,
     approval_status TEXT NOT NULL DEFAULT 'pending',
@@ -146,9 +146,11 @@ const schemaSql = `
   CREATE TABLE IF NOT EXISTS driver_documents (
     id TEXT PRIMARY KEY,
     driver_id TEXT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+    document_type TEXT NOT NULL DEFAULT 'supporting_document',
     original_name TEXT NOT NULL,
     stored_name TEXT NOT NULL,
     file_path TEXT NOT NULL,
+    file_hash TEXT,
     mime_type TEXT,
     created_at TEXT NOT NULL
   );
@@ -245,6 +247,10 @@ const indexSql = `
   CREATE INDEX IF NOT EXISTS idx_notifications_target ON notifications(target_role, target_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_saved_places_lookup ON saved_places(user_role, user_id, usage_count DESC, last_used_at DESC);
   CREATE INDEX IF NOT EXISTS idx_driver_documents_driver ON driver_documents(driver_id, created_at ASC);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_license_unique ON drivers(license_number);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_national_id_unique ON drivers(national_id_number);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_insurance_unique ON drivers(insurance_number);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_documents_hash_unique ON driver_documents(file_hash) WHERE file_hash IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_location_events_driver ON location_events(driver_id, created_at DESC);
 `;
 
@@ -309,8 +315,18 @@ async function seedAdmin() {
     .run("admin-root", config.adminEmail, passwordHash, timestamp, timestamp);
 }
 
+async function migrateSchema() {
+  await database.exec(`
+    ALTER TABLE driver_documents
+      ADD COLUMN IF NOT EXISTS document_type TEXT NOT NULL DEFAULT 'supporting_document';
+    ALTER TABLE driver_documents
+      ADD COLUMN IF NOT EXISTS file_hash TEXT;
+  `);
+}
+
 export async function initializeDatabase() {
   await database.exec(schemaSql);
+  await migrateSchema();
   await database.exec(indexSql);
   await seedSettings();
   await seedAdmin();

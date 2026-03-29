@@ -325,6 +325,47 @@ button {
   resize: vertical;
 }
 
+.camera-capture {
+  display: grid;
+  gap: 12px;
+}
+
+.camera-shell {
+  position: relative;
+  min-height: 240px;
+  border: 1px dashed rgba(14, 121, 105, 0.3);
+  border-radius: 22px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(239, 155, 40, 0.2), transparent 40%),
+    linear-gradient(160deg, rgba(14, 121, 105, 0.14), rgba(6, 71, 63, 0.28));
+}
+
+.camera-feed,
+.camera-preview {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.camera-empty {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 248, 239, 0.92);
+  font-weight: 700;
+}
+
+.camera-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .compact-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -752,6 +793,66 @@ th {
   color: #2d1f06;
 }
 
+.request-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.request-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 15, 13, 0.68);
+  backdrop-filter: blur(10px);
+}
+
+.request-modal-card {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  border-radius: 28px;
+  background:
+    linear-gradient(145deg, rgba(255, 252, 247, 0.98), rgba(255, 244, 228, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 28px 90px rgba(9, 18, 16, 0.38);
+}
+
+.request-modal-card h2,
+.request-modal-card p {
+  margin: 0;
+}
+
+.request-modal-copy {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.request-modal-meta {
+  display: grid;
+  gap: 10px;
+}
+
+.request-modal-card select {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.request-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .notification-item.unread {
   border-color: rgba(14, 121, 105, 0.32);
   background: rgba(14, 121, 105, 0.08);
@@ -872,7 +973,9 @@ th {
   .section-head,
   .header-actions,
   .action-row,
-  .composer {
+  .composer,
+  .camera-actions,
+  .request-modal-actions {
     flex-direction: column;
   }
 

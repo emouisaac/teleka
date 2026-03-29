@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/png" href="ims/t2icon.png">
 </head>
@@ -88,7 +87,19 @@
             <label>Insurance number</label>
             <input name="insuranceNumber" type="text" required>
             <label>Face photo</label>
-            <input name="facePhoto" type="file" accept="image/*" capture="user">
+            <p class="input-help">Use the front camera. Gallery uploads are not allowed for face verification.</p>
+            <div class="camera-capture">
+              <div class="camera-shell" id="driverFaceCameraShell">
+                <video id="driverFaceVideo" class="camera-feed hidden" autoplay playsinline muted></video>
+                <img id="driverFacePreview" class="camera-preview hidden" alt="Captured face preview">
+                <div class="camera-empty" id="driverFaceEmpty">Open the front camera and capture a live face photo before submitting.</div>
+              </div>
+              <div class="camera-actions">
+                <button class="secondary-btn" id="driverFaceStartBtn" type="button">Open front camera</button>
+                <button class="primary-btn" id="driverFaceCaptureBtn" type="button" disabled>Capture face</button>
+                <button class="ghost-btn hidden" id="driverFaceRetakeBtn" type="button">Retake</button>
+              </div>
+            </div>
             <label>Car photo</label>
             <input name="carPhoto" type="file" accept="image/*" capture="environment">
             <label>Supporting documents</label>
@@ -180,7 +191,6 @@
 
   <div class="banner" id="driverBanner" data-tone="neutral">Driver workspace offline</div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="/socket.io/socket.io.js"></script>
   <script type="module" src="js/driver.js"></script>
 </body>

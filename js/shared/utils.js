@@ -50,6 +50,28 @@ export function playTone(kind = "default") {
   oscillator.stop(context.currentTime + profile.duration);
 }
 
+export function startLoopingTone(kind = "urgent", intervalMs = 1200) {
+  let timeoutId = null;
+  let stopped = false;
+
+  const tick = () => {
+    if (stopped) {
+      return;
+    }
+    playTone(kind);
+    timeoutId = window.setTimeout(tick, intervalMs);
+  };
+
+  tick();
+
+  return () => {
+    stopped = true;
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  };
+}
+
 export function setText(element, value) {
   if (element) {
     element.textContent = value;

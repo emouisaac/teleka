@@ -155,6 +155,25 @@
     </main>
   </div>
 
+  <div class="request-modal hidden" id="adminRideAlertModal" aria-live="assertive" role="alertdialog" aria-modal="true" aria-labelledby="adminRideAlertTitle">
+    <div class="request-modal-backdrop"></div>
+    <div class="request-modal-card">
+      <p class="eyebrow">Incoming ride request</p>
+      <h2 id="adminRideAlertTitle">Customer needs dispatch</h2>
+      <p class="request-modal-copy" id="adminRideAlertRoute">Waiting for ride details...</p>
+      <div class="request-modal-meta" id="adminRideAlertMeta"></div>
+      <label for="adminRideAlertDriverSelect">Assign driver now</label>
+      <select id="adminRideAlertDriverSelect">
+        <option value="">Select approved driver</option>
+      </select>
+      <div class="request-modal-actions">
+        <button class="primary-btn" id="adminRideAlertAssignBtn" type="button">Accept and assign</button>
+        <button class="ghost-btn" id="adminRideAlertRejectBtn" type="button">Reject request</button>
+      </div>
+      <p class="input-help">This alert stays on screen until the ride is assigned or rejected.</p>
+    </div>
+  </div>
+
   <div class="banner" id="adminBanner" data-tone="neutral">Admin console offline</div>
 
   <script src="/socket.io/socket.io.js"></script>

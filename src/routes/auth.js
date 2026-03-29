@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import express from "express";
 import multer from "multer";
@@ -70,6 +70,27 @@ async function getCurrentProfile(user) {
     return sanitizeDriver(await getDriverProfile(user.id));
   }
   return null;
+}
+
+function normalizeDriverIdentifier(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
+
+function hashUploadedFile(file) {
+  return createHash("sha256").update(file.buffer).digest("hex");
+}
+
+function getDocumentTypeLabel(documentType) {
+  const labels = {
+    face_photo: "face photo",
+    car_photo: "car photo",
+    supporting_document: "supporting document"
+  };
+
+  return labels[documentType] || "document";
 }
 
 export function createAuthRouter() {
@@ -233,41 +254,139 @@ export function createAuthRouter() {
         }
 
         const normalizedEmail = email.trim().toLowerCase();
-        const normalizedPlate = plateNumber.trim().toUpperCase();
-        const existing = await database
-          .prepare("SELECT id FROM drivers WHERE email = ? OR plate_number = ?")
-          .get(normalizedEmail, normalizedPlate);
+        const normalizedPlate = normalizeDriverIdentifier(plateNumber);
+        const normalizedLicenseNumber = normalizeDriverIdentifier(licenseNumber);
+        const normalizedNationalIdNumber = normalizeDriverIdentifier(nationalIdNumber);
+        const normalizedInsuranceNumber = normalizeDriverIdentifier(insuranceNumber);
+        const facePhoto = req.files?.facePhoto?.[0] || null;
+        const carPhoto = req.files?.carPhoto?.[0] || null;
+        const documents = req.files?.documents || [];
 
-        if (existing) {
-          throw apiError(409, "A driver with this email or plate number already exists");
+        if (!facePhoto) {
+          throw apiError(400, "A live face photo captured with the camera is required");
+        }
+
+        const existingIdentity = await database
+          .prepare(
+            `
+              SELECT id, email, plate_number AS "plateNumber", license_number AS "licenseNumber",
+                     national_id_number AS "nationalIdNumber", insurance_number AS "insuranceNumber"
+              FROM drivers
+              WHERE email = ?
+                 OR plate_number = ?
+                 OR license_number = ?
+                 OR national_id_number = ?
+                 OR insurance_number = ?
+              LIMIT 1
+            `
+          )
+          .get(
+            normalizedEmail,
+            normalizedPlate,
+            normalizedLicenseNumber,
+            normalizedNationalIdNumber,
+            normalizedInsuranceNumber
+          );
+
+        if (existingIdentity) {
+          if (existingIdentity.email === normalizedEmail) {
+            throw apiError(409, "This email is already registered");
+          }
+          if (existingIdentity.plateNumber === normalizedPlate) {
+            throw apiError(409, "This vehicle number plate is already registered");
+          }
+          if (existingIdentity.licenseNumber === normalizedLicenseNumber) {
+            throw apiError(409, "This driving licence number is already registered");
+          }
+          if (existingIdentity.nationalIdNumber === normalizedNationalIdNumber) {
+            throw apiError(409, "This national ID number is already registered");
+          }
+          if (existingIdentity.insuranceNumber === normalizedInsuranceNumber) {
+            throw apiError(409, "This third-party insurance number is already registered");
+          }
         }
 
         const driverId = randomUUID();
         const timestamp = nowIso();
-        const facePhoto = req.files?.facePhoto?.[0] || null;
-        const carPhoto = req.files?.carPhoto?.[0] || null;
-        const documents = req.files?.documents || [];
         const passwordHash = await bcrypt.hash(password, 10);
         const uploadedObjects = [];
 
-        const uploadAsset = async (file, folder) => {
+        const uploadedAssets = [
+          { file: facePhoto, documentType: "face_photo", label: "face photo" },
+          ...(carPhoto ? [{ file: carPhoto, documentType: "car_photo", label: "car photo" }] : []),
+          ...documents.map((file, index) => ({
+            file,
+            documentType: "supporting_document",
+            label: `supporting document ${index + 1}`
+          }))
+        ].map((entry) => ({
+          ...entry,
+          fileHash: hashUploadedFile(entry.file)
+        }));
+
+        const seenHashes = new Set();
+        for (const asset of uploadedAssets) {
+          if (seenHashes.has(asset.fileHash)) {
+            throw apiError(409, `The same file was uploaded more than once for ${asset.label}`);
+          }
+          seenHashes.add(asset.fileHash);
+        }
+
+        const duplicateDocument = uploadedAssets.length
+          ? await database
+              .prepare(
+                `
+                  SELECT driver_id AS "driverId", document_type AS "documentType"
+                  FROM driver_documents
+                  WHERE file_hash = ANY(?)
+                  LIMIT 1
+                `
+              )
+              .get(uploadedAssets.map((asset) => asset.fileHash))
+          : null;
+
+        if (duplicateDocument) {
+          throw apiError(
+            409,
+            `This ${getDocumentTypeLabel(duplicateDocument.documentType)} is already in use by another account`
+          );
+        }
+
+        const uploadAsset = async (file, folder, documentType, fileHash) => {
           if (!file) {
             return null;
           }
 
           const uploaded = await uploadFile({ folder, file });
           uploadedObjects.push(uploaded.objectPath);
-          return uploaded;
+          return {
+            ...uploaded,
+            documentType,
+            fileHash
+          };
         };
 
         const baseFolder = `driver-applications/${driverId}`;
-        const uploadedFacePhoto = await uploadAsset(facePhoto, `${baseFolder}/face-photo`);
-        const uploadedCarPhoto = await uploadAsset(carPhoto, `${baseFolder}/car-photo`);
+        const uploadedFacePhoto = await uploadAsset(
+          facePhoto,
+          `${baseFolder}/face-photo`,
+          "face_photo",
+          uploadedAssets.find((asset) => asset.documentType === "face_photo")?.fileHash || null
+        );
+        const uploadedCarPhoto = await uploadAsset(
+          carPhoto,
+          `${baseFolder}/car-photo`,
+          "car_photo",
+          uploadedAssets.find((asset) => asset.documentType === "car_photo")?.fileHash || null
+        );
         const uploadedDocuments = [];
 
         for (const document of documents) {
+          const fileHash = uploadedAssets.find(
+            (asset) => asset.file === document && asset.documentType === "supporting_document"
+          )?.fileHash;
           uploadedDocuments.push(
-            await uploadAsset(document, `${baseFolder}/documents`)
+            await uploadAsset(document, `${baseFolder}/documents`, "supporting_document", fileHash)
           );
         }
 
@@ -292,9 +411,9 @@ export function createAuthRouter() {
                 passwordHash,
                 vehicle.trim(),
                 normalizedPlate,
-                licenseNumber.trim(),
-                nationalIdNumber.trim(),
-                insuranceNumber.trim(),
+                normalizedLicenseNumber,
+                normalizedNationalIdNumber,
+                normalizedInsuranceNumber,
                 uploadedFacePhoto?.objectPath || null,
                 uploadedCarPhoto?.objectPath || null,
                 timestamp,
@@ -303,8 +422,10 @@ export function createAuthRouter() {
 
             const insertDocument = tx.prepare(
               `
-                INSERT INTO driver_documents (id, driver_id, original_name, stored_name, file_path, mime_type, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO driver_documents (
+                  id, driver_id, document_type, original_name, stored_name, file_path, file_hash, mime_type, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
               `
             );
 
@@ -312,9 +433,11 @@ export function createAuthRouter() {
               await insertDocument.run(
                 randomUUID(),
                 driverId,
+                asset.documentType,
                 asset.originalName,
                 asset.storedName,
                 asset.objectPath,
+                asset.fileHash,
                 asset.mimeType,
                 timestamp
               );
@@ -324,9 +447,11 @@ export function createAuthRouter() {
               await insertDocument.run(
                 randomUUID(),
                 driverId,
+                document.documentType,
                 document.originalName,
                 document.storedName,
                 document.objectPath,
+                document.fileHash,
                 document.mimeType,
                 timestamp
               );
@@ -358,6 +483,33 @@ export function createAuthRouter() {
           message: "Driver registration submitted for admin review"
         });
       } catch (error) {
+        if (error?.code === "23505") {
+          const details = `${error.constraint || ""} ${error.detail || ""}`.toLowerCase();
+          if (details.includes("email")) {
+            next(apiError(409, "This email is already registered"));
+            return;
+          }
+          if (details.includes("plate")) {
+            next(apiError(409, "This vehicle number plate is already registered"));
+            return;
+          }
+          if (details.includes("license")) {
+            next(apiError(409, "This driving licence number is already registered"));
+            return;
+          }
+          if (details.includes("national")) {
+            next(apiError(409, "This national ID number is already registered"));
+            return;
+          }
+          if (details.includes("insurance")) {
+            next(apiError(409, "This third-party insurance number is already registered"));
+            return;
+          }
+          if (details.includes("driver_documents_hash")) {
+            next(apiError(409, "One of the uploaded documents is already in use by another account"));
+            return;
+          }
+        }
         next(error);
       }
     }
@@ -385,7 +537,12 @@ export function createAuthRouter() {
       }
 
       if (driver.approvalStatus !== "approved") {
-        throw apiError(403, `Driver account is ${driver.approvalStatus}`);
+        throw apiError(
+          403,
+          driver.approvalStatus === "pending"
+            ? "Driver account is pending approval"
+            : "Driver account is not approved yet"
+        );
       }
 
       await database

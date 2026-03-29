@@ -5,8 +5,11 @@ import {
   formatDateTime,
   playTone,
   setText,
-  showBanner
+  showBanner,
+  startLoopingTone
 } from "./shared/utils.js";
+
+const DEFAULT_CENTER = { lat: 0.3136, lng: 32.5811 };
 
 const state = {
   auth: null,
@@ -18,6 +21,10 @@ const state = {
   trafficLayer: null,
   markers: new Map(),
   infoWindow: null,
+  rideAlert: {
+    rideId: null,
+    stopTone: null
+  },
   pendingActions: {
     approvingDrivers: new Set(),
     rejectingDrivers: new Set(),
@@ -55,7 +62,13 @@ const elements = {
   farePerKm: document.querySelector("#farePerKm"),
   farePerMinute: document.querySelector("#farePerMinute"),
   fareMinimum: document.querySelector("#fareMinimum"),
-  saveFareBtn: document.querySelector("#saveFareBtn")
+  saveFareBtn: document.querySelector("#saveFareBtn"),
+  rideAlertModal: document.querySelector("#adminRideAlertModal"),
+  rideAlertRoute: document.querySelector("#adminRideAlertRoute"),
+  rideAlertMeta: document.querySelector("#adminRideAlertMeta"),
+  rideAlertDriverSelect: document.querySelector("#adminRideAlertDriverSelect"),
+  rideAlertAssignBtn: document.querySelector("#adminRideAlertAssignBtn"),
+  rideAlertRejectBtn: document.querySelector("#adminRideAlertRejectBtn")
 };
 
 let googleMapsPromise = null;
@@ -142,7 +155,7 @@ function ensureMap() {
     return;
   }
   state.map = new google.maps.Map(document.getElementById("adminMap"), {
-    center: { lat: 0.3136, lng: 32.5811 },
+    center: DEFAULT_CENTER,
     zoom: 11,
     mapTypeId: google.maps.MapTypeId.ROADMAP,
     mapTypeControl: true,
@@ -232,12 +245,51 @@ function formatVehicleClass(value) {
   return String(value || "standard").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function formatDocumentType(value) {
+  return String(value || "document")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function isRideDispatchEditable(status) {
   return ["pending_admin", "assigned"].includes(status);
 }
 
 function isRideCancellable(status) {
   return !["completed", "cancelled"].includes(status);
+}
+
+function getApprovedDrivers() {
+  return (state.dashboard?.drivers || []).filter((driver) => driver.approvalStatus === "approved");
+}
+
+function getRideById(rideId) {
+  return (state.dashboard?.rides || []).find((ride) => ride.id === rideId) || null;
+}
+
+function getPendingRideAlerts() {
+  return (state.dashboard?.rides || [])
+    .filter((ride) => ride.status === "pending_admin")
+    .sort((left, right) => new Date(right.requestedAt) - new Date(left.requestedAt));
+}
+
+function stopRideAlertTone() {
+  if (state.rideAlert.stopTone) {
+    state.rideAlert.stopTone();
+    state.rideAlert.stopTone = null;
+  }
+}
+
+function clearRideAlert() {
+  state.rideAlert.rideId = null;
+  stopRideAlertTone();
+  elements.rideAlertModal.classList.add("hidden");
+}
+
+function ensureRideAlertTone() {
+  if (!state.rideAlert.stopTone) {
+    state.rideAlert.stopTone = startLoopingTone("urgent", 1100);
+  }
 }
 
 function getDriverActionMarkup(driver) {
@@ -308,7 +360,7 @@ function getRideDispatchMarkup(ride, options) {
   if (isCancelling) {
     return `
       <div class="table-actions">
-        <button class="ghost-btn" type="button" disabled>Cancelling...</button>
+        <button class="ghost-btn" type="button" disabled>Rejecting...</button>
       </div>
     `;
   }
@@ -336,7 +388,7 @@ function getRideDispatchMarkup(ride, options) {
       }
       ${
         canCancel
-          ? `<button class="ghost-btn" data-cancel="${ride.id}">Cancel</button>`
+          ? `<button class="ghost-btn" data-cancel="${ride.id}">Reject</button>`
           : ""
       }
     </div>
@@ -399,9 +451,12 @@ function syncMap() {
       points.forEach((point) => bounds.extend(point));
       state.map.fitBounds(bounds, 80);
     }
-    setText(elements.mapSummary, `Google live map tracking ${points.length} approved driver location${points.length === 1 ? "" : "s"}.`);
+    setText(
+      elements.mapSummary,
+      `Google live map tracking ${points.length} approved driver location${points.length === 1 ? "" : "s"}.`
+    );
   } else {
-    state.map.setCenter({ lat: 0.3136, lng: 32.5811 });
+    state.map.setCenter(DEFAULT_CENTER);
     state.map.setZoom(11);
     setText(elements.mapSummary, "Google live map is ready, but no approved drivers have shared coordinates yet.");
   }
@@ -424,12 +479,50 @@ async function loadDriverDocuments(driverId) {
     const article = document.createElement("article");
     article.className = "document-item";
     article.innerHTML = `
-      <strong>${document.originalName}</strong>
+      <strong>${formatDocumentType(document.documentType)}</strong>
+      <p>${document.originalName}</p>
       <p>${document.mimeType || "file"}</p>
       <a class="ghost-btn" href="${document.downloadUrl || `/api/admin/documents/${document.id}/download`}" target="_blank" rel="noreferrer">Download</a>
     `;
     elements.documents.appendChild(article);
   });
+}
+
+async function assignRide(rideId, driverId) {
+  if (!driverId) {
+    showBanner(elements.banner, "Select a driver first", "warning");
+    return;
+  }
+
+  state.pendingActions.assigningRides.add(rideId);
+  renderRides();
+  renderRideAlertModal();
+  try {
+    await api.adminAssignRide(rideId, { driverId });
+    showBanner(elements.banner, "Ride accepted and assigned", "success");
+  } catch (error) {
+    showBanner(elements.banner, error.message, "danger");
+  } finally {
+    state.pendingActions.assigningRides.delete(rideId);
+    await refreshAll();
+    await loadNotifications();
+  }
+}
+
+async function rejectRide(rideId) {
+  state.pendingActions.cancellingRides.add(rideId);
+  renderRides();
+  renderRideAlertModal();
+  try {
+    await api.adminUpdateRideStatus(rideId, { status: "cancelled" });
+    showBanner(elements.banner, "Ride request rejected", "success");
+  } catch (error) {
+    showBanner(elements.banner, error.message, "danger");
+  } finally {
+    state.pendingActions.cancellingRides.delete(rideId);
+    await refreshAll();
+    await loadNotifications();
+  }
 }
 
 function renderDrivers() {
@@ -511,9 +604,7 @@ function renderDrivers() {
 
 function renderRides() {
   const rides = state.dashboard?.rides || [];
-  const approvedDrivers = (state.dashboard?.drivers || []).filter(
-    (driver) => driver.approvalStatus === "approved"
-  );
+  const approvedDrivers = getApprovedDrivers();
 
   if (!rides.length) {
     elements.rides.innerHTML = "<p>No rides in the system yet.</p>";
@@ -562,39 +653,15 @@ function renderRides() {
 
   elements.rides.querySelectorAll("[data-assign]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const select = elements.rides.querySelector(`[data-driver-select="${button.dataset.assign}"]`);
-      const driverId = select.value;
-      if (!driverId) {
-        showBanner(elements.banner, "Select a driver first", "warning");
-        return;
-      }
       const rideId = button.dataset.assign;
-      state.pendingActions.assigningRides.add(rideId);
-      renderRides();
-      try {
-        await api.adminAssignRide(rideId, { driverId });
-      } catch (error) {
-        showBanner(elements.banner, error.message, "danger");
-      } finally {
-        state.pendingActions.assigningRides.delete(rideId);
-        await refreshAll();
-      }
+      const select = elements.rides.querySelector(`[data-driver-select="${rideId}"]`);
+      await assignRide(rideId, select?.value || "");
     });
   });
 
   elements.rides.querySelectorAll("[data-cancel]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const rideId = button.dataset.cancel;
-      state.pendingActions.cancellingRides.add(rideId);
-      renderRides();
-      try {
-        await api.adminUpdateRideStatus(rideId, { status: "cancelled" });
-      } catch (error) {
-        showBanner(elements.banner, error.message, "danger");
-      } finally {
-        state.pendingActions.cancellingRides.delete(rideId);
-        await refreshAll();
-      }
+      await rejectRide(button.dataset.cancel);
     });
   });
 }
@@ -634,6 +701,79 @@ async function loadNotifications() {
   renderNotifications();
 }
 
+function renderRideAlertModal() {
+  const ride = getRideById(state.rideAlert.rideId);
+  const signedIn = state.auth?.authenticated && state.auth.user.role === "admin";
+
+  if (!signedIn || !ride || ride.status !== "pending_admin") {
+    elements.rideAlertModal.classList.add("hidden");
+    return;
+  }
+
+  const approvedDrivers = getApprovedDrivers();
+  elements.rideAlertModal.classList.remove("hidden");
+  setText(elements.rideAlertRoute, `${ride.originLabel} to ${ride.destinationLabel}`);
+  elements.rideAlertMeta.innerHTML = `
+    <div class="profile-card">
+      <strong>Customer</strong>
+      <p>${ride.customerName || "Unknown"}</p>
+    </div>
+    <div class="profile-card">
+      <strong>Requested</strong>
+      <p>${formatDateTime(ride.requestedAt)}</p>
+    </div>
+    <div class="profile-card">
+      <strong>Fare</strong>
+      <p>${formatCurrency(ride.quotedFareUgx)}</p>
+    </div>
+  `;
+
+  const selectedDriverId =
+    elements.rideAlertDriverSelect.value && approvedDrivers.some((driver) => driver.id === elements.rideAlertDriverSelect.value)
+      ? elements.rideAlertDriverSelect.value
+      : ride.driverId || "";
+
+  elements.rideAlertDriverSelect.innerHTML = `
+    <option value="">Select approved driver</option>
+    ${approvedDrivers
+      .map(
+        (driver) =>
+          `<option value="${driver.id}" ${selectedDriverId === driver.id ? "selected" : ""}>${driver.fullName} - ${driver.vehicle}</option>`
+      )
+      .join("")}
+  `;
+
+  const isAssigning = state.pendingActions.assigningRides.has(ride.id);
+  const isRejecting = state.pendingActions.cancellingRides.has(ride.id);
+  elements.rideAlertAssignBtn.disabled = isAssigning || isRejecting || !approvedDrivers.length;
+  elements.rideAlertRejectBtn.disabled = isAssigning || isRejecting;
+  elements.rideAlertDriverSelect.disabled = isAssigning || isRejecting || !approvedDrivers.length;
+  elements.rideAlertAssignBtn.textContent = isAssigning ? "Assigning..." : "Accept and assign";
+  elements.rideAlertRejectBtn.textContent = isRejecting ? "Rejecting..." : "Reject request";
+}
+
+function syncRideAlert() {
+  const signedIn = state.auth?.authenticated && state.auth.user.role === "admin";
+  if (!signedIn) {
+    clearRideAlert();
+    return;
+  }
+
+  const pendingRides = getPendingRideAlerts();
+  if (!pendingRides.length) {
+    clearRideAlert();
+    return;
+  }
+
+  const targetRide =
+    pendingRides.find((ride) => ride.id === state.rideAlert.rideId) ||
+    pendingRides[0];
+
+  state.rideAlert.rideId = targetRide.id;
+  renderRideAlertModal();
+  ensureRideAlertTone();
+}
+
 async function refreshAll() {
   state.dashboard = await api.adminDashboard();
   renderSummary();
@@ -641,6 +781,7 @@ async function refreshAll() {
   renderDrivers();
   renderRides();
   syncMap();
+  syncRideAlert();
 }
 
 function initSocket() {
@@ -651,17 +792,27 @@ function initSocket() {
   if (!state.socket) {
     return;
   }
-  state.socket.on("notification:new", async () => {
+
+  state.socket.on("notification:new", async (notification) => {
+    if (notification.category === "new_ride") {
+      await refreshAll();
+      await loadNotifications();
+      syncRideAlert();
+      return;
+    }
+
     playTone("urgent");
     await loadNotifications();
   });
+
   state.socket.on("ride:updated", async () => {
-    playTone("default");
     await refreshAll();
   });
+
   state.socket.on("driver:updated", async () => {
     await refreshAll();
   });
+
   state.socket.on("settings:updated", async (payload) => {
     if (payload?.key === "fare") {
       await refreshAll();
@@ -706,6 +857,7 @@ async function bootstrap() {
     await loadNotifications();
     showBanner(elements.banner, "Admin console ready", "success");
   } else {
+    clearRideAlert();
     showBanner(elements.banner, "Sign in with the admin credentials from your env file", "neutral");
   }
 }
@@ -731,9 +883,27 @@ elements.saveFareBtn.addEventListener("click", async () => {
     renderFareSettings();
   }
 });
+elements.rideAlertAssignBtn.addEventListener("click", async () => {
+  const rideId = state.rideAlert.rideId;
+  if (!rideId) {
+    return;
+  }
+  await assignRide(rideId, elements.rideAlertDriverSelect.value);
+});
+elements.rideAlertRejectBtn.addEventListener("click", async () => {
+  const rideId = state.rideAlert.rideId;
+  if (!rideId) {
+    return;
+  }
+  await rejectRide(rideId);
+});
 elements.logoutBtn.addEventListener("click", async () => {
+  clearRideAlert();
   await api.logout();
   window.location.reload();
+});
+window.addEventListener("beforeunload", () => {
+  stopRideAlertTone();
 });
 
 bootstrap().catch((error) => showBanner(elements.banner, error.message, "danger"));

@@ -194,7 +194,8 @@ export function createAdminRouter() {
       const documents = await database
         .prepare(
           `
-            SELECT id, original_name AS "originalName", mime_type AS "mimeType", file_path AS "filePath", created_at AS "createdAt"
+            SELECT id, document_type AS "documentType", original_name AS "originalName",
+                   mime_type AS "mimeType", file_path AS "filePath", created_at AS "createdAt"
             FROM driver_documents
             WHERE driver_id = ?
             ORDER BY created_at ASC

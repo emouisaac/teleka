@@ -8,15 +8,24 @@ import {
   showBanner
 } from "./shared/utils.js";
 
+const DEFAULT_CENTER = { lat: 0.3136, lng: 32.5811 };
+
 const state = {
   auth: null,
+  config: null,
   dashboard: null,
   notifications: [],
   selectedRideId: null,
   socket: null,
   map: null,
-  markers: {},
-  watchId: null
+  mapMarkers: {},
+  mapPolyline: null,
+  watchId: null,
+  faceCapture: {
+    blob: null,
+    previewUrl: "",
+    stream: null
+  }
 };
 
 const elements = {
@@ -35,7 +44,6 @@ const elements = {
   loginPassword: document.querySelector("#driverLoginPassword"),
   loginBtn: document.querySelector("#driverLoginBtn"),
   registerForm: document.querySelector("#driverRegisterForm"),
-  logoutBtn2: document.querySelector("#driverLogoutBtn"),
   onlineToggle: document.querySelector("#driverOnlineToggle"),
   nameHeading: document.querySelector("#driverNameHeading"),
   vehicleText: document.querySelector("#driverVehicleText"),
@@ -51,8 +59,16 @@ const elements = {
   sendMessageBtn: document.querySelector("#driverSendMessageBtn"),
   notifications: document.querySelector("#driverNotifications"),
   tabButtons: document.querySelectorAll(".tab-btn"),
-  tabBodies: document.querySelectorAll(".tab-body")
+  tabBodies: document.querySelectorAll(".tab-body"),
+  faceVideo: document.querySelector("#driverFaceVideo"),
+  facePreview: document.querySelector("#driverFacePreview"),
+  faceEmpty: document.querySelector("#driverFaceEmpty"),
+  faceStartBtn: document.querySelector("#driverFaceStartBtn"),
+  faceCaptureBtn: document.querySelector("#driverFaceCaptureBtn"),
+  faceRetakeBtn: document.querySelector("#driverFaceRetakeBtn")
 };
+
+let googleMapsPromise = null;
 
 function closeSiteNav() {
   if (!elements.siteNav || !elements.siteNavToggle) {
@@ -107,6 +123,23 @@ function attachSiteNav() {
   });
 }
 
+function activateTab(targetId) {
+  elements.tabButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.target === targetId);
+  });
+  elements.tabBodies.forEach((body) => {
+    body.classList.toggle("active", body.id === targetId);
+  });
+}
+
+function setupTabs() {
+  elements.tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      activateTab(button.dataset.target);
+    });
+  });
+}
+
 function setAuthenticatedUi(active) {
   elements.authPanel.classList.toggle("hidden", active);
   elements.profilePanel.classList.toggle("hidden", !active);
@@ -118,15 +151,120 @@ function setAuthenticatedUi(active) {
   setText(elements.authState, active ? "Signed in" : "Signed out");
 }
 
+function loadGoogleMaps(apiKey) {
+  if (!apiKey) {
+    return Promise.resolve(false);
+  }
+  if (window.google?.maps) {
+    return Promise.resolve(true);
+  }
+  if (googleMapsPromise) {
+    return googleMapsPromise;
+  }
+
+  googleMapsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => reject(new Error("Unable to load Google Maps"));
+    document.head.appendChild(script);
+  });
+
+  return googleMapsPromise;
+}
+
 function ensureMap() {
-  if (state.map || !window.L) {
+  if (state.map || !window.google?.maps) {
     return;
   }
-  state.map = L.map("driverMap", { zoomControl: false }).setView([0.3136, 32.5811], 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap"
-  }).addTo(state.map);
+
+  state.map = new google.maps.Map(document.getElementById("driverMap"), {
+    center: DEFAULT_CENTER,
+    zoom: 12,
+    mapTypeId: google.maps.MapTypeId.ROADMAP,
+    mapTypeControl: true,
+    streetViewControl: true,
+    fullscreenControl: true,
+    zoomControl: true,
+    gestureHandling: "greedy"
+  });
+}
+
+function setMapMarker(key, options) {
+  if (!state.map || !window.google?.maps || !options?.position) {
+    return;
+  }
+
+  if (!state.mapMarkers[key]) {
+    state.mapMarkers[key] = new google.maps.Marker({
+      map: state.map,
+      ...options
+    });
+    return;
+  }
+
+  state.mapMarkers[key].setOptions({
+    ...options,
+    map: state.map
+  });
+}
+
+function clearMapMarker(key) {
+  if (!state.mapMarkers[key]) {
+    return;
+  }
+
+  state.mapMarkers[key].setMap(null);
+  delete state.mapMarkers[key];
+}
+
+function setRouteLine(points) {
+  if (!state.map || !window.google?.maps) {
+    return;
+  }
+
+  if (!points.length) {
+    if (state.mapPolyline) {
+      state.mapPolyline.setMap(null);
+      state.mapPolyline = null;
+    }
+    return;
+  }
+
+  if (!state.mapPolyline) {
+    state.mapPolyline = new google.maps.Polyline({
+      strokeColor: "#0e7969",
+      strokeOpacity: 0.82,
+      strokeWeight: 4,
+      map: state.map
+    });
+  }
+
+  state.mapPolyline.setPath(points);
+}
+
+function fitMap(points) {
+  if (!state.map || !window.google?.maps) {
+    return;
+  }
+
+  if (!points.length) {
+    state.map.setCenter(DEFAULT_CENTER);
+    state.map.setZoom(12);
+    return;
+  }
+
+  if (points.length === 1) {
+    state.map.setCenter(points[0]);
+    state.map.setZoom(15);
+    return;
+  }
+
+  const bounds = new google.maps.LatLngBounds();
+  points.forEach((point) => bounds.extend(point));
+  state.map.fitBounds(bounds, 80);
 }
 
 function getActiveRide() {
@@ -139,52 +277,76 @@ function getActiveRide() {
 }
 
 function syncMap() {
+  if (!state.config?.googleMapsApiKey) {
+    setText(elements.mapSummary, "Add a Google Maps API key to enable the live driver map.");
+    return;
+  }
+
   ensureMap();
-  if (!state.map) {
+  if (!state.map || !window.google?.maps) {
     return;
   }
 
   const ride = getActiveRide();
   const profile = state.dashboard?.profile;
   const points = [];
+  const routePoints = [];
 
   if (Number.isFinite(profile?.currentLat) && Number.isFinite(profile?.currentLng)) {
-    const coords = [profile.currentLat, profile.currentLng];
-    state.markers.driver = state.markers.driver || L.circleMarker(coords, {
-      radius: 10,
-      color: "#0e7969",
-      fillColor: "#ef9b28",
-      fillOpacity: 0.95
-    }).addTo(state.map);
-    state.markers.driver.setLatLng(coords).bindPopup("Your live location");
-    points.push(coords);
+    const position = { lat: profile.currentLat, lng: profile.currentLng };
+    setMapMarker("driver", {
+      position,
+      title: "Your live location",
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 9,
+        fillColor: "#ef9b28",
+        fillOpacity: 0.95,
+        strokeColor: "#0e7969",
+        strokeWeight: 3
+      }
+    });
+    points.push(position);
+    routePoints.push(position);
+  } else {
+    clearMapMarker("driver");
   }
 
-  if (ride?.originLat && ride?.originLng) {
-    const origin = [ride.originLat, ride.originLng];
-    state.markers.origin = state.markers.origin || L.marker(origin).addTo(state.map);
-    state.markers.origin.setLatLng(origin).bindPopup(`Pickup: ${ride.originLabel}`);
+  if (Number.isFinite(ride?.originLat) && Number.isFinite(ride?.originLng)) {
+    const origin = { lat: ride.originLat, lng: ride.originLng };
+    setMapMarker("origin", {
+      position: origin,
+      title: `Pickup: ${ride.originLabel}`,
+      label: { text: "P", color: "#ffffff", fontWeight: "700" }
+    });
     points.push(origin);
+    routePoints.push(origin);
+  } else {
+    clearMapMarker("origin");
   }
 
-  if (ride?.destinationLat && ride?.destinationLng) {
-    const destination = [ride.destinationLat, ride.destinationLng];
-    state.markers.destination =
-      state.markers.destination || L.marker(destination).addTo(state.map);
-    state.markers.destination.setLatLng(destination).bindPopup(`Destination: ${ride.destinationLabel}`);
+  if (Number.isFinite(ride?.destinationLat) && Number.isFinite(ride?.destinationLng)) {
+    const destination = { lat: ride.destinationLat, lng: ride.destinationLng };
+    setMapMarker("destination", {
+      position: destination,
+      title: `Destination: ${ride.destinationLabel}`,
+      label: { text: "D", color: "#ffffff", fontWeight: "700" }
+    });
     points.push(destination);
+    routePoints.push(destination);
+  } else {
+    clearMapMarker("destination");
   }
 
-  if (points.length) {
-    state.map.fitBounds(points, { padding: [40, 40] });
-  }
+  setRouteLine(routePoints.length >= 2 ? routePoints : []);
+  fitMap(points);
 
   setText(elements.rideStatus, ride ? ride.status.replaceAll("_", " ") : "No active ride");
   setText(
     elements.mapSummary,
     ride
-      ? `${ride.originLabel} to ${ride.destinationLabel}. Keep location enabled so the admin and customer can follow the trip.`
-      : "Go online to publish live location updates for dispatch and active customers."
+      ? `${ride.originLabel} to ${ride.destinationLabel}. Keep your live location on so admin and customers can follow the trip on Google Maps.`
+      : "Go online to publish live location updates on Google Maps for dispatch and active customers."
   );
 }
 
@@ -194,6 +356,7 @@ function renderProfile() {
   if (!profile) {
     return;
   }
+
   setText(elements.nameHeading, profile.fullName);
   setText(elements.vehicleText, profile.vehicle);
   setText(elements.plateText, profile.plateNumber);
@@ -207,7 +370,8 @@ function renderRides() {
   elements.rides.innerHTML = "";
 
   if (!rides.length) {
-    elements.rides.innerHTML = '<div class="ride-card"><p>No assigned rides yet. Stay approved and online to receive dispatches.</p></div>';
+    elements.rides.innerHTML =
+      '<div class="ride-card"><p>No assigned rides yet. Stay approved and online to receive dispatches.</p></div>';
     return;
   }
 
@@ -227,11 +391,11 @@ function renderRides() {
       <div class="ride-card-header">
         <div>
           <p class="route">${ride.originLabel} -> ${ride.destinationLabel}</p>
-          <p>${ride.customerName} • ${ride.customerPhone || "No phone"}</p>
+          <p>${ride.customerName} - ${ride.customerPhone || "No phone"}</p>
         </div>
         <span class="pill">${ride.status.replaceAll("_", " ")}</span>
       </div>
-      <p>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)} • ${Math.round((ride.distanceMeters || 0) / 1000)} km</p>
+      <p>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)} - ${Math.round((ride.distanceMeters || 0) / 1000)} km</p>
       <p>Requested ${formatDateTime(ride.requestedAt)}</p>
       <div class="ride-actions">
         ${primaryAction}
@@ -254,6 +418,7 @@ function renderRides() {
             await selectRide(ride.id);
             return;
           }
+
           await refreshAll();
         } catch (error) {
           showBanner(elements.banner, error.message, "danger");
@@ -268,14 +433,18 @@ function renderRides() {
 async function renderMessages() {
   elements.messages.innerHTML = "";
   if (!state.selectedRideId) {
-    elements.messages.innerHTML = '<div class="message-item"><p>Select a ride to view the trip chat.</p></div>';
+    elements.messages.innerHTML =
+      '<div class="message-item"><p>Select a ride to view the trip chat.</p></div>';
     return;
   }
+
   const payload = await api.driverRideMessages(state.selectedRideId);
   if (!payload.messages.length) {
-    elements.messages.innerHTML = '<div class="message-item"><p>No messages yet for this ride.</p></div>';
+    elements.messages.innerHTML =
+      '<div class="message-item"><p>No messages yet for this ride.</p></div>';
     return;
   }
+
   payload.messages.forEach((message) => {
     const item = document.createElement("article");
     item.className = `message-item ${message.senderRole === "driver" ? "self" : ""}`;
@@ -293,9 +462,11 @@ async function renderMessages() {
 function renderNotifications() {
   elements.notifications.innerHTML = "";
   if (!state.notifications.length) {
-    elements.notifications.innerHTML = '<div class="notification-item"><p>No dispatch notifications yet.</p></div>';
+    elements.notifications.innerHTML =
+      '<div class="notification-item"><p>No dispatch notifications yet.</p></div>';
     return;
   }
+
   state.notifications.forEach((notification) => {
     const item = document.createElement("article");
     item.className = `notification-item ${notification.readAt ? "" : "unread"}`;
@@ -307,6 +478,7 @@ function renderNotifications() {
       </div>
       ${notification.readAt ? "" : '<button class="ghost-btn">Mark read</button>'}
     `;
+
     const button = item.querySelector("button");
     if (button) {
       button.addEventListener("click", async () => {
@@ -314,6 +486,7 @@ function renderNotifications() {
         await loadNotifications();
       });
     }
+
     elements.notifications.appendChild(item);
   });
 }
@@ -324,15 +497,29 @@ async function loadNotifications() {
   renderNotifications();
 }
 
+function syncLocationWatchState() {
+  if (state.dashboard?.profile?.isOnline) {
+    startLocationWatch();
+  } else {
+    stopLocationWatch();
+  }
+}
+
 async function refreshAll() {
   state.dashboard = await api.driverDashboard();
   if (!state.selectedRideId) {
     state.selectedRideId = getActiveRide()?.id || null;
   }
-  setText(elements.chatBadge, state.selectedRideId ? `Ride ${state.selectedRideId.slice(0, 8)}` : "No ride selected");
+
+  setText(
+    elements.chatBadge,
+    state.selectedRideId ? `Ride ${state.selectedRideId.slice(0, 8)}` : "No ride selected"
+  );
+
   renderProfile();
   renderRides();
   syncMap();
+  syncLocationWatchState();
   await renderMessages();
 }
 
@@ -340,10 +527,13 @@ async function selectRide(rideId) {
   if (state.socket && state.selectedRideId) {
     state.socket.emit("ride:unwatch", state.selectedRideId);
   }
+
   state.selectedRideId = rideId;
+
   if (state.socket && rideId) {
     state.socket.emit("ride:watch", rideId);
   }
+
   setText(elements.chatBadge, `Ride ${rideId.slice(0, 8)}`);
   await renderMessages();
   syncMap();
@@ -353,6 +543,7 @@ function startLocationWatch() {
   if (!navigator.geolocation || state.watchId || !state.dashboard?.profile?.isOnline) {
     return;
   }
+
   state.watchId = navigator.geolocation.watchPosition(
     async (position) => {
       try {
@@ -361,6 +552,13 @@ function startLocationWatch() {
           lng: position.coords.longitude,
           heading: position.coords.heading || 0
         });
+
+        if (state.dashboard?.profile) {
+          state.dashboard.profile.currentLat = position.coords.latitude;
+          state.dashboard.profile.currentLng = position.coords.longitude;
+          state.dashboard.profile.currentHeading = position.coords.heading || 0;
+          syncMap();
+        }
       } catch (error) {
         showBanner(elements.banner, error.message, "danger");
       }
@@ -377,26 +575,135 @@ function stopLocationWatch() {
   }
 }
 
+function revokeFacePreview() {
+  if (state.faceCapture.previewUrl) {
+    URL.revokeObjectURL(state.faceCapture.previewUrl);
+    state.faceCapture.previewUrl = "";
+  }
+}
+
+function stopFaceCamera() {
+  if (state.faceCapture.stream) {
+    state.faceCapture.stream.getTracks().forEach((track) => track.stop());
+    state.faceCapture.stream = null;
+  }
+
+  if (elements.faceVideo) {
+    elements.faceVideo.srcObject = null;
+  }
+}
+
+function renderFaceCaptureState() {
+  const hasStream = Boolean(state.faceCapture.stream);
+  const hasCapture = Boolean(state.faceCapture.blob && state.faceCapture.previewUrl);
+
+  elements.faceVideo.classList.toggle("hidden", !hasStream);
+  elements.facePreview.classList.toggle("hidden", !hasCapture);
+  elements.faceEmpty.classList.toggle("hidden", hasStream || hasCapture);
+  elements.faceCaptureBtn.disabled = !hasStream;
+  elements.faceRetakeBtn.classList.toggle("hidden", !hasCapture);
+  elements.faceStartBtn.disabled = hasStream;
+}
+
+async function startFaceCamera() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This device does not support camera capture");
+    }
+
+    revokeFacePreview();
+    state.faceCapture.blob = null;
+    stopFaceCamera();
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 720 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+
+    state.faceCapture.stream = stream;
+    elements.faceVideo.srcObject = stream;
+    await elements.faceVideo.play().catch(() => {});
+    renderFaceCaptureState();
+  } catch (error) {
+    showBanner(elements.banner, error.message || "Unable to access the front camera", "danger");
+  }
+}
+
+async function captureFacePhoto() {
+  try {
+    if (!state.faceCapture.stream) {
+      throw new Error("Open the front camera first");
+    }
+
+    const width = elements.faceVideo.videoWidth || 720;
+    const height = elements.faceVideo.videoHeight || 720;
+    const side = Math.min(width, height);
+    const sourceX = Math.max(0, (width - side) / 2);
+    const sourceY = Math.max(0, (height - side) / 2);
+    const canvas = document.createElement("canvas");
+    canvas.width = 720;
+    canvas.height = 720;
+
+    const context = canvas.getContext("2d");
+    context.drawImage(elements.faceVideo, sourceX, sourceY, side, side, 0, 0, 720, 720);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob) {
+      throw new Error("Unable to capture the face photo");
+    }
+
+    revokeFacePreview();
+    state.faceCapture.blob = blob;
+    state.faceCapture.previewUrl = URL.createObjectURL(blob);
+    elements.facePreview.src = state.faceCapture.previewUrl;
+    stopFaceCamera();
+    renderFaceCaptureState();
+    showBanner(elements.banner, "Face photo captured from the live camera", "success");
+  } catch (error) {
+    showBanner(elements.banner, error.message, "danger");
+  }
+}
+
+function resetFaceCapture() {
+  revokeFacePreview();
+  state.faceCapture.blob = null;
+  stopFaceCamera();
+  elements.facePreview.removeAttribute("src");
+  renderFaceCaptureState();
+}
+
 function initSocket() {
   if (state.socket || !state.auth?.authenticated) {
     return;
   }
+
   state.socket = createSocket();
   if (!state.socket) {
     return;
   }
+
   state.socket.on("connect", () => {
     if (state.selectedRideId) {
       state.socket.emit("ride:watch", state.selectedRideId);
     }
   });
+
   state.socket.on("notification:new", async (notification) => {
     playTone(notification.category === "ride_assigned" ? "urgent" : "default");
     await loadNotifications();
+    if (notification.rideId) {
+      await refreshAll();
+    }
   });
+
   state.socket.on("ride:updated", async () => {
     await refreshAll();
   });
+
   state.socket.on("message:new", async (message) => {
     if (message.rideId === state.selectedRideId) {
       playTone("default");
@@ -416,9 +723,6 @@ async function handleDriverLogin() {
     initSocket();
     await refreshAll();
     await loadNotifications();
-    if (state.dashboard?.profile?.isOnline) {
-      startLocationWatch();
-    }
     showBanner(elements.banner, "Driver session restored", "success");
   } catch (error) {
     showBanner(elements.banner, error.message, "danger");
@@ -427,11 +731,29 @@ async function handleDriverLogin() {
 
 async function handleDriverRegister(event) {
   event.preventDefault();
+
   try {
+    if (!state.faceCapture.blob) {
+      throw new Error("Capture your face photo with the front camera before submitting");
+    }
+
     const formData = new FormData(elements.registerForm);
+    const registeredEmail = String(formData.get("email") || "").trim();
+    formData.set("facePhoto", state.faceCapture.blob, `face-capture-${Date.now()}.jpg`);
+
     await api.driverRegister(formData);
+
     elements.registerForm.reset();
-    showBanner(elements.banner, "Registration submitted for admin approval", "success");
+    resetFaceCapture();
+    activateTab("driverLoginTab");
+    elements.loginEmail.value = registeredEmail;
+    elements.loginPassword.value = "";
+    document.getElementById("driverAuthPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    showBanner(
+      elements.banner,
+      "Registration submitted. You have been returned to the login tab and can sign in after admin approval.",
+      "success"
+    );
   } catch (error) {
     showBanner(elements.banner, error.message, "danger");
   }
@@ -442,10 +764,12 @@ async function handleSendMessage() {
     if (!state.selectedRideId) {
       throw new Error("Select a ride first");
     }
+
     const body = elements.messageInput.value.trim();
     if (!body) {
       throw new Error("Message body is required");
     }
+
     await api.driverSendRideMessage(state.selectedRideId, { body });
     elements.messageInput.value = "";
     await renderMessages();
@@ -454,57 +778,68 @@ async function handleSendMessage() {
   }
 }
 
-function setupTabs() {
-  elements.tabButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      elements.tabButtons.forEach((item) => item.classList.toggle("active", item === button));
-      elements.tabBodies.forEach((body) => {
-        body.classList.toggle("active", body.id === button.dataset.target);
-      });
-    });
-  });
-}
-
 async function bootstrap() {
   attachSiteNav();
   setupTabs();
+  renderFaceCaptureState();
+
+  state.config = await api.publicConfig().catch(() => null);
+  if (state.config?.googleMapsApiKey) {
+    try {
+      await loadGoogleMaps(state.config.googleMapsApiKey);
+      ensureMap();
+    } catch (error) {
+      showBanner(elements.banner, error.message, "warning");
+    }
+  }
+
   state.auth = await api.authStatus();
   const signedIn = state.auth?.authenticated && state.auth.user.role === "driver";
   setAuthenticatedUi(signedIn);
+
   if (signedIn) {
     initSocket();
     await refreshAll();
     await loadNotifications();
-    if (state.dashboard?.profile?.isOnline) {
-      startLocationWatch();
-    }
     showBanner(elements.banner, "Driver hub ready", "success");
   } else {
-    showBanner(elements.banner, "Log in with your approved driver account or submit a new registration.", "neutral");
+    showBanner(
+      elements.banner,
+      "Log in with your approved driver account or submit a new registration.",
+      "neutral"
+    );
   }
 }
 
 elements.loginBtn.addEventListener("click", handleDriverLogin);
 elements.registerForm.addEventListener("submit", handleDriverRegister);
 elements.sendMessageBtn.addEventListener("click", handleSendMessage);
+elements.faceStartBtn.addEventListener("click", startFaceCamera);
+elements.faceCaptureBtn.addEventListener("click", captureFacePhoto);
+elements.faceRetakeBtn.addEventListener("click", startFaceCamera);
 elements.onlineToggle.addEventListener("change", async () => {
   try {
     await api.driverAvailability({ isOnline: elements.onlineToggle.checked });
     await refreshAll();
-    if (elements.onlineToggle.checked) {
-      startLocationWatch();
-    } else {
-      stopLocationWatch();
-    }
-    showBanner(elements.banner, elements.onlineToggle.checked ? "You are now online" : "You are now offline", "success");
+    showBanner(
+      elements.banner,
+      elements.onlineToggle.checked ? "You are now online" : "You are now offline",
+      "success"
+    );
   } catch (error) {
     showBanner(elements.banner, error.message, "danger");
   }
 });
 elements.logoutBtn.addEventListener("click", async () => {
   stopLocationWatch();
+  stopFaceCamera();
   await api.logout();
   window.location.reload();
+});
+window.addEventListener("beforeunload", () => {
+  stopLocationWatch();
+  stopFaceCamera();
+  revokeFacePreview();
 });
 
 bootstrap().catch((error) => showBanner(elements.banner, error.message, "danger"));
