@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { database, nowIso } from "../db.js";
 import { createNotification } from "./notifications.js";
 
-export function savePlaceForUser({ userRole, userId, place }) {
-  database
+export async function savePlaceForUser({ userRole, userId, place }) {
+  await database
     .prepare(
       `
         INSERT INTO saved_places (
@@ -12,11 +12,11 @@ export function savePlaceForUser({ userRole, userId, place }) {
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         ON CONFLICT(user_role, user_id, address) DO UPDATE SET
-          label = excluded.label,
-          place_id = excluded.place_id,
-          lat = excluded.lat,
-          lng = excluded.lng,
-          last_used_at = excluded.last_used_at,
+          label = EXCLUDED.label,
+          place_id = EXCLUDED.place_id,
+          lat = EXCLUDED.lat,
+          lng = EXCLUDED.lng,
+          last_used_at = EXCLUDED.last_used_at,
           usage_count = saved_places.usage_count + 1
       `
     )
@@ -33,11 +33,11 @@ export function savePlaceForUser({ userRole, userId, place }) {
     );
 }
 
-export function listRecentPlaces(userRole, userId) {
+export async function listRecentPlaces(userRole, userId) {
   return database
     .prepare(
       `
-        SELECT id, label, address, place_id AS placeId, lat, lng, last_used_at AS lastUsedAt, usage_count AS usageCount
+        SELECT id, label, address, place_id AS "placeId", lat, lng, last_used_at AS "lastUsedAt", usage_count AS "usageCount"
         FROM saved_places
         WHERE user_role = ? AND user_id = ?
         ORDER BY usage_count DESC, last_used_at DESC
@@ -47,51 +47,51 @@ export function listRecentPlaces(userRole, userId) {
     .all(userRole, userId);
 }
 
-export function getRideSnapshot(rideId) {
-  return database
+export async function getRideSnapshot(rideId) {
+  const ride = await database
     .prepare(
       `
         SELECT
           rides.id,
           rides.status,
-          rides.origin_label AS originLabel,
-          rides.origin_address AS originAddress,
-          rides.origin_lat AS originLat,
-          rides.origin_lng AS originLng,
-          rides.destination_label AS destinationLabel,
-          rides.destination_address AS destinationAddress,
-          rides.destination_lat AS destinationLat,
-          rides.destination_lng AS destinationLng,
-          rides.requested_vehicle_class AS requestedVehicleClass,
-          rides.distance_meters AS distanceMeters,
-          rides.duration_seconds AS durationSeconds,
-          rides.quoted_fare_ugx AS quotedFareUgx,
-          rides.final_fare_ugx AS finalFareUgx,
-          rides.payment_method AS paymentMethod,
-          rides.customer_notes AS customerNotes,
-          rides.driver_notes AS driverNotes,
-          rides.requested_at AS requestedAt,
-          rides.accepted_at AS acceptedAt,
-          rides.picked_up_at AS pickedUpAt,
-          rides.completed_at AS completedAt,
-          rides.cancelled_at AS cancelledAt,
-          rides.current_lat AS currentLat,
-          rides.current_lng AS currentLng,
-          customers.id AS customerId,
-          customers.full_name AS customerName,
-          customers.email AS customerEmail,
-          customers.phone AS customerPhone,
-          customers.avatar_url AS customerAvatarUrl,
-          drivers.id AS driverId,
-          drivers.full_name AS driverName,
-          drivers.email AS driverEmail,
-          drivers.phone AS driverPhone,
-          drivers.vehicle AS driverVehicle,
-          drivers.plate_number AS driverPlateNumber,
-          drivers.current_lat AS driverCurrentLat,
-          drivers.current_lng AS driverCurrentLng,
-          drivers.current_heading AS driverCurrentHeading,
-          drivers.is_online AS driverIsOnline
+          rides.origin_label AS "originLabel",
+          rides.origin_address AS "originAddress",
+          rides.origin_lat AS "originLat",
+          rides.origin_lng AS "originLng",
+          rides.destination_label AS "destinationLabel",
+          rides.destination_address AS "destinationAddress",
+          rides.destination_lat AS "destinationLat",
+          rides.destination_lng AS "destinationLng",
+          rides.requested_vehicle_class AS "requestedVehicleClass",
+          rides.distance_meters AS "distanceMeters",
+          rides.duration_seconds AS "durationSeconds",
+          rides.quoted_fare_ugx AS "quotedFareUgx",
+          rides.final_fare_ugx AS "finalFareUgx",
+          rides.payment_method AS "paymentMethod",
+          rides.customer_notes AS "customerNotes",
+          rides.driver_notes AS "driverNotes",
+          rides.requested_at AS "requestedAt",
+          rides.accepted_at AS "acceptedAt",
+          rides.picked_up_at AS "pickedUpAt",
+          rides.completed_at AS "completedAt",
+          rides.cancelled_at AS "cancelledAt",
+          rides.current_lat AS "currentLat",
+          rides.current_lng AS "currentLng",
+          customers.id AS "customerId",
+          customers.full_name AS "customerName",
+          customers.email AS "customerEmail",
+          customers.phone AS "customerPhone",
+          customers.avatar_url AS "customerAvatarUrl",
+          drivers.id AS "driverId",
+          drivers.full_name AS "driverName",
+          drivers.email AS "driverEmail",
+          drivers.phone AS "driverPhone",
+          drivers.vehicle AS "driverVehicle",
+          drivers.plate_number AS "driverPlateNumber",
+          drivers.current_lat AS "driverCurrentLat",
+          drivers.current_lng AS "driverCurrentLng",
+          drivers.current_heading AS "driverCurrentHeading",
+          drivers.is_online AS "driverIsOnline"
         FROM rides
         INNER JOIN customers ON customers.id = rides.customer_id
         LEFT JOIN drivers ON drivers.id = rides.driver_id
@@ -99,10 +99,19 @@ export function getRideSnapshot(rideId) {
       `
     )
     .get(rideId);
+
+  if (!ride) {
+    return null;
+  }
+
+  return {
+    ...ride,
+    driverIsOnline: Boolean(ride.driverIsOnline)
+  };
 }
 
-export function emitRideSnapshot(realtime, rideId) {
-  const ride = getRideSnapshot(rideId);
+export async function emitRideSnapshot(realtime, rideId) {
+  const ride = await getRideSnapshot(rideId);
   if (!ride) {
     return null;
   }
@@ -116,11 +125,11 @@ export function emitRideSnapshot(realtime, rideId) {
   return ride;
 }
 
-export function listRideMessages(rideId) {
+export async function listRideMessages(rideId) {
   return database
     .prepare(
       `
-        SELECT id, sender_role AS senderRole, sender_id AS senderId, body, created_at AS createdAt
+        SELECT id, sender_role AS "senderRole", sender_id AS "senderId", body, created_at AS "createdAt"
         FROM ride_messages
         WHERE ride_id = ?
         ORDER BY created_at ASC
@@ -129,7 +138,7 @@ export function listRideMessages(rideId) {
     .all(rideId);
 }
 
-export function createRideMessage(realtime, { rideId, senderRole, senderId, body }) {
+export async function createRideMessage(realtime, { rideId, senderRole, senderId, body }) {
   const message = {
     id: randomUUID(),
     rideId,
@@ -139,7 +148,7 @@ export function createRideMessage(realtime, { rideId, senderRole, senderId, body
     createdAt: nowIso()
   };
 
-  database
+  await database
     .prepare(
       `
         INSERT INTO ride_messages (id, ride_id, sender_role, sender_id, body, created_at)
@@ -148,7 +157,11 @@ export function createRideMessage(realtime, { rideId, senderRole, senderId, body
     )
     .run(message.id, message.rideId, message.senderRole, message.senderId, message.body, message.createdAt);
 
-  const ride = getRideSnapshot(rideId);
+  const ride = await getRideSnapshot(rideId);
+  if (!ride) {
+    return message;
+  }
+
   realtime.emitToRide(rideId, "message:new", message);
   realtime.emitToUser("customer", ride.customerId, "message:new", message);
   if (ride.driverId) {
@@ -157,7 +170,7 @@ export function createRideMessage(realtime, { rideId, senderRole, senderId, body
   realtime.emitToAdmins("message:new", { rideId, ...message });
 
   if (ride.customerId && senderRole !== "customer") {
-    createNotification(realtime, {
+    await createNotification(realtime, {
       targetRole: "customer",
       targetId: ride.customerId,
       category: "ride_message",
@@ -168,7 +181,7 @@ export function createRideMessage(realtime, { rideId, senderRole, senderId, body
   }
 
   if (ride.driverId && senderRole !== "driver") {
-    createNotification(realtime, {
+    await createNotification(realtime, {
       targetRole: "driver",
       targetId: ride.driverId,
       category: "ride_message",

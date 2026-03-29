@@ -413,7 +413,11 @@ async function loadDriverDocuments(driverId) {
 
   const title = document.createElement("div");
   title.className = "document-item";
-  title.innerHTML = `<strong>${payload.driver.fullName}</strong><p>Face photo: ${payload.driver.facePhotoPath || "Not uploaded"}</p><p>Car photo: ${payload.driver.carPhotoPath || "Not uploaded"}</p>`;
+  title.innerHTML = `
+    <strong>${payload.driver.fullName}</strong>
+    <p>Face photo: ${payload.driver.facePhotoUrl ? `<a href="${payload.driver.facePhotoUrl}" target="_blank" rel="noreferrer">Open file</a>` : "Not uploaded"}</p>
+    <p>Car photo: ${payload.driver.carPhotoUrl ? `<a href="${payload.driver.carPhotoUrl}" target="_blank" rel="noreferrer">Open file</a>` : "Not uploaded"}</p>
+  `;
   elements.documents.appendChild(title);
 
   payload.documents.forEach((document) => {
@@ -422,7 +426,7 @@ async function loadDriverDocuments(driverId) {
     article.innerHTML = `
       <strong>${document.originalName}</strong>
       <p>${document.mimeType || "file"}</p>
-      <a class="ghost-btn" href="/api/admin/documents/${document.id}/download">Download</a>
+      <a class="ghost-btn" href="${document.downloadUrl || `/api/admin/documents/${document.id}/download`}" target="_blank" rel="noreferrer">Download</a>
     `;
     elements.documents.appendChild(article);
   });

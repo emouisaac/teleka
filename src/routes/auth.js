@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import express from "express";
@@ -9,6 +7,7 @@ import { OAuth2Client } from "google-auth-library";
 
 import { config } from "../config.js";
 import { database, nowIso } from "../db.js";
+import { removeFiles, uploadFile } from "../storage.js";
 import {
   createNotification,
   listNotifications,
@@ -29,18 +28,8 @@ const googleClient = config.googleClientId
   ? new OAuth2Client(config.googleClientId)
   : null;
 
-const uploadDirectory = path.join(config.uploadRoot, "driver-applications");
-fs.mkdirSync(uploadDirectory, { recursive: true });
-
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, callback) => callback(null, uploadDirectory),
-    filename: (_req, file, callback) => {
-      const suffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      callback(null, `${suffix}-${safeName}`);
-    }
-  }),
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024
   }
@@ -67,18 +56,18 @@ function sanitizeDriver(driver) {
     : null;
 }
 
-function getCurrentProfile(user) {
+async function getCurrentProfile(user) {
   if (!user) {
     return null;
   }
   if (user.role === "admin") {
-    return sanitizeAdmin(getAdminProfile());
+    return sanitizeAdmin(await getAdminProfile());
   }
   if (user.role === "customer") {
-    return sanitizeCustomer(getCustomerProfile(user.id));
+    return sanitizeCustomer(await getCustomerProfile(user.id));
   }
   if (user.role === "driver") {
-    return sanitizeDriver(getDriverProfile(user.id));
+    return sanitizeDriver(await getDriverProfile(user.id));
   }
   return null;
 }
@@ -86,20 +75,24 @@ function getCurrentProfile(user) {
 export function createAuthRouter() {
   const router = express.Router();
 
-  router.get("/status", (req, res) => {
-    const current = getSessionUser(req);
-    if (!current) {
-      res.json({ authenticated: false });
-      return;
-    }
-
-    res.json({
-      authenticated: true,
-      user: {
-        role: current.role,
-        ...getCurrentProfile(current)
+  router.get("/status", async (req, res, next) => {
+    try {
+      const current = getSessionUser(req);
+      if (!current) {
+        res.json({ authenticated: false });
+        return;
       }
-    });
+
+      res.json({
+        authenticated: true,
+        user: {
+          role: current.role,
+          ...(await getCurrentProfile(current))
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.post("/admin/login", async (req, res, next) => {
@@ -109,10 +102,10 @@ export function createAuthRouter() {
         throw apiError(400, "Email and password are required");
       }
 
-      const admin = database
+      const admin = await database
         .prepare(
           `
-            SELECT id, email, password_hash AS passwordHash
+            SELECT id, email, password_hash AS "passwordHash"
             FROM admins
             WHERE email = ?
           `
@@ -123,7 +116,7 @@ export function createAuthRouter() {
         throw apiError(401, "Invalid admin credentials");
       }
 
-      database
+      await database
         .prepare("UPDATE admins SET last_login_at = ?, updated_at = ? WHERE id = ?")
         .run(nowIso(), nowIso(), admin.id);
 
@@ -133,7 +126,7 @@ export function createAuthRouter() {
         success: true,
         user: {
           role: "admin",
-          ...sanitizeAdmin(getAdminProfile())
+          ...sanitizeAdmin(await getAdminProfile())
         }
       });
     } catch (error) {
@@ -164,7 +157,7 @@ export function createAuthRouter() {
 
       const customerId = `cust-${payload.sub}`;
       const timestamp = nowIso();
-      database
+      await database
         .prepare(
           `
             INSERT INTO customers (
@@ -172,11 +165,11 @@ export function createAuthRouter() {
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(google_sub) DO UPDATE SET
-              email = excluded.email,
-              full_name = excluded.full_name,
-              avatar_url = excluded.avatar_url,
-              updated_at = excluded.updated_at,
-              last_login_at = excluded.last_login_at
+              email = EXCLUDED.email,
+              full_name = EXCLUDED.full_name,
+              avatar_url = EXCLUDED.avatar_url,
+              updated_at = EXCLUDED.updated_at,
+              last_login_at = EXCLUDED.last_login_at
           `
         )
         .run(
@@ -196,7 +189,7 @@ export function createAuthRouter() {
         success: true,
         user: {
           role: "customer",
-          ...sanitizeCustomer(getCustomerProfile(customerId))
+          ...sanitizeCustomer(await getCustomerProfile(customerId))
         }
       });
     } catch (error) {
@@ -239,9 +232,11 @@ export function createAuthRouter() {
           throw apiError(400, "All driver registration fields are required");
         }
 
-        const existing = database
+        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedPlate = plateNumber.trim().toUpperCase();
+        const existing = await database
           .prepare("SELECT id FROM drivers WHERE email = ? OR plate_number = ?")
-          .get(email.trim().toLowerCase(), plateNumber.trim().toUpperCase());
+          .get(normalizedEmail, normalizedPlate);
 
         if (existing) {
           throw apiError(409, "A driver with this email or plate number already exists");
@@ -252,68 +247,98 @@ export function createAuthRouter() {
         const facePhoto = req.files?.facePhoto?.[0] || null;
         const carPhoto = req.files?.carPhoto?.[0] || null;
         const documents = req.files?.documents || [];
+        const passwordHash = await bcrypt.hash(password, 10);
+        const uploadedObjects = [];
 
-        database
-          .prepare(
-            `
-              INSERT INTO drivers (
-                id, full_name, email, phone, password_hash, vehicle, plate_number,
-                license_number, national_id_number, insurance_number, face_photo_path,
-                car_photo_path, created_at, updated_at
-              )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `
-          )
-          .run(
-            driverId,
-            fullName.trim(),
-            email.trim().toLowerCase(),
-            phone.trim(),
-            await bcrypt.hash(password, 10),
-            vehicle.trim(),
-            plateNumber.trim().toUpperCase(),
-            licenseNumber.trim(),
-            nationalIdNumber.trim(),
-            insuranceNumber.trim(),
-            facePhoto ? config.toStoredUploadPath(facePhoto.path) : null,
-            carPhoto ? config.toStoredUploadPath(carPhoto.path) : null,
-            timestamp,
-            timestamp
-          );
+        const uploadAsset = async (file, folder) => {
+          if (!file) {
+            return null;
+          }
 
-        const insertDocument = database.prepare(
-          `
-            INSERT INTO driver_documents (id, driver_id, original_name, stored_name, file_path, mime_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `
-        );
+          const uploaded = await uploadFile({ folder, file });
+          uploadedObjects.push(uploaded.objectPath);
+          return uploaded;
+        };
 
-        for (const asset of [facePhoto, carPhoto].filter(Boolean)) {
-          insertDocument.run(
-            randomUUID(),
-            driverId,
-            asset.originalname,
-            asset.filename,
-            config.toStoredUploadPath(asset.path),
-            asset.mimetype,
-            timestamp
+        const baseFolder = `driver-applications/${driverId}`;
+        const uploadedFacePhoto = await uploadAsset(facePhoto, `${baseFolder}/face-photo`);
+        const uploadedCarPhoto = await uploadAsset(carPhoto, `${baseFolder}/car-photo`);
+        const uploadedDocuments = [];
+
+        for (const document of documents) {
+          uploadedDocuments.push(
+            await uploadAsset(document, `${baseFolder}/documents`)
           );
         }
 
-        for (const document of documents) {
-          insertDocument.run(
-            randomUUID(),
-            driverId,
-            document.originalname,
-            document.filename,
-            config.toStoredUploadPath(document.path),
-            document.mimetype,
-            timestamp
-          );
+        try {
+          await database.withTransaction(async (tx) => {
+            await tx
+              .prepare(
+                `
+                  INSERT INTO drivers (
+                    id, full_name, email, phone, password_hash, vehicle, plate_number,
+                    license_number, national_id_number, insurance_number, face_photo_path,
+                    car_photo_path, created_at, updated_at
+                  )
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `
+              )
+              .run(
+                driverId,
+                fullName.trim(),
+                normalizedEmail,
+                phone.trim(),
+                passwordHash,
+                vehicle.trim(),
+                normalizedPlate,
+                licenseNumber.trim(),
+                nationalIdNumber.trim(),
+                insuranceNumber.trim(),
+                uploadedFacePhoto?.objectPath || null,
+                uploadedCarPhoto?.objectPath || null,
+                timestamp,
+                timestamp
+              );
+
+            const insertDocument = tx.prepare(
+              `
+                INSERT INTO driver_documents (id, driver_id, original_name, stored_name, file_path, mime_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `
+            );
+
+            for (const asset of [uploadedFacePhoto, uploadedCarPhoto].filter(Boolean)) {
+              await insertDocument.run(
+                randomUUID(),
+                driverId,
+                asset.originalName,
+                asset.storedName,
+                asset.objectPath,
+                asset.mimeType,
+                timestamp
+              );
+            }
+
+            for (const document of uploadedDocuments) {
+              await insertDocument.run(
+                randomUUID(),
+                driverId,
+                document.originalName,
+                document.storedName,
+                document.objectPath,
+                document.mimeType,
+                timestamp
+              );
+            }
+          });
+        } catch (error) {
+          await removeFiles(uploadedObjects);
+          throw error;
         }
 
         const realtime = req.app.locals.realtime;
-        createNotification(realtime, {
+        await createNotification(realtime, {
           targetRole: "admin",
           targetId: "admin-root",
           category: "driver_application",
@@ -345,10 +370,10 @@ export function createAuthRouter() {
         throw apiError(400, "Email and password are required");
       }
 
-      const driver = database
+      const driver = await database
         .prepare(
           `
-            SELECT id, password_hash AS passwordHash, approval_status AS approvalStatus
+            SELECT id, password_hash AS "passwordHash", approval_status AS "approvalStatus"
             FROM drivers
             WHERE email = ?
           `
@@ -363,7 +388,7 @@ export function createAuthRouter() {
         throw apiError(403, `Driver account is ${driver.approvalStatus}`);
       }
 
-      database
+      await database
         .prepare("UPDATE drivers SET last_login_at = ?, updated_at = ? WHERE id = ?")
         .run(nowIso(), nowIso(), driver.id);
 
@@ -373,7 +398,7 @@ export function createAuthRouter() {
         success: true,
         user: {
           role: "driver",
-          ...sanitizeDriver(getDriverProfile(driver.id))
+          ...sanitizeDriver(await getDriverProfile(driver.id))
         }
       });
     } catch (error) {
@@ -391,27 +416,27 @@ export function createAuthRouter() {
     }
   });
 
-  router.get("/notifications", (req, res, next) => {
+  router.get("/notifications", async (req, res, next) => {
     try {
       const current = getSessionUser(req);
       if (!current) {
         throw apiError(401, "Authentication required");
       }
       res.json({
-        notifications: listNotifications(current.role, current.id)
+        notifications: await listNotifications(current.role, current.id)
       });
     } catch (error) {
       next(error);
     }
   });
 
-  router.post("/notifications/:id/read", (req, res, next) => {
+  router.post("/notifications/:id/read", async (req, res, next) => {
     try {
       const current = getSessionUser(req);
       if (!current) {
         throw apiError(401, "Authentication required");
       }
-      markNotificationRead(current.role, current.id, req.params.id);
+      await markNotificationRead(current.role, current.id, req.params.id);
       res.json({ success: true });
     } catch (error) {
       next(error);

@@ -24,8 +24,12 @@ export function createPublicRouter() {
     }
   });
 
-  router.get("/settings", (_req, res) => {
-    res.json({ settings: getSettings() });
+  router.get("/settings", async (_req, res, next) => {
+    try {
+      res.json({ settings: await getSettings() });
+    } catch (error) {
+      next(error);
+    }
   });
 
   return router;

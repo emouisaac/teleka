@@ -6,95 +6,111 @@ import { buildVehicleEstimates } from "../services/maps.js";
 import { createNotification } from "../services/notifications.js";
 import { sendOutboundNotice } from "../services/outbound.js";
 import { emitRideSnapshot } from "../services/rides.js";
+import { createSignedUrl, downloadFile } from "../storage.js";
 import { apiError, requireRole } from "./helpers.js";
 
-function getAdminDashboard() {
-  const summary = {
-    customers: database.prepare("SELECT COUNT(*) AS value FROM customers").get().value,
-    drivers: database.prepare("SELECT COUNT(*) AS value FROM drivers").get().value,
-    approvedDrivers: database
-      .prepare("SELECT COUNT(*) AS value FROM drivers WHERE approval_status = 'approved'")
-      .get().value,
-    driversOnline: database
-      .prepare("SELECT COUNT(*) AS value FROM drivers WHERE approval_status = 'approved' AND is_online = 1")
-      .get().value,
-    pendingRides: database
-      .prepare("SELECT COUNT(*) AS value FROM rides WHERE status IN ('pending_admin', 'assigned')")
-      .get().value,
-    activeRides: database
-      .prepare("SELECT COUNT(*) AS value FROM rides WHERE status IN ('accepted', 'in_progress')")
-      .get().value,
-    completedRides: database
-      .prepare("SELECT COUNT(*) AS value FROM rides WHERE status = 'completed'")
-      .get().value,
-    totalRevenueUgx: database
+async function getAdminDashboard() {
+  const [
+    customers,
+    drivers,
+    approvedDrivers,
+    driversOnline,
+    pendingRides,
+    activeRides,
+    completedRides,
+    totalRevenueUgx,
+    rides,
+    rawDrivers,
+    settings
+  ] = await Promise.all([
+    database.prepare("SELECT COUNT(*)::int AS value FROM customers").get(),
+    database.prepare("SELECT COUNT(*)::int AS value FROM drivers").get(),
+    database.prepare("SELECT COUNT(*)::int AS value FROM drivers WHERE approval_status = 'approved'").get(),
+    database
+      .prepare("SELECT COUNT(*)::int AS value FROM drivers WHERE approval_status = 'approved' AND is_online = 1")
+      .get(),
+    database
+      .prepare("SELECT COUNT(*)::int AS value FROM rides WHERE status IN ('pending_admin', 'assigned')")
+      .get(),
+    database
+      .prepare("SELECT COUNT(*)::int AS value FROM rides WHERE status IN ('accepted', 'in_progress')")
+      .get(),
+    database.prepare("SELECT COUNT(*)::int AS value FROM rides WHERE status = 'completed'").get(),
+    database
       .prepare(
-        "SELECT COALESCE(SUM(COALESCE(final_fare_ugx, quoted_fare_ugx)), 0) AS value FROM rides WHERE status = 'completed'"
+        "SELECT COALESCE(SUM(COALESCE(final_fare_ugx, quoted_fare_ugx)), 0)::int AS value FROM rides WHERE status = 'completed'"
       )
-      .get().value
-  };
-
-  const rides = database
-    .prepare(
-      `
-        SELECT
-          rides.id,
-          rides.status,
-          rides.origin_label AS originLabel,
-          rides.destination_label AS destinationLabel,
-          rides.requested_vehicle_class AS requestedVehicleClass,
-          rides.quoted_fare_ugx AS quotedFareUgx,
-          rides.final_fare_ugx AS finalFareUgx,
-          rides.requested_at AS requestedAt,
-          customers.full_name AS customerName,
-          customers.phone AS customerPhone,
-          drivers.id AS driverId,
-          drivers.full_name AS driverName,
-          drivers.vehicle AS driverVehicle,
-          drivers.plate_number AS driverPlateNumber
-        FROM rides
-        INNER JOIN customers ON customers.id = rides.customer_id
-        LEFT JOIN drivers ON drivers.id = rides.driver_id
-        ORDER BY rides.requested_at DESC
-        LIMIT 40
-      `
-    )
-    .all();
-
-  const drivers = database
-    .prepare(
-      `
-        SELECT
-          drivers.id,
-          drivers.full_name AS fullName,
-          drivers.email,
-          drivers.phone,
-          drivers.vehicle,
-          drivers.plate_number AS plateNumber,
-          drivers.approval_status AS approvalStatus,
-          drivers.approval_notes AS approvalNotes,
-          drivers.is_online AS isOnline,
-          drivers.current_lat AS currentLat,
-          drivers.current_lng AS currentLng,
-          drivers.last_location_at AS lastLocationAt,
-          (
-            SELECT COUNT(*) FROM driver_documents WHERE driver_documents.driver_id = drivers.id
-          ) AS documentCount
-        FROM drivers
-        ORDER BY drivers.created_at DESC
-      `
-    )
-    .all()
-    .map((driver) => ({
-      ...driver,
-      isOnline: Boolean(driver.isOnline)
-    }));
+      .get(),
+    database
+      .prepare(
+        `
+          SELECT
+            rides.id,
+            rides.status,
+            rides.origin_label AS "originLabel",
+            rides.destination_label AS "destinationLabel",
+            rides.requested_vehicle_class AS "requestedVehicleClass",
+            rides.quoted_fare_ugx AS "quotedFareUgx",
+            rides.final_fare_ugx AS "finalFareUgx",
+            rides.requested_at AS "requestedAt",
+            customers.full_name AS "customerName",
+            customers.phone AS "customerPhone",
+            drivers.id AS "driverId",
+            drivers.full_name AS "driverName",
+            drivers.vehicle AS "driverVehicle",
+            drivers.plate_number AS "driverPlateNumber"
+          FROM rides
+          INNER JOIN customers ON customers.id = rides.customer_id
+          LEFT JOIN drivers ON drivers.id = rides.driver_id
+          ORDER BY rides.requested_at DESC
+          LIMIT 40
+        `
+      )
+      .all(),
+    database
+      .prepare(
+        `
+          SELECT
+            drivers.id,
+            drivers.full_name AS "fullName",
+            drivers.email,
+            drivers.phone,
+            drivers.vehicle,
+            drivers.plate_number AS "plateNumber",
+            drivers.approval_status AS "approvalStatus",
+            drivers.approval_notes AS "approvalNotes",
+            drivers.is_online AS "isOnline",
+            drivers.current_lat AS "currentLat",
+            drivers.current_lng AS "currentLng",
+            drivers.last_location_at AS "lastLocationAt",
+            (
+              SELECT COUNT(*) FROM driver_documents WHERE driver_documents.driver_id = drivers.id
+            )::int AS "documentCount"
+          FROM drivers
+          ORDER BY drivers.created_at DESC
+        `
+      )
+      .all(),
+    getSettings()
+  ]);
 
   return {
-    summary,
+    summary: {
+      customers: customers?.value || 0,
+      drivers: drivers?.value || 0,
+      approvedDrivers: approvedDrivers?.value || 0,
+      driversOnline: driversOnline?.value || 0,
+      pendingRides: pendingRides?.value || 0,
+      activeRides: activeRides?.value || 0,
+      completedRides: completedRides?.value || 0,
+      totalRevenueUgx: totalRevenueUgx?.value || 0
+    },
     rides,
-    drivers,
-    settings: getSettings()
+    drivers: rawDrivers.map((driver) => ({
+      ...driver,
+      isOnline: Boolean(driver.isOnline)
+    })),
+    settings
   };
 }
 
@@ -112,16 +128,16 @@ function calculateRideQuoteForFareSettings(ride, fareSettings) {
   return matchingEstimate?.fareUgx || Number(ride.quotedFareUgx || 0);
 }
 
-function repriceOpenRides(fareSettings) {
-  const openRides = database
+async function repriceOpenRides(fareSettings) {
+  const openRides = await database
     .prepare(
       `
         SELECT
           id,
-          distance_meters AS distanceMeters,
-          duration_seconds AS durationSeconds,
-          requested_vehicle_class AS requestedVehicleClass,
-          quoted_fare_ugx AS quotedFareUgx
+          distance_meters AS "distanceMeters",
+          duration_seconds AS "durationSeconds",
+          requested_vehicle_class AS "requestedVehicleClass",
+          quoted_fare_ugx AS "quotedFareUgx"
         FROM rides
         WHERE status IN ('pending_admin', 'assigned', 'accepted', 'in_progress')
           AND final_fare_ugx IS NULL
@@ -129,9 +145,6 @@ function repriceOpenRides(fareSettings) {
     )
     .all();
 
-  const updateRideFare = database.prepare(
-    "UPDATE rides SET quoted_fare_ugx = ? WHERE id = ?"
-  );
   const updatedRideIds = [];
 
   for (const ride of openRides) {
@@ -139,7 +152,10 @@ function repriceOpenRides(fareSettings) {
     if (nextFare === Number(ride.quotedFareUgx || 0)) {
       continue;
     }
-    updateRideFare.run(nextFare, ride.id);
+
+    await database
+      .prepare("UPDATE rides SET quoted_fare_ugx = ? WHERE id = ?")
+      .run(nextFare, ride.id);
     updatedRideIds.push(ride.id);
   }
 
@@ -151,16 +167,20 @@ export function createAdminRouter() {
 
   router.use(requireRole("admin"));
 
-  router.get("/dashboard", (_req, res) => {
-    res.json(getAdminDashboard());
+  router.get("/dashboard", async (_req, res, next) => {
+    try {
+      res.json(await getAdminDashboard());
+    } catch (error) {
+      next(error);
+    }
   });
 
-  router.get("/drivers/:driverId/documents", (req, res, next) => {
+  router.get("/drivers/:driverId/documents", async (req, res, next) => {
     try {
-      const driver = database
+      const driver = await database
         .prepare(
           `
-            SELECT id, full_name AS fullName, face_photo_path AS facePhotoPath, car_photo_path AS carPhotoPath
+            SELECT id, full_name AS "fullName", face_photo_path AS "facePhotoPath", car_photo_path AS "carPhotoPath"
             FROM drivers
             WHERE id = ?
           `
@@ -171,10 +191,10 @@ export function createAdminRouter() {
         throw apiError(404, "Driver not found");
       }
 
-      const documents = database
+      const documents = await database
         .prepare(
           `
-            SELECT id, original_name AS originalName, mime_type AS mimeType, file_path AS filePath, created_at AS createdAt
+            SELECT id, original_name AS "originalName", mime_type AS "mimeType", file_path AS "filePath", created_at AS "createdAt"
             FROM driver_documents
             WHERE driver_id = ?
             ORDER BY created_at ASC
@@ -182,18 +202,36 @@ export function createAdminRouter() {
         )
         .all(req.params.driverId);
 
-      res.json({ driver, documents });
+      const [facePhotoUrl, carPhotoUrl, mappedDocuments] = await Promise.all([
+        createSignedUrl(driver.facePhotoPath),
+        createSignedUrl(driver.carPhotoPath),
+        Promise.all(
+          documents.map(async (document) => ({
+            ...document,
+            downloadUrl: await createSignedUrl(document.filePath)
+          }))
+        )
+      ]);
+
+      res.json({
+        driver: {
+          ...driver,
+          facePhotoUrl,
+          carPhotoUrl
+        },
+        documents: mappedDocuments
+      });
     } catch (error) {
       next(error);
     }
   });
 
-  router.get("/documents/:documentId/download", (req, res, next) => {
+  router.get("/documents/:documentId/download", async (req, res, next) => {
     try {
-      const document = database
+      const document = await database
         .prepare(
           `
-            SELECT original_name AS originalName, file_path AS filePath
+            SELECT original_name AS "originalName", file_path AS "filePath"
             FROM driver_documents
             WHERE id = ?
           `
@@ -204,7 +242,10 @@ export function createAdminRouter() {
         throw apiError(404, "Document not found");
       }
 
-      res.download(config.resolveStoredUploadPath(document.filePath), document.originalName);
+      const file = await downloadFile(document.filePath);
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(document.originalName)}"`);
+      res.send(file.buffer);
     } catch (error) {
       next(error);
     }
@@ -212,7 +253,7 @@ export function createAdminRouter() {
 
   router.post("/drivers/:driverId/approve", async (req, res, next) => {
     try {
-      const driver = database
+      const driver = await database
         .prepare("SELECT id, email, phone FROM drivers WHERE id = ?")
         .get(req.params.driverId);
 
@@ -220,7 +261,7 @@ export function createAdminRouter() {
         throw apiError(404, "Driver not found");
       }
 
-      database
+      await database
         .prepare(
           `
             UPDATE drivers
@@ -231,7 +272,7 @@ export function createAdminRouter() {
         .run(req.body.notes?.trim() || null, nowIso(), driver.id);
 
       const realtime = req.app.locals.realtime;
-      createNotification(realtime, {
+      await createNotification(realtime, {
         targetRole: "driver",
         targetId: driver.id,
         category: "driver_approved",
@@ -246,7 +287,7 @@ export function createAdminRouter() {
         whatsappTo: driver.phone
       });
 
-      res.json({ success: true, dashboard: getAdminDashboard() });
+      res.json({ success: true, dashboard: await getAdminDashboard() });
     } catch (error) {
       next(error);
     }
@@ -254,7 +295,7 @@ export function createAdminRouter() {
 
   router.post("/drivers/:driverId/reject", async (req, res, next) => {
     try {
-      const driver = database
+      const driver = await database
         .prepare("SELECT id, email, phone FROM drivers WHERE id = ?")
         .get(req.params.driverId);
 
@@ -263,7 +304,7 @@ export function createAdminRouter() {
       }
 
       const reason = req.body.notes?.trim() || "Your application needs changes before approval.";
-      database
+      await database
         .prepare(
           `
             UPDATE drivers
@@ -274,7 +315,7 @@ export function createAdminRouter() {
         .run(reason, nowIso(), driver.id);
 
       const realtime = req.app.locals.realtime;
-      createNotification(realtime, {
+      await createNotification(realtime, {
         targetRole: "driver",
         targetId: driver.id,
         category: "driver_rejected",
@@ -289,7 +330,7 @@ export function createAdminRouter() {
         whatsappTo: driver.phone
       });
 
-      res.json({ success: true, dashboard: getAdminDashboard() });
+      res.json({ success: true, dashboard: await getAdminDashboard() });
     } catch (error) {
       next(error);
     }
@@ -302,10 +343,10 @@ export function createAdminRouter() {
         throw apiError(400, "Driver selection is required");
       }
 
-      const ride = database
+      const ride = await database
         .prepare(
           `
-            SELECT id, status, customer_id AS customerId
+            SELECT id, status, customer_id AS "customerId"
             FROM rides
             WHERE id = ?
           `
@@ -319,10 +360,10 @@ export function createAdminRouter() {
         throw apiError(409, "Ride can no longer be assigned");
       }
 
-      const driver = database
+      const driver = await database
         .prepare(
           `
-            SELECT id, full_name AS fullName, approval_status AS approvalStatus, email, phone
+            SELECT id, full_name AS "fullName", approval_status AS "approvalStatus", email, phone
             FROM drivers
             WHERE id = ?
           `
@@ -336,21 +377,21 @@ export function createAdminRouter() {
         throw apiError(409, "Driver is not approved");
       }
 
-      database
+      await database
         .prepare("UPDATE rides SET driver_id = ?, status = 'assigned' WHERE id = ?")
         .run(driverId, ride.id);
 
       const realtime = req.app.locals.realtime;
-      const snapshot = emitRideSnapshot(realtime, ride.id);
-      createNotification(realtime, {
+      const snapshot = await emitRideSnapshot(realtime, ride.id);
+      await createNotification(realtime, {
         targetRole: "driver",
         targetId: driverId,
         category: "ride_assigned",
         title: "New ride assigned",
-        message: `${snapshot.originLabel} to ${snapshot.destinationLabel}`,
+        message: `${snapshot?.originLabel || "Ride"} to ${snapshot?.destinationLabel || "destination"}`,
         rideId: ride.id
       });
-      createNotification(realtime, {
+      await createNotification(realtime, {
         targetRole: "customer",
         targetId: ride.customerId,
         category: "ride_status",
@@ -362,7 +403,7 @@ export function createAdminRouter() {
       await sendOutboundNotice({
         email: driver.email,
         subject: "Teleka ride assigned",
-        message: `You have been assigned a ride from ${snapshot.originLabel} to ${snapshot.destinationLabel}.`,
+        message: `You have been assigned a ride from ${snapshot?.originLabel || "pickup"} to ${snapshot?.destinationLabel || "dropoff"}.`,
         whatsappTo: driver.phone
       });
 
@@ -372,27 +413,27 @@ export function createAdminRouter() {
     }
   });
 
-  router.post("/rides/:rideId/status", (req, res, next) => {
+  router.post("/rides/:rideId/status", async (req, res, next) => {
     try {
       if (req.body.status !== "cancelled") {
         throw apiError(400, "Unsupported admin status update");
       }
 
-      const ride = database
-        .prepare("SELECT id, customer_id AS customerId, driver_id AS driverId FROM rides WHERE id = ?")
+      const ride = await database
+        .prepare('SELECT id, customer_id AS "customerId", driver_id AS "driverId" FROM rides WHERE id = ?')
         .get(req.params.rideId);
 
       if (!ride) {
         throw apiError(404, "Ride not found");
       }
 
-      database
+      await database
         .prepare("UPDATE rides SET status = 'cancelled', cancelled_at = ? WHERE id = ?")
         .run(nowIso(), ride.id);
 
       const realtime = req.app.locals.realtime;
-      const snapshot = emitRideSnapshot(realtime, ride.id);
-      createNotification(realtime, {
+      const snapshot = await emitRideSnapshot(realtime, ride.id);
+      await createNotification(realtime, {
         targetRole: "customer",
         targetId: ride.customerId,
         category: "ride_status",
@@ -401,7 +442,7 @@ export function createAdminRouter() {
         rideId: ride.id
       });
       if (ride.driverId) {
-        createNotification(realtime, {
+        await createNotification(realtime, {
           targetRole: "driver",
           targetId: ride.driverId,
           category: "ride_status",
@@ -417,7 +458,7 @@ export function createAdminRouter() {
     }
   });
 
-  router.put("/settings/fare", (req, res, next) => {
+  router.put("/settings/fare", async (req, res, next) => {
     try {
       const fare = req.body;
       const required = ["baseFareUgx", "bookingFeeUgx", "perKmUgx", "perMinuteUgx", "minimumFareUgx"];
@@ -427,7 +468,7 @@ export function createAdminRouter() {
         }
       }
 
-      setSetting("fare", {
+      await setSetting("fare", {
         baseFareUgx: Number(fare.baseFareUgx),
         bookingFeeUgx: Number(fare.bookingFeeUgx),
         perKmUgx: Number(fare.perKmUgx),
@@ -435,13 +476,11 @@ export function createAdminRouter() {
         minimumFareUgx: Number(fare.minimumFareUgx)
       });
 
-      const settings = getSettings();
-      const updatedRideIds = repriceOpenRides(settings.fare);
+      const settings = await getSettings();
+      const updatedRideIds = await repriceOpenRides(settings.fare);
       const realtime = req.app.locals.realtime;
 
-      updatedRideIds.forEach((rideId) => {
-        emitRideSnapshot(realtime, rideId);
-      });
+      await Promise.all(updatedRideIds.map((rideId) => emitRideSnapshot(realtime, rideId)));
 
       realtime.emitToAdmins("settings:updated", { key: "fare" });
       realtime.emitToRole("customer", "settings:updated", { key: "fare" });

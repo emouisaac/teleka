@@ -12,11 +12,11 @@ import {
 } from "../services/rides.js";
 import { apiError, getDriverProfile, requireRole } from "./helpers.js";
 
-function getDriverRide(driverId, rideId) {
-  const ride = database
+async function getDriverRide(driverId, rideId) {
+  const ride = await database
     .prepare(
       `
-        SELECT id, status, customer_id AS customerId
+        SELECT id, status, customer_id AS "customerId"
         FROM rides
         WHERE id = ? AND driver_id = ?
       `
@@ -30,34 +30,34 @@ function getDriverRide(driverId, rideId) {
   return ride;
 }
 
-function listDriverRides(driverId) {
+async function listDriverRides(driverId) {
   return database
     .prepare(
       `
         SELECT
           rides.id,
           rides.status,
-          rides.origin_label AS originLabel,
-          rides.origin_address AS originAddress,
-          rides.origin_lat AS originLat,
-          rides.origin_lng AS originLng,
-          rides.destination_label AS destinationLabel,
-          rides.destination_address AS destinationAddress,
-          rides.destination_lat AS destinationLat,
-          rides.destination_lng AS destinationLng,
-          rides.distance_meters AS distanceMeters,
-          rides.duration_seconds AS durationSeconds,
-          rides.quoted_fare_ugx AS quotedFareUgx,
-          rides.final_fare_ugx AS finalFareUgx,
-          rides.requested_at AS requestedAt,
-          rides.accepted_at AS acceptedAt,
-          rides.picked_up_at AS pickedUpAt,
-          rides.completed_at AS completedAt,
-          rides.current_lat AS currentLat,
-          rides.current_lng AS currentLng,
-          customers.full_name AS customerName,
-          customers.phone AS customerPhone,
-          customers.avatar_url AS customerAvatarUrl
+          rides.origin_label AS "originLabel",
+          rides.origin_address AS "originAddress",
+          rides.origin_lat AS "originLat",
+          rides.origin_lng AS "originLng",
+          rides.destination_label AS "destinationLabel",
+          rides.destination_address AS "destinationAddress",
+          rides.destination_lat AS "destinationLat",
+          rides.destination_lng AS "destinationLng",
+          rides.distance_meters AS "distanceMeters",
+          rides.duration_seconds AS "durationSeconds",
+          rides.quoted_fare_ugx AS "quotedFareUgx",
+          rides.final_fare_ugx AS "finalFareUgx",
+          rides.requested_at AS "requestedAt",
+          rides.accepted_at AS "acceptedAt",
+          rides.picked_up_at AS "pickedUpAt",
+          rides.completed_at AS "completedAt",
+          rides.current_lat AS "currentLat",
+          rides.current_lng AS "currentLng",
+          customers.full_name AS "customerName",
+          customers.phone AS "customerPhone",
+          customers.avatar_url AS "customerAvatarUrl"
         FROM rides
         INNER JOIN customers ON customers.id = rides.customer_id
         WHERE rides.driver_id = ?
@@ -67,19 +67,25 @@ function listDriverRides(driverId) {
     .all(driverId);
 }
 
-function getDriverStats(driverId) {
-  return {
-    totalTrips: database
-      .prepare("SELECT COUNT(*) AS value FROM rides WHERE driver_id = ? AND status = 'completed'")
-      .get(driverId).value,
-    activeTrips: database
-      .prepare("SELECT COUNT(*) AS value FROM rides WHERE driver_id = ? AND status IN ('assigned', 'accepted', 'in_progress')")
-      .get(driverId).value,
-    earningsUgx: database
+async function getDriverStats(driverId) {
+  const [totalTrips, activeTrips, earnings] = await Promise.all([
+    database
+      .prepare("SELECT COUNT(*)::int AS value FROM rides WHERE driver_id = ? AND status = 'completed'")
+      .get(driverId),
+    database
+      .prepare("SELECT COUNT(*)::int AS value FROM rides WHERE driver_id = ? AND status IN ('assigned', 'accepted', 'in_progress')")
+      .get(driverId),
+    database
       .prepare(
-        "SELECT COALESCE(SUM(COALESCE(final_fare_ugx, quoted_fare_ugx)), 0) AS value FROM rides WHERE driver_id = ? AND status = 'completed'"
+        "SELECT COALESCE(SUM(COALESCE(final_fare_ugx, quoted_fare_ugx)), 0)::int AS value FROM rides WHERE driver_id = ? AND status = 'completed'"
       )
-      .get(driverId).value
+      .get(driverId)
+  ]);
+
+  return {
+    totalTrips: totalTrips?.value || 0,
+    activeTrips: activeTrips?.value || 0,
+    earningsUgx: earnings?.value || 0
   };
 }
 
@@ -88,33 +94,44 @@ export function createDriverRouter() {
 
   router.use(requireRole("driver"));
 
-  router.get("/dashboard", (req, res) => {
-    const driverId = req.session.user.id;
-    res.json({
-      profile: getDriverProfile(driverId),
-      stats: getDriverStats(driverId),
-      rides: listDriverRides(driverId)
-    });
-  });
-
-  router.post("/availability", (req, res, next) => {
+  router.get("/dashboard", async (req, res, next) => {
     try {
-      const isOnline = Boolean(req.body.isOnline);
-      database
-        .prepare("UPDATE drivers SET is_online = ?, updated_at = ? WHERE id = ?")
-        .run(isOnline ? 1 : 0, nowIso(), req.session.user.id);
+      const driverId = req.session.user.id;
+      const [profile, stats, rides] = await Promise.all([
+        getDriverProfile(driverId),
+        getDriverStats(driverId),
+        listDriverRides(driverId)
+      ]);
 
-      req.app.locals.realtime.emitToAdmins("driver:updated", getDriverProfile(req.session.user.id));
       res.json({
-        success: true,
-        profile: getDriverProfile(req.session.user.id)
+        profile,
+        stats,
+        rides
       });
     } catch (error) {
       next(error);
     }
   });
 
-  router.post("/location", (req, res, next) => {
+  router.post("/availability", async (req, res, next) => {
+    try {
+      const isOnline = Boolean(req.body.isOnline);
+      await database
+        .prepare("UPDATE drivers SET is_online = ?, updated_at = ? WHERE id = ?")
+        .run(isOnline ? 1 : 0, nowIso(), req.session.user.id);
+
+      const profile = await getDriverProfile(req.session.user.id);
+      req.app.locals.realtime.emitToAdmins("driver:updated", profile);
+      res.json({
+        success: true,
+        profile
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/location", async (req, res, next) => {
     try {
       const lat = Number(req.body.lat);
       const lng = Number(req.body.lng);
@@ -125,7 +142,7 @@ export function createDriverRouter() {
 
       const driverId = req.session.user.id;
       const timestamp = nowIso();
-      database
+      await database
         .prepare(
           `
             UPDATE drivers
@@ -135,7 +152,7 @@ export function createDriverRouter() {
         )
         .run(lat, lng, heading, timestamp, timestamp, driverId);
 
-      const activeRide = database
+      const activeRide = await database
         .prepare(
           `
             SELECT id
@@ -148,10 +165,10 @@ export function createDriverRouter() {
         .get(driverId);
 
       if (activeRide) {
-        database
+        await database
           .prepare("UPDATE rides SET current_lat = ?, current_lng = ? WHERE id = ?")
           .run(lat, lng, activeRide.id);
-        database
+        await database
           .prepare(
             `
               INSERT INTO location_events (id, driver_id, ride_id, lat, lng, heading, created_at)
@@ -159,10 +176,10 @@ export function createDriverRouter() {
             `
           )
           .run(randomUUID(), driverId, activeRide.id, lat, lng, heading, timestamp);
-        emitRideSnapshot(req.app.locals.realtime, activeRide.id);
+        await emitRideSnapshot(req.app.locals.realtime, activeRide.id);
       }
 
-      req.app.locals.realtime.emitToAdmins("driver:updated", getDriverProfile(driverId));
+      req.app.locals.realtime.emitToAdmins("driver:updated", await getDriverProfile(driverId));
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -171,18 +188,18 @@ export function createDriverRouter() {
 
   router.post("/rides/:rideId/accept", async (req, res, next) => {
     try {
-      const ride = getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
       if (ride.status !== "assigned") {
         throw apiError(409, "Ride is not awaiting driver acceptance");
       }
 
-      database
+      await database
         .prepare("UPDATE rides SET status = 'accepted', accepted_at = ? WHERE id = ?")
         .run(nowIso(), ride.id);
 
       const realtime = req.app.locals.realtime;
-      const snapshot = emitRideSnapshot(realtime, ride.id);
-      createNotification(realtime, {
+      const snapshot = await emitRideSnapshot(realtime, ride.id);
+      await createNotification(realtime, {
         targetRole: "customer",
         targetId: ride.customerId,
         category: "ride_status",
@@ -192,9 +209,9 @@ export function createDriverRouter() {
       });
 
       await sendOutboundNotice({
-        email: snapshot.customerEmail,
+        email: snapshot?.customerEmail,
         subject: "Teleka driver accepted your ride",
-        message: `${snapshot.driverName} accepted your ride and is on the way.`
+        message: `${snapshot?.driverName || "Your driver"} accepted your ride and is on the way.`
       });
 
       res.json({ success: true, ride: snapshot });
@@ -203,20 +220,20 @@ export function createDriverRouter() {
     }
   });
 
-  router.post("/rides/:rideId/start", (req, res, next) => {
+  router.post("/rides/:rideId/start", async (req, res, next) => {
     try {
-      const ride = getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
       if (ride.status !== "accepted") {
         throw apiError(409, "Ride cannot be started");
       }
 
-      database
+      await database
         .prepare("UPDATE rides SET status = 'in_progress', picked_up_at = ? WHERE id = ?")
         .run(nowIso(), ride.id);
 
       const realtime = req.app.locals.realtime;
-      const snapshot = emitRideSnapshot(realtime, ride.id);
-      createNotification(realtime, {
+      const snapshot = await emitRideSnapshot(realtime, ride.id);
+      await createNotification(realtime, {
         targetRole: "customer",
         targetId: ride.customerId,
         category: "ride_status",
@@ -233,13 +250,13 @@ export function createDriverRouter() {
 
   router.post("/rides/:rideId/complete", async (req, res, next) => {
     try {
-      const ride = getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
       if (ride.status !== "in_progress") {
         throw apiError(409, "Only in-progress rides can be completed");
       }
 
       const finalFareUgx = Number(req.body.finalFareUgx || 0);
-      database
+      await database
         .prepare(
           `
             UPDATE rides
@@ -250,8 +267,8 @@ export function createDriverRouter() {
         .run(nowIso(), finalFareUgx, finalFareUgx, ride.id);
 
       const realtime = req.app.locals.realtime;
-      const snapshot = emitRideSnapshot(realtime, ride.id);
-      createNotification(realtime, {
+      const snapshot = await emitRideSnapshot(realtime, ride.id);
+      await createNotification(realtime, {
         targetRole: "customer",
         targetId: ride.customerId,
         category: "ride_status",
@@ -261,9 +278,9 @@ export function createDriverRouter() {
       });
 
       await sendOutboundNotice({
-        email: snapshot.customerEmail,
+        email: snapshot?.customerEmail,
         subject: "Teleka ride completed",
-        message: `Your ride is complete. Final fare: UGX ${snapshot.finalFareUgx || snapshot.quotedFareUgx}.`
+        message: `Your ride is complete. Final fare: UGX ${snapshot?.finalFareUgx || snapshot?.quotedFareUgx || 0}.`
       });
 
       res.json({ success: true, ride: snapshot });
@@ -272,24 +289,24 @@ export function createDriverRouter() {
     }
   });
 
-  router.get("/rides/:rideId/messages", (req, res, next) => {
+  router.get("/rides/:rideId/messages", async (req, res, next) => {
     try {
-      getDriverRide(req.session.user.id, req.params.rideId);
-      res.json({ messages: listRideMessages(req.params.rideId) });
+      await getDriverRide(req.session.user.id, req.params.rideId);
+      res.json({ messages: await listRideMessages(req.params.rideId) });
     } catch (error) {
       next(error);
     }
   });
 
-  router.post("/rides/:rideId/messages", (req, res, next) => {
+  router.post("/rides/:rideId/messages", async (req, res, next) => {
     try {
       const { body } = req.body;
       if (!body || !body.trim()) {
         throw apiError(400, "Message body is required");
       }
 
-      getDriverRide(req.session.user.id, req.params.rideId);
-      const message = createRideMessage(req.app.locals.realtime, {
+      await getDriverRide(req.session.user.id, req.params.rideId);
+      const message = await createRideMessage(req.app.locals.realtime, {
         rideId: req.params.rideId,
         senderRole: "driver",
         senderId: req.session.user.id,

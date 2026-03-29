@@ -47,11 +47,11 @@ export function destroySession(req) {
   });
 }
 
-export function getAdminProfile() {
+export async function getAdminProfile() {
   return database
     .prepare(
       `
-        SELECT id, email, last_login_at AS lastLoginAt
+        SELECT id, email, last_login_at AS "lastLoginAt"
         FROM admins
         WHERE id = 'admin-root'
       `
@@ -59,13 +59,13 @@ export function getAdminProfile() {
     .get();
 }
 
-export function getCustomerProfile(customerId) {
+export async function getCustomerProfile(customerId) {
   return database
     .prepare(
       `
-        SELECT id, email, full_name AS fullName, avatar_url AS avatarUrl,
-               phone, preferred_payment_method AS preferredPaymentMethod,
-               last_login_at AS lastLoginAt
+        SELECT id, email, full_name AS "fullName", avatar_url AS "avatarUrl",
+               phone, preferred_payment_method AS "preferredPaymentMethod",
+               last_login_at AS "lastLoginAt"
         FROM customers
         WHERE id = ?
       `
@@ -73,20 +73,27 @@ export function getCustomerProfile(customerId) {
     .get(customerId);
 }
 
-export function getDriverProfile(driverId) {
-  return database
+export async function getDriverProfile(driverId) {
+  const driver = await database
     .prepare(
       `
-        SELECT id, full_name AS fullName, email, phone, vehicle, plate_number AS plateNumber,
-               license_number AS licenseNumber, national_id_number AS nationalIdNumber,
-               insurance_number AS insuranceNumber, approval_status AS approvalStatus,
-               approval_notes AS approvalNotes, is_online AS isOnline, current_lat AS currentLat,
-               current_lng AS currentLng, current_heading AS currentHeading,
-               face_photo_path AS facePhotoPath, car_photo_path AS carPhotoPath,
-               last_location_at AS lastLocationAt, created_at AS createdAt, last_login_at AS lastLoginAt
+        SELECT id, full_name AS "fullName", email, phone, vehicle, plate_number AS "plateNumber",
+               license_number AS "licenseNumber", national_id_number AS "nationalIdNumber",
+               insurance_number AS "insuranceNumber", approval_status AS "approvalStatus",
+               approval_notes AS "approvalNotes", is_online AS "isOnline", current_lat AS "currentLat",
+               current_lng AS "currentLng", current_heading AS "currentHeading",
+               face_photo_path AS "facePhotoPath", car_photo_path AS "carPhotoPath",
+               last_location_at AS "lastLocationAt", created_at AS "createdAt", last_login_at AS "lastLoginAt"
         FROM drivers
         WHERE id = ?
       `
     )
     .get(driverId);
+
+  return driver
+    ? {
+        ...driver,
+        isOnline: Boolean(driver.isOnline)
+      }
+    : null;
 }
