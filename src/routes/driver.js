@@ -220,6 +220,52 @@ export function createDriverRouter() {
     }
   });
 
+  router.post("/rides/:rideId/reject", async (req, res, next) => {
+    try {
+      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
+      if (ride.status !== "assigned") {
+        throw apiError(409, "Ride is not awaiting driver acceptance");
+      }
+
+      await database
+        .prepare(
+          `
+            UPDATE rides
+            SET driver_id = NULL,
+                status = 'pending_admin',
+                accepted_at = NULL,
+                current_lat = NULL,
+                current_lng = NULL
+            WHERE id = ?
+          `
+        )
+        .run(ride.id);
+
+      const realtime = req.app.locals.realtime;
+      const snapshot = await emitRideSnapshot(realtime, ride.id);
+      await createNotification(realtime, {
+        targetRole: "admin",
+        targetId: "admin-root",
+        category: "driver_rejected_ride",
+        title: "Driver rejected ride",
+        message: "A driver rejected an assigned ride and it needs reassignment",
+        rideId: ride.id
+      });
+      await createNotification(realtime, {
+        targetRole: "customer",
+        targetId: ride.customerId,
+        category: "ride_status",
+        title: "Ride is being reassigned",
+        message: "Your previous driver could not take the ride. We are finding another driver.",
+        rideId: ride.id
+      });
+
+      res.json({ success: true, ride: snapshot });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post("/rides/:rideId/start", async (req, res, next) => {
     try {
       const ride = await getDriverRide(req.session.user.id, req.params.rideId);

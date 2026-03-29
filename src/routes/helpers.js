@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { config, getSessionTtlMsForRole } from "../config.js";
 import { database } from "../db.js";
 
 export function apiError(statusCode, publicMessage) {
@@ -23,9 +23,32 @@ export function getSessionUser(req) {
   return req.session?.user || null;
 }
 
+export function applySessionLifetime(req, role = req.session?.user?.role) {
+  if (!req.session || !role) {
+    return config.sessionTtlMs;
+  }
+
+  const ttlMs = getSessionTtlMsForRole(role);
+  req.session.cookie.maxAge = ttlMs;
+  return ttlMs;
+}
+
 export function setSessionUser(req, user) {
   req.session.user = user;
-  req.session.cookie.maxAge = config.sessionTtlMs;
+  applySessionLifetime(req, user.role);
+  return new Promise((resolve, reject) => {
+    req.session.save((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+export function refreshSession(req) {
+  applySessionLifetime(req);
   return new Promise((resolve, reject) => {
     req.session.save((error) => {
       if (error) {

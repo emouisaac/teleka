@@ -21,6 +21,7 @@ import {
   getCustomerProfile,
   getDriverProfile,
   getSessionUser,
+  refreshSession,
   setSessionUser
 } from "./helpers.js";
 
@@ -104,12 +105,32 @@ export function createAuthRouter() {
         return;
       }
 
+      await refreshSession(req);
+
       res.json({
         authenticated: true,
         user: {
           role: current.role,
           ...(await getCurrentProfile(current))
         }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/keepalive", async (req, res, next) => {
+    try {
+      const current = getSessionUser(req);
+      if (!current) {
+        throw apiError(401, "Authentication required");
+      }
+
+      await refreshSession(req);
+      res.json({
+        success: true,
+        authenticated: true,
+        role: current.role
       });
     } catch (error) {
       next(error);

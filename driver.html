@@ -189,6 +189,21 @@
     </main>
   </div>
 
+  <div class="request-modal hidden" id="driverRideAlertModal" aria-live="assertive" role="alertdialog" aria-modal="true" aria-labelledby="driverRideAlertTitle">
+    <div class="request-modal-backdrop"></div>
+    <div class="request-modal-card">
+      <p class="eyebrow">New ride request</p>
+      <h2 id="driverRideAlertTitle">Dispatch needs your response</h2>
+      <p class="request-modal-copy" id="driverRideAlertRoute">Waiting for trip details...</p>
+      <div class="request-modal-meta" id="driverRideAlertMeta"></div>
+      <div class="request-modal-actions">
+        <button class="primary-btn" id="driverRideAlertAcceptBtn" type="button">Accept ride</button>
+        <button class="ghost-btn" id="driverRideAlertRejectBtn" type="button">Reject ride</button>
+      </div>
+      <p class="input-help">This alert stays on screen and keeps ringing until you accept or reject it.</p>
+    </div>
+  </div>
+
   <div class="banner" id="driverBanner" data-tone="neutral">Driver workspace offline</div>
 
   <script src="/socket.io/socket.io.js"></script>

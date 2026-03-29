@@ -36,6 +36,20 @@ export function playTone(kind = "default") {
   oscillator.connect(gain);
   gain.connect(context.destination);
 
+  if (kind === "alarm") {
+    oscillator.type = "square";
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    oscillator.frequency.setValueAtTime(960, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.14, context.currentTime + 0.03);
+    oscillator.frequency.setValueAtTime(960, context.currentTime + 0.18);
+    oscillator.frequency.linearRampToValueAtTime(720, context.currentTime + 0.36);
+    oscillator.frequency.linearRampToValueAtTime(960, context.currentTime + 0.54);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.72);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.74);
+    return;
+  }
+
   const profile =
     kind === "urgent"
       ? { frequency: 880, duration: 0.3, peak: 0.08 }

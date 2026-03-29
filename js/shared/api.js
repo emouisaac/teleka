@@ -29,6 +29,7 @@ async function request(url, options = {}) {
 export const api = {
   request,
   authStatus: () => request("/api/auth/status"),
+  keepAlive: () => request("/api/auth/keepalive", { method: "POST" }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
   notifications: () => request("/api/auth/notifications"),
   markNotificationRead: (id) =>
@@ -66,6 +67,8 @@ export const api = {
     request("/api/driver/location", { method: "POST", body }),
   driverAcceptRide: (rideId) =>
     request(`/api/driver/rides/${rideId}/accept`, { method: "POST" }),
+  driverRejectRide: (rideId) =>
+    request(`/api/driver/rides/${rideId}/reject`, { method: "POST" }),
   driverStartRide: (rideId) =>
     request(`/api/driver/rides/${rideId}/start`, { method: "POST" }),
   driverCompleteRide: (rideId, body) =>

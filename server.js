@@ -5,7 +5,7 @@ import session from "express-session";
 import compression from "compression";
 import helmet from "helmet";
 
-import { config } from "./src/config.js";
+import { config, getSessionTtlMsForRole } from "./src/config.js";
 import { initializeDatabase } from "./src/db.js";
 import { initializeSessionStoreSchema, PostgresSessionStore } from "./src/session-store.js";
 import { initializeStorage } from "./src/storage.js";
@@ -44,6 +44,7 @@ async function startServer() {
     store: sessionStore,
     name: "teleka.sid",
     secret: config.authSecret,
+    proxy: true,
     resave: false,
     saveUninitialized: false,
     rolling: true,
@@ -57,6 +58,12 @@ async function startServer() {
   });
 
   app.use(sessionMiddleware);
+  app.use((req, _res, next) => {
+    if (req.session?.user) {
+      req.session.cookie.maxAge = getSessionTtlMsForRole(req.session.user.role);
+    }
+    next();
+  });
 
   const realtime = createRealtimeServer(server, sessionMiddleware);
   app.locals.realtime = realtime;
@@ -82,7 +89,8 @@ async function startServer() {
       uploadRoot: config.uploadRoot,
       dataRoot: config.dataRoot,
       storageMode: config.storageMode,
-      sessionTtlHours: config.sessionTtlHours,
+      userSessionTtlDays: config.userSessionTtlDays,
+      adminSessionTtlMinutes: config.adminSessionTtlMinutes,
       configWarnings: config.configWarnings,
       persistenceReady: config.persistenceReady,
       persistenceWarnings: config.persistenceWarnings
@@ -109,7 +117,7 @@ async function startServer() {
   server.listen(config.port, () => {
     console.log(`Teleka listening on ${config.appUrl}`);
     console.log(
-      `Persistence: db=postgres@${config.databaseHost}; uploads=supabase@${config.supabaseUploadBucket}; mode=${config.storageMode}; ttlHours=${config.sessionTtlHours}`
+      `Persistence: db=postgres@${config.databaseHost}; uploads=supabase@${config.supabaseUploadBucket}; mode=${config.storageMode}; userTtlDays=${config.userSessionTtlDays}; adminTtlMinutes=${config.adminSessionTtlMinutes}`
     );
     if (config.configWarnings.length) {
       config.configWarnings.forEach((warning) => {

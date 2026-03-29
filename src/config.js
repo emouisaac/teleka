@@ -48,18 +48,23 @@ function readPositiveInteger(name, fallbackValue) {
   return Math.floor(parsed);
 }
 
-function readSessionTtlMs() {
-  const hoursValue = String(process.env.TELEKA_SESSION_TTL_HOURS || "").trim();
+function readDurationMs({ minutesEnvName, hoursEnvName, daysEnvName, fallbackMs }) {
+  const minutesValue = minutesEnvName ? String(process.env[minutesEnvName] || "").trim() : "";
+  if (minutesValue) {
+    return readPositiveInteger(minutesEnvName, Math.max(1, Math.round(fallbackMs / (60 * 1000)))) * 60 * 1000;
+  }
+
+  const hoursValue = hoursEnvName ? String(process.env[hoursEnvName] || "").trim() : "";
   if (hoursValue) {
-    return readPositiveInteger("TELEKA_SESSION_TTL_HOURS", 12) * 60 * 60 * 1000;
+    return readPositiveInteger(hoursEnvName, Math.max(1, Math.round(fallbackMs / (60 * 60 * 1000)))) * 60 * 60 * 1000;
   }
 
-  const legacyDaysValue = String(process.env.TELEKA_SESSION_TTL_DAYS || "").trim();
-  if (legacyDaysValue) {
-    return readPositiveInteger("TELEKA_SESSION_TTL_DAYS", 1) * 24 * 60 * 60 * 1000;
+  const daysValue = daysEnvName ? String(process.env[daysEnvName] || "").trim() : "";
+  if (daysValue) {
+    return readPositiveInteger(daysEnvName, Math.max(1, Math.round(fallbackMs / (24 * 60 * 60 * 1000)))) * 24 * 60 * 60 * 1000;
   }
 
-  return 12 * 60 * 60 * 1000;
+  return fallbackMs;
 }
 
 function detectHostingProvider() {
@@ -141,7 +146,28 @@ const cookieDomain =
 const configWarnings = [];
 const persistenceWarnings = [];
 const storageMode = "supabase-storage";
-const sessionTtlMs = readSessionTtlMs();
+const legacySessionTtlMs = readDurationMs({
+  hoursEnvName: "TELEKA_SESSION_TTL_HOURS",
+  daysEnvName: "TELEKA_SESSION_TTL_DAYS",
+  fallbackMs: 12 * 24 * 60 * 60 * 1000
+});
+const userSessionTtlMs = readDurationMs({
+  minutesEnvName: "TELEKA_USER_SESSION_TTL_MINUTES",
+  hoursEnvName: "TELEKA_USER_SESSION_TTL_HOURS",
+  daysEnvName: "TELEKA_USER_SESSION_TTL_DAYS",
+  fallbackMs: legacySessionTtlMs
+});
+const adminSessionTtlMs = readDurationMs({
+  minutesEnvName: "TELEKA_ADMIN_SESSION_TTL_MINUTES",
+  hoursEnvName: "TELEKA_ADMIN_SESSION_TTL_HOURS",
+  daysEnvName: "TELEKA_ADMIN_SESSION_TTL_DAYS",
+  fallbackMs: 30 * 60 * 1000
+});
+const sessionTtlMs = Math.max(userSessionTtlMs, adminSessionTtlMs);
+
+export function getSessionTtlMsForRole(role) {
+  return role === "admin" ? adminSessionTtlMs : userSessionTtlMs;
+}
 
 export const config = {
   environment,
@@ -169,7 +195,11 @@ export const config = {
   googleClientId: process.env.GOOGLE_CLIENT_ID || "",
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || "",
   sessionTtlMs,
-  sessionTtlHours: Math.round(sessionTtlMs / (60 * 60 * 1000)),
+  userSessionTtlMs,
+  userSessionTtlHours: Math.round(userSessionTtlMs / (60 * 60 * 1000)),
+  userSessionTtlDays: Math.round(userSessionTtlMs / (24 * 60 * 60 * 1000)),
+  adminSessionTtlMs,
+  adminSessionTtlMinutes: Math.round(adminSessionTtlMs / (60 * 1000)),
   retentionDays: readPositiveInteger("TELEKA_RETENTION_DAYS", 180),
   email: {
     host: process.env.EMAIL_HOST,

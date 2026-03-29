@@ -51,6 +51,7 @@ const authCopy = {
   guest: "Sign in with Google to request rides and keep your account active across refreshes.",
   signedIn: "You are signed in and ready to request, track, and manage rides."
 };
+const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
 
 const state = {
   auth: null,
@@ -66,6 +67,7 @@ const state = {
     destination: null
   },
   socket: null,
+  keepAliveId: null,
   map: null,
   mapMarkers: {},
   directionsService: null,
@@ -115,6 +117,28 @@ const elements = {
 };
 
 let googleMapsPromise = null;
+
+function stopSessionKeepAlive() {
+  if (state.keepAliveId) {
+    window.clearInterval(state.keepAliveId);
+    state.keepAliveId = null;
+  }
+}
+
+function startSessionKeepAlive() {
+  stopSessionKeepAlive();
+  if (!state.auth?.authenticated) {
+    return;
+  }
+
+  state.keepAliveId = window.setInterval(async () => {
+    try {
+      await api.keepAlive();
+    } catch {
+      stopSessionKeepAlive();
+    }
+  }, SESSION_KEEPALIVE_INTERVAL_MS);
+}
 
 function getCustomerDisplayName(user) {
   if (!user) {
@@ -1112,6 +1136,7 @@ async function handleGoogleCredential(response) {
     if (!state.auth?.authenticated || state.auth.user?.role !== "customer") {
       throw new Error("Google sign-in completed, but the customer session was not restored");
     }
+    startSessionKeepAlive();
     renderProfile();
     initSocket();
     await loadDashboard();
@@ -1270,11 +1295,13 @@ async function bootstrap() {
   initGoogleButton();
 
   if (state.auth?.authenticated && state.auth.user.role === "customer") {
+    startSessionKeepAlive();
     initSocket();
     await loadDashboard();
     await loadNotifications();
     await refreshQuote({ silentErrors: true });
   } else {
+    stopSessionKeepAlive();
     renderRecentPlaces();
     renderRides();
     renderNotifications();
@@ -1289,10 +1316,19 @@ async function bootstrap() {
 elements.submitRideBtn.addEventListener("click", handleRideRequest);
 elements.sendMessageBtn.addEventListener("click", handleSendMessage);
 elements.logoutBtn.addEventListener("click", async () => {
+  stopSessionKeepAlive();
   await api.logout();
   window.location.reload();
 });
 elements.useMyLocationBtn.addEventListener("click", useMyLocation);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.auth?.authenticated) {
+    void api.keepAlive().catch(() => {});
+  }
+});
+window.addEventListener("beforeunload", () => {
+  stopSessionKeepAlive();
+});
 
 bootstrap().catch((error) => {
   showBanner(elements.banner, error.message, "danger");
