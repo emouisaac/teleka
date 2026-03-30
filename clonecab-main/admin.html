@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Dashboard - Uber Clone</title>
+  <link rel="stylesheet" href="admin.css" />
+  <script defer src="admin.js"></script>
+</head>
+<body>
+    <header>
+      <h1>Admin Panel</h1>
+    </header>
+  <section id="admin-dashboard" style="display:none">
+    <main>
+      <section id="notifications-section">
+        <h2>Notifications</h2>
+        <div id="notifications">No new notifications</div>
+      </section>
+
+      <section class="admin-controls">
+        <h3>Pending Driver Approvals</h3>
+        <ul id="pending-drivers"></ul>
+      </section>
+
+
+      <section id="driver-approvals-section">
+        <h2>Pending Driver Approvals</h2>
+        <ul id="pending-drivers-list">
+          <!-- Pending drivers will be dynamically listed here -->
+        </ul>
+      </section>
+
+      <section id="fare-commission-section">
+        <h2>Edit Fare & Commission</h2>
+        <form id="fare-commission-form">
+          <label>
+            Destination Fare ($): 
+            <input type="number" id="fare-input" min="0" step="0.01" required />
+          </label>
+          <label>
+            Commission (%): 
+            <input type="number" id="commission-input" min="0" max="100" step="0.1" required />
+          </label>
+          <button type="submit">Update</button>
+        </form>
+      </section>
+
+      <section id="currency-section">
+        <h2>Supported Currencies</h2>
+        <select id="currency-select">
+          <option value="usd">USD</option>
+          <option value="ugx">UGX</option>
+          <option value="ksh">KSH</option>
+        </select>
+      </section>
+    </main>
+  </section>
+
+    <footer>
+      <p>Uber Clone Admin Dashboard &copy; 2025</p>
+    </footer>
+  
+</body>
+</html>

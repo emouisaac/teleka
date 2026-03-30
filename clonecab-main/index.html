@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CabLink</title>
+    <meta name="description" content="We take you right to your destination.">
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- AOS Animation Library -->
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="app.py">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="scripts.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="mm.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="icon" href="images/icon.jpeg" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=close" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+    <link rel="icon" href="image/0627 (1).png">
+</head>
+<body>
+    <section class="map">
+        <!-- Live Map Embed (using OpenStreetMap via Leaflet.js) -->
+        <!-- Google Maps Embed API -->
+        <!-- Lightweight, fast-loading map using Leaflet.js and OpenStreetMap -->
+        <div id="map" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1;"></div>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var map = L.map('map', {
+                    center: [0.3476, 32.5825],
+                    zoom: 13,
+                    zoomControl: false,
+                    attributionControl: false
+                });
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19
+                }).addTo(map);
+            });
+        </script>
+    <!-- Navigation -->
+        <section class="header">
+            <nav>
+                <a href="index.html"><img src="image/0627 (1).png" alt=""></a>
+                <div class="nav-links">
+                    <i class="fas fa-times" onclick="hideMenu()"></i>
+                    <ul>
+                        <li><a href="index.html">HOME</a></li>
+                        <li><a href="charts">Payment</a></li>
+                        <li><a href="">History</a></li>
+                        <li><a href="">Contact Us</a></li>
+                    </ul>
+                </div>
+                <i class="fas fa-bars" onclick="showMenu()"></i>
+
+            </nav>
+
+        </section>
+        
+        <div class="blank">
+
+        </div>
+
+
+       
+        
+        <style>
+
+           
+        .ride-img-anim {
+            position: relative;
+            width: 100%;
+            height: 60px;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            background-color: #fff;
+            justify-content: center;
+        }
+        .ride-img-anim img.ride-img {
+            height: 60px;
+            width: auto;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+            transition: transform 0.5s, opacity 0.5s;
+            z-index: 1;
+        }
+        .ride-img-anim img.ride-img.slide-active {
+            animation: slideRideImgOneAtATime 2.5s linear 1;
+            z-index: 2;
+        }
+        .ride-img-anim img.ride-img.scale-out {
+            animation: scaleOutPause 0.7s linear 1;
+            z-index: 3;
+        }
+        .ride-img-anim img.ride-img.looping {
+            animation: subtleLoop 2s ease-in-out infinite alternate;
+            opacity: 0.7;
+            z-index: 1;
+        }
+
+        @keyframes slideRideImgOneAtATime {
+            0% {
+                left: 100%;
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            15% {
+                left: 60%;
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.05);
+            }
+            40% {
+                left: 50%;
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.1);
+            }
+            60% {
+                left: 50%;
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.1);
+            }
+            85% {
+                left: -60%;
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.05);
+            }
+            100% {
+                left: -100%;
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+        @keyframes scaleOutPause {
+            0% {
+                transform: translate(-50%, -50%) scale(1.1);
+                opacity: 1;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(0.7);
+                opacity: 0.5;
+            }
+        }
+        @keyframes subtleLoop {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.7;
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1.07);
+                opacity: 1;
+            }
+        }
+        </style>
+        <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const rideImgs = Array.from(document.querySelectorAll('.ride-img'));
+            let current = 0;
+            let total = rideImgs.length;
+
+            function resetClasses() {
+                rideImgs.forEach((img, idx) => {
+                    img.classList.remove('slide-active', 'scale-out', 'looping');
+                    if (idx !== current) {
+                        img.classList.add('looping');
+                    }
+                });
+            }
+
+            function animateCurrent() {
+                resetClasses();
+                const img = rideImgs[current];
+                img.classList.remove('looping');
+                img.classList.add('slide-active');
+                setTimeout(() => {
+                    img.classList.remove('slide-active');
+                    img.classList.add('scale-out');
+                    setTimeout(() => {
+                        img.classList.remove('scale-out');
+                        current = (current + 1) % total;
+                        animateCurrent();
+                    }, 700); // scale out duration
+                }, 1800); // slide duration before scale out
+            }
+
+            animateCurrent();
+        });
+        </script>
+
+
+       <footer>
+        <div class="footer-fixed">
+            <section>
+                <div class="trip-form">
+                    <button type="button" class="btn btn-primary w-100" id="showDirectionBtn" onclick="window.location.href='opt.html'">Let'S Go</button>
+                </div>
+                
+            </section>
+            <section class="pick-ride">
+                <h2>Pick your ride</h2>
+                <div class="row" style="display: flex;">
+                    <div class="col" style="background: #fff; margin: 20px; display: flex; flex-direction: column; align-items: center; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 16px;">
+                        <h3>Cab X</h3>
+                        <div class="ride-img-anim">
+                            <img src="image/4sit.png" alt="Four Seater" class="ride-img" data-index="0">
+                        </div>
+                        <p>Fair Price</p>
+                    </div>
+                    <div class="col" style="background: #fff; margin: 20px; display: flex; flex-direction: column; align-items: center; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 16px;">
+                        <h3>Cab XL</h3>
+                        <div class="ride-img-anim">
+                            <img src="image/6sita.png" alt="Six Seater" class="ride-img" data-index="1">
+                        </div>
+                        <p>Moderate Price</p>
+                    </div>
+                </div>
+                <div class="row" style="display: flex;">
+                    <div class="col" style="background: #fff; margin: 20px; display: flex; flex-direction: column; align-items: center; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 16px;">
+                        <h3>Cab VIP</h3>
+                        <div class="ride-img-anim">
+                            <img src="image/vip.png" alt="Corporate" class="ride-img" data-index="2">
+                        </div>
+                        <p>Corporate Price</p>
+                    </div>
+                    
+                    <div class="col" style="background: #fff; margin: 20px; display: flex; flex-direction: column; align-items: center; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); padding: 16px;">
+                        
+                        <h3>Boda</h3>
+                        <div class="ride-img-anim">
+                            <img src="image/boda.png" alt="Boda" class="ride-img" data-index="3">
+                        </div>
+                        <p>Quick ride</p>
+                    </div>
+                </div>
+            </section>
+        
+        
+        <div class="footer-fixed">
+            <div class="footer-nav">
+                <a href="#" class="footer-item">
+                    <i class="fas fa-concierge-bell"></i>
+                    <span>Services</span>
+                </a>
+                <a href="#" class="footer-item">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Activity</span>
+                </a>
+                <a href="#" class="footer-item">
+                    <i class="fas fa-user-circle"></i>
+                    <span>Account</span>
+                </a>
+            </div>
+        </div>
+       </footer>
+
+    </section>
+
+        <!-- Scripts -->
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+        <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+        <script src="{{ url_for('static', filename='js/crypto-ticker.js') }}"></script>
+        <script src="script.js"></script>
+
+        <script>
+            // Initialize AOS
+            AOS.init({
+                duration: 1000,
+                once: true,
+                offset: 100
+            });
+
+            function showMenu() {
+                document.querySelector('.nav-links').style.right = "0";
+            }
+
+            function hideMenu() {
+                document.querySelector('.nav-links').style.right = "-200px";
+            }
+        </script>
+    
+</body>
+</html>

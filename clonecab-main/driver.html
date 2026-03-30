@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Dashboard</title>
+  <link rel="stylesheet" href="driver.css">
+  <script defer src="script.js"></script>
+  <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBkcQMADr6TwIf-r_KnupVgPkpcADbfaEA&callback=initMap"></script>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+</head>
+<body>
+  <header>
+    <h1>Driver Panel</h1>
+    <button id="toggle-online">Go Online</button>
+  </header>
+
+  <main>
+    <section id="driver-map"></section>
+
+    <nav class="driver-nav">
+      <ul>
+        <li>Account</li>
+        <li>Wallet</li>
+        <li>Earnings</li>
+        <li>Miles</li>
+        <li>Ride History</li>
+        <li>Contact Us</li>
+        <li>My Issues</li>
+      </ul>
+    </nav>
+
+    <footer>
+      <div>Earnings: <span id="earnings">$0</span></div>
+      <div>Wallet: <span id="wallet">$0</span></div>
+      <div>Acceptance Rate: <span id="acceptance">100%</span></div>
+      <div>Rating: <span id="rating">5.0</span></div>
+      <div>Cancellation: <span id="cancellation">0%</span></div>
+      <nav>
+        <span>Mileage</span>
+        <span>Service</span>
+        <span>Destinations</span>
+        <span>Settings</span>
+      </nav>
+    </footer>
+  </main>
+</body>
+</html>

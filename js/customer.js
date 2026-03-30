@@ -73,7 +73,8 @@ const state = {
   directionsService: null,
   directionsRenderer: null,
   geocoder: null,
-  quoteRequestId: 0
+  quoteRequestId: 0,
+  requestSheetState: "form"
 };
 
 const elements = {
@@ -113,7 +114,12 @@ const elements = {
   chatRideBadge: document.querySelector("#chatRideBadge"),
   useMyLocationBtn: document.querySelector("#useMyLocationBtn"),
   requestFormToggleBtn: document.querySelector("#requestFormToggleBtn"),
-  requestMobileShell: document.querySelector("#requestMobileShell")
+  requestMobileShell: document.querySelector("#requestMobileShell"),
+  requestPanel: document.querySelector("#requestPanel"),
+  pickupDate: document.querySelector("#pickupDate"),
+  pickupTime: document.querySelector("#pickupTime"),
+  quoteCard: document.querySelector("#quoteCard"),
+  mapDriverChatBtn: document.querySelector("#mapDriverChatBtn")
 };
 
 let googleMapsPromise = null;
@@ -297,6 +303,68 @@ function updateEstimateState(message) {
   setText(elements.estimateState, message);
 }
 
+function hasPickupSchedule() {
+  return Boolean(elements.pickupDate?.value && elements.pickupTime?.value);
+}
+
+function setRequestSheetState(nextState) {
+  state.requestSheetState = nextState;
+  if (!elements.requestPanel) {
+    return;
+  }
+  elements.requestPanel.dataset.sheetState = nextState;
+}
+
+function syncRequestSheetState({ focusEstimate = false } = {}) {
+  const activeRide = getActiveRide();
+  const rideIsLive = ["assigned", "accepted", "in_progress"].includes(activeRide?.status);
+  let nextState = "form";
+
+  if (rideIsLive || elements.requestPanel?.dataset.dashboardMode === "tracking") {
+    nextState = "tracking";
+  } else if (state.selectedQuote && getSelectedEstimate() && hasPickupSchedule()) {
+    nextState = "estimate";
+  }
+
+  const changed = state.requestSheetState !== nextState;
+  setRequestSheetState(nextState);
+
+  if (
+    focusEstimate &&
+    nextState === "estimate" &&
+    changed &&
+    elements.quoteCard?.scrollIntoView
+  ) {
+    elements.quoteCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+function syncMapRideActions(ride) {
+  if (!elements.mapDriverChatBtn) {
+    return;
+  }
+
+  const canChat = ["assigned", "accepted", "in_progress"].includes(ride?.status);
+  elements.mapDriverChatBtn.hidden = !canChat;
+  if (!canChat) {
+    return;
+  }
+
+  elements.mapDriverChatBtn.textContent = ride?.driverName
+    ? `Chat ${ride.driverName}`
+    : "Driver chat";
+}
+
+function buildPickupScheduleNote() {
+  if (!hasPickupSchedule()) {
+    return "";
+  }
+
+  const date = elements.pickupDate.value;
+  const time = elements.pickupTime.value;
+  return `Pickup schedule: ${date} ${time}`;
+}
+
 function updateRequestButton() {
   const canRequest =
     state.auth?.authenticated &&
@@ -465,6 +533,7 @@ function renderQuote() {
       "Choose pickup and destination to see live estimates.";
     renderVehicleOptions();
     updateRequestButton();
+    syncRequestSheetState();
     return;
   }
 
@@ -474,6 +543,7 @@ function renderQuote() {
   elements.selectedVehicleHint.textContent = `${selectedEstimate.label} selected.`;
   renderVehicleOptions();
   updateRequestButton();
+  syncRequestSheetState({ focusEstimate: true });
 }
 
 function renderRouteSteps(steps = []) {
@@ -765,6 +835,7 @@ function fitMapToPoints(points) {
 
 async function renderQuoteMap(quote) {
   if (!quote) {
+    syncMapRideActions(null);
     return;
   }
 
@@ -817,11 +888,13 @@ async function renderQuoteMap(quote) {
       quote.distanceMeters / 1000
     ).toFixed(1)} km, about ${Math.round(quote.durationSeconds / 60)} mins.`
   );
+  syncMapRideActions(null);
 }
 
 async function renderActiveRideMap(ride) {
   ensureMap();
   if (!state.map) {
+    syncMapRideActions(ride);
     return;
   }
 
@@ -886,17 +959,20 @@ async function renderActiveRideMap(ride) {
       ? `${ride.originLabel} to ${ride.destinationLabel}. Driver: ${ride.driverName} ${ride.driverPlateNumber || ""}.`
       : `${ride.originLabel} to ${ride.destinationLabel}. Dispatch is still assigning a driver.`
   );
+  syncMapRideActions(ride);
 }
 
 async function syncMapInternal() {
   if (state.selectedQuote) {
     await renderQuoteMap(state.selectedQuote);
+    syncRequestSheetState();
     return;
   }
 
   const activeRide = getActiveRide();
   if (activeRide) {
     await renderActiveRideMap(activeRide);
+    syncRequestSheetState();
     return;
   }
 
@@ -915,6 +991,8 @@ async function syncMapInternal() {
     "Select pickup and destination to preview a live route, or open a trip to track your assigned driver."
   );
   setText(elements.activeRideStatus, "No active ride");
+  syncMapRideActions(null);
+  syncRequestSheetState();
 }
 
 function syncMap() {
@@ -1041,6 +1119,22 @@ function attachLocationInputs() {
         event.preventDefault();
         void refreshQuote({ silentErrors: true });
       }
+    });
+  });
+}
+
+function attachScheduleInputs() {
+  [elements.pickupDate, elements.pickupTime].forEach((input) => {
+    if (!input) {
+      return;
+    }
+
+    input.addEventListener("input", () => {
+      syncRequestSheetState({ focusEstimate: true });
+    });
+
+    input.addEventListener("change", () => {
+      syncRequestSheetState({ focusEstimate: true });
     });
   });
 }
@@ -1182,18 +1276,39 @@ async function handleRideRequest() {
       throw new Error("Wait for the route estimate before requesting a ride");
     }
 
+    if (!hasPickupSchedule()) {
+      throw new Error("Select pickup date and time before requesting a ride");
+    }
+
+    const scheduleNote = buildPickupScheduleNote();
+    const combinedNotes = [scheduleNote, elements.customerNotes.value.trim()]
+      .filter(Boolean)
+      .join(" | ");
+
     const payload = await api.createRide({
       origin,
       destination,
       vehicleClass: state.selectedVehicleClass,
       paymentMethod: elements.paymentMethod.value,
-      customerNotes: elements.customerNotes.value
+      customerNotes: combinedNotes
     });
 
     state.selectedRideId = payload.ride.id;
     state.selectedQuote = null;
     await loadDashboard();
     await loadNotifications();
+    if (window.telekaDashboard?.showDashboard) {
+      window.telekaDashboard.showDashboard("requestPanel", {
+        navKey: "mapPanel",
+        mode: "tracking",
+        title: "Track Ride",
+        copy: "Open the ride tracking dashboard to focus on the live map, route updates, and latest driver status."
+      });
+    }
+    if (elements.requestPanel) {
+      elements.requestPanel.dataset.dashboardMode = "tracking";
+    }
+    syncRequestSheetState();
     updateEstimateState("Ride requested");
     showBanner(elements.banner, "Ride request submitted", "success");
   } catch (error) {
@@ -1269,6 +1384,20 @@ function useMyLocation() {
   );
 }
 
+function openDriverChatFromMap() {
+  if (window.telekaDashboard?.showDashboard) {
+    window.telekaDashboard.showDashboard("chatPanel", {
+      navKey: "chatPanel",
+      title: "Ride Chat",
+      copy: "Open the messaging dashboard when you need to coordinate pickup details with your assigned driver."
+    });
+  }
+
+  if (elements.messageInput?.focus) {
+    window.setTimeout(() => elements.messageInput.focus(), 160);
+  }
+}
+
 async function bootstrap() {
   showBanner(elements.banner, "Loading customer workspace", "neutral");
   state.config = await api.publicConfig();
@@ -1277,6 +1406,7 @@ async function bootstrap() {
   attachSiteNav();
   attachRequestFormToggle();
   attachLocationInputs();
+  attachScheduleInputs();
   renderVehicleOptions();
   renderQuote();
 
@@ -1321,6 +1451,7 @@ elements.logoutBtn.addEventListener("click", async () => {
   window.location.reload();
 });
 elements.useMyLocationBtn.addEventListener("click", useMyLocation);
+elements.mapDriverChatBtn?.addEventListener("click", openDriverChatFromMap);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.auth?.authenticated) {
     void api.keepAlive().catch(() => {});

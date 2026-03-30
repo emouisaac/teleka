@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>CabLink</title>
+    <meta name="description" content="We take you right to your destination.">
+    <!-- Stylesheets -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Poppins:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="mm.css">
+    <link rel="icon" href="image/0627 (1).png">
+    <style>
+        body, html { margin:0; padding:0; height:100%; overflow-x:hidden; }
+        #map { width:100vw; height:calc(100vh - 140px); min-height:300px; position:relative; z-index:1; }
+        .header, footer, .footer-fixed { z-index:2; position:relative; }
+        .footer-fixed { position:fixed; bottom:0; left:0; width:100vw; }
+        .choosetrip-overlay {
+            position:absolute; max-height:40vh; overflow-y:auto; left:50%; bottom:100px;
+            transform:translateX(-50%); z-index:1; width:100%; background:#fff;
+            border-top-left-radius:20px; border-top-right-radius:20px;
+            box-shadow:0 4px 24px rgba(0,0,0,0.12); padding:24px 18px 18px 18px;
+            text-align:left; user-select:none; transition:bottom .2s cubic-bezier(.4,2,.6,1);
+        }
+        @media(max-width:500px) {
+            .choosetrip-overlay { max-width:98vw; padding:12px 4vw; }
+        }
+        .cabs {
+            display:flex; align-items:center; gap:12px; background:#f5f7fa; border-radius:10px;
+            padding:12px 18px; margin-bottom:12px; font-size:1.1rem; font-family:'Inter',sans-serif;
+            cursor:pointer; transition:background .2s,box-shadow .2s; border:2px solid transparent;
+        }
+        .cabs.selected, .cabs:active {
+            background:#e3f0ff; border-color:#007bff; box-shadow:0 2px 8px rgba(0,123,255,0.08);
+        }
+        .button1 button {
+            width:100%; padding:12px 0; background:#007bff; color:#fff; border:none;
+            border-radius:59px; font-size:1.1rem; font-family:'Poppins',sans-serif;
+            font-weight:500; box-shadow:0 2px 12px rgba(0,0,0,0.08); cursor:pointer; transition:background .2s;
+        }
+        .button1 button:disabled { background:#475465; cursor:not-allowed; }
+    </style>
+</head>
+<body>
+    <!-- Header/Nav -->
+    <section class="header">
+        <nav>
+            <a href="index.html"><img src="image/0627 (1).png" alt=""></a>
+            <div class="nav-links">
+                <i class="fas fa-times" onclick="hideMenu()"></i>
+                <ul>
+                    <li><a href="index.html">HOME</a></li>
+                    <li><a href="charts">Payment</a></li>
+                    <li><a href="">History</a></li>
+                    <li><a href="">Contact Us</a></li>
+                </ul>
+            </div>
+            <i class="fas fa-bars" onclick="showMenu()"></i>
+        </nav>
+    </section>
+
+    <!-- Main Section -->
+    <section>
+        <div id="map">
+            <!-- Google Map will be rendered here. The map script already centers on user's current location. -->
+            <div id="user-location-marker" style="display:none;"></div>
+        </div>
+        <div class="choosetrip-overlay">
+            <h3>Where to?</h3>
+            <form id="whereToForm" autocomplete="off">
+                <input type="text" id="destinationInput" class="form-control mb-2" placeholder="Enter destination" required style="font-size:1.1rem;" autocomplete="off">
+                <div id="autocomplete-list" class="list-group" style="position:relative;z-index:1000;"></div>
+                <button type="submit" class="btn btn-primary w-100" style="margin-top:8px;">Set Destination</button>
+            </form>
+            <div id="distanceInfo" style="margin-top:10px;font-size:1rem;color:#007bff;"></div>
+            <h3>Choose a Trip</h3>
+            <div class="cabs" id="cabxz" data-label="Cab X Opted" data-price="3000">
+                <i class="fas fa-car-side fa-2x mb-1" style="color:#007bff;"></i>Cab X
+                <span class="badge bg-light text-dark ms-auto" id="cabxz-price"></span>
+            </div>
+            <div class="cabs" id="cabxlz" data-label="Cab XL Opted" data-price="3500">
+                <i class="fas fa-taxi fa-2x mb-1" style="color:#28a745;"></i>Cab XL
+                <span class="badge bg-light text-dark ms-auto" id="cabxlz-price"></span>
+            </div>
+            <div class="cabs" id="vipcabz" data-label="Vip Cab Opted" data-price="4000">
+                <i class="fas fa-crown fa-2x mb-1" style="color:#ffc107;"></i>Vip Cab
+                <span class="badge bg-light text-dark ms-auto" id="vipcabz-price"></span>
+            </div>
+            <div class="cabs" id="boadz" data-label="Boda Opted" data-price="2000">
+                <i class="fas fa-motorcycle fa-2x mb-1" style="color:#dc3545;"></i>Boda
+                <span class="badge bg-light text-dark ms-auto" id="boadz-price"></span>
+            </div>
+        </div>
+        <div id="popupNotification" style="display:none;position:fixed;top:30px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:18px 32px;border-radius:10px;z-index:9999;font-size:1.2rem;box-shadow:0 2px 12px rgba(0,0,0,0.15);"></div>
+        <!-- Footer -->
+    <footer>
+            <div class="footer-fixed">
+                <div class="button1" id="buttonz">
+                    <button id="cabOptBtn" disabled>Choose a Cab</button>
+                    <button id="confirmTripBtn" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10000;">Confirm Trip</button>
+                    <script>
+                        const cabOptBtn = document.getElementById('cabOptBtn');
+                        const confirmTripBtn = document.getElementById('confirmTripBtn');
+                        const choosetripOverlay = document.querySelector('.choosetrip-overlay');
+                        const headerSection = document.querySelector('.header');
+                        const footerFixed = document.querySelector('.footer-fixed');
+                        let pickupMarker = null;
+
+                        cabOptBtn.addEventListener('click', function () {
+                            if (!selectedCabId || !tripDistance) return;
+                            // Hide overlays and header, show only map and confirm button
+                            choosetripOverlay.style.display = 'none';
+                            if (headerSection) headerSection.style.display = 'none';
+                            cabOptBtn.style.display = 'none';
+                            confirmTripBtn.style.display = 'block';
+                            // Make map full screen
+                            document.getElementById('map').style.position = 'fixed';
+                            document.getElementById('map').style.top = '0';
+                            document.getElementById('map').style.left = '0';
+                            document.getElementById('map').style.width = '100vw';
+                            document.getElementById('map').style.height = '100vh';
+                            document.body.style.overflow = 'hidden';
+                            // Show pickup marker and info
+                            if (window.userLocation && window.map) {
+                                if (pickupMarker) pickupMarker.setMap(null);
+                                pickupMarker = new google.maps.Marker({
+                                    position: window.userLocation,
+                                    map: window.map,
+                                    label: "P",
+                                    title: "Pickup Location"
+                                });
+                                const infoWindow = new google.maps.InfoWindow({
+                                    content: "<b>Pickup Location</b><br>Lat: " + window.userLocation.lat.toFixed(5) + "<br>Lng: " + window.userLocation.lng.toFixed(5)
+                                });
+                                pickupMarker.addListener('click', function () {
+                                    infoWindow.open(window.map, pickupMarker);
+                                });
+                                infoWindow.open(window.map, pickupMarker);
+                            }
+                        });
+
+                        confirmTripBtn.addEventListener('click', function () {
+                            // You can add your confirm logic here
+                            showPopup('Trip Confirmed! Driver is on the way.');
+                            // Optionally, restore UI
+                            choosetripOverlay.style.display = '';
+                            if (headerSection) headerSection.style.display = '';
+                            cabOptBtn.style.display = '';
+                            confirmTripBtn.style.display = 'none';
+                            document.getElementById('map').style.position = '';
+                            document.getElementById('map').style.top = '';
+                            document.getElementById('map').style.left = '';
+                            document.getElementById('map').style.width = '';
+                            document.getElementById('map').style.height = '';
+                            document.body.style.overflow = '';
+                            if (pickupMarker) pickupMarker.setMap(null);
+                        });
+                    </script>
+                </div>
+            </div>
+            
+        </footer>
+    </section>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" defer></script>
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js" defer></script>
+    <script>
+        // --- Variables ---
+        let autocompleteService, placesService, directionsService, directionsRenderer, mapInstance = null;
+        let selectedCabId = null, tripDistance = null, tripPrice = null, destinationLatLng = null;
+        const cabPrices = { cabxz: 2200, cabxlz: 2700, vipcabz: 2800, boadz: 650 };
+
+        // --- Utility Functions ---
+        function formatMoney(num) {
+            return num.toLocaleString('en-UG');
+        }
+        function updateCabPrices() {
+            for (const [id, price] of Object.entries(cabPrices)) {
+                const badge = document.getElementById(id + '-price');
+                if (badge && tripDistance) {
+                    badge.textContent = `UGX ${formatMoney(Math.round(price * tripDistance))}`;
+                } else if (badge) {
+                    badge.textContent = '';
+                }
+            }
+        }
+        function showPopup(msg) {
+            const popup = document.getElementById('popupNotification');
+            popup.textContent = msg;
+            popup.style.display = 'block';
+            setTimeout(() => { popup.style.display = 'none'; }, 3500);
+        }
+        function showDirections(origin, destination) {
+            if (!directionsService || !directionsRenderer) return;
+            directionsService.route({
+                origin: origin,
+                destination: destination,
+                travelMode: 'DRIVING'
+            }, function (result, status) {
+                if (status === 'OK') {
+                    directionsRenderer.setDirections(result);
+                }
+            });
+        }
+        function geocodeDestination(address, callback) {
+            const geocoder = new google.maps.Geocoder();
+            geocoder.geocode({ address: address }, function (results, status) {
+                if (status === 'OK' && results[0]) {
+                    callback({
+                        lat: results[0].geometry.location.lat(),
+                        lng: results[0].geometry.location.lng()
+                    }, results[0].formatted_address);
+                } else {
+                    callback(null, null);
+                }
+            });
+        }
+        function calculateDistance(origin, destination, callback) {
+            const service = new google.maps.DistanceMatrixService();
+            service.getDistanceMatrix({
+                origins: [origin],
+                destinations: [destination],
+                travelMode: 'DRIVING'
+            }, function (response, status) {
+                if (status === 'OK' && response.rows[0].elements[0].status === 'OK') {
+                    const distanceMeters = response.rows[0].elements[0].distance.value;
+                    const durationText = response.rows[0].elements[0].duration.text;
+                    callback(distanceMeters / 1000, durationText);
+                } else {
+                    callback(null, null);
+                }
+            });
+        }
+
+        // --- Google Maps Initialization ---
+        window.initMap = function () {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function (position) {
+                    const userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    window.userLocation = userLocation;
+                    window.map = new google.maps.Map(document.getElementById('map'), {
+                        center: userLocation,
+                        zoom: 16,
+                        disableDefaultUI: true
+                    });
+                    new google.maps.Marker({ position: userLocation, map: window.map, title: "You are here" });
+                    if (directionsRenderer) directionsRenderer.setMap(window.map);
+                }, function () {
+                    document.getElementById('map').innerHTML = "Error: The Geolocation service failed.";
+                });
+            } else {
+                document.getElementById('map').innerHTML = "Error: Your browser doesn't support geolocation.";
+            }
+        };
+
+        // --- On Load ---
+        window.addEventListener('load', function () {
+            autocompleteService = new google.maps.places.AutocompleteService();
+            placesService = new google.maps.places.PlacesService(document.createElement('div'));
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({ suppressMarkers: false });
+            if (window.map) {
+                directionsRenderer.setMap(window.map);
+                mapInstance = window.map;
+            } else {
+                setTimeout(() => {
+                    if (window.map) {
+                        directionsRenderer.setMap(window.map);
+                        mapInstance = window.map;
+                    }
+                }, 1000);
+            }
+        });
+
+        // --- Autocomplete ---
+        const destInput = document.getElementById('destinationInput'),
+            autocompleteList = document.getElementById('autocomplete-list');
+        destInput.addEventListener('input', function () {
+            const val = this.value;
+            autocompleteList.innerHTML = '';
+            if (!val || !autocompleteService) return;
+            autocompleteService.getPlacePredictions({ input: val }, function (predictions, status) {
+                if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) return;
+                predictions.forEach(pred => {
+                    const item = document.createElement('a');
+                    item.className = 'list-group-item list-group-item-action';
+                    item.textContent = pred.description;
+                    item.style.cursor = 'pointer';
+                    item.onclick = function () {
+                        destInput.value = pred.description;
+                        autocompleteList.innerHTML = '';
+                        placesService.getDetails({ placeId: pred.place_id }, function (place, status) {
+                            if (status === google.maps.places.PlacesServiceStatus.OK && place.geometry) {
+                                destinationLatLng = {
+                                    lat: place.geometry.location.lat(),
+                                    lng: place.geometry.location.lng()
+                                };
+                                if (navigator.geolocation) {
+                                    navigator.geolocation.getCurrentPosition(function (position) {
+                                        userLocation = {
+                                            lat: position.coords.latitude,
+                                            lng: position.coords.longitude
+                                        };
+                                        showDirections(userLocation, destinationLatLng);
+                                    });
+                                }
+                            }
+                        });
+                    };
+                    autocompleteList.appendChild(item);
+                });
+            });
+        });
+        destInput.addEventListener('blur', function () {
+            setTimeout(() => { autocompleteList.innerHTML = ''; }, 200);
+        });
+
+        // --- Cab Selection ---
+        document.querySelectorAll('.cabs').forEach(function (cab) {
+            cab.addEventListener('click', function () {
+                document.querySelectorAll('.cabs').forEach(function (c) { c.classList.remove('selected'); });
+                cab.classList.add('selected');
+                selectedCabId = cab.id;
+                const btn = document.getElementById('cabOptBtn');
+                btn.textContent = cab.getAttribute('data-label');
+                btn.disabled = !(tripDistance && selectedCabId);
+                if (tripDistance) { updateCabPrices(); }
+            });
+        });
+
+        // --- Destination Form ---
+        document.getElementById('whereToForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const dest = document.getElementById('destinationInput').value;
+            if (!dest) return;
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function (position) {
+                    const userLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    geocodeDestination(dest, function (destLatLng, address) {
+                        if (!destLatLng) {
+                            document.getElementById('distanceInfo').textContent = "Destination not found.";
+                            tripDistance = null;
+                            updateCabPrices();
+                            document.getElementById('cabOptBtn').disabled = true;
+                            return;
+                        }
+                        destinationLatLng = destLatLng;
+                        calculateDistance(userLocation, destinationLatLng, function (distanceKm, durationText) {
+                            if (distanceKm !== null) {
+                                tripDistance = distanceKm;
+                                document.getElementById('distanceInfo').textContent = `Distance: ${distanceKm.toFixed(2)} km (${durationText})`;
+                                updateCabPrices();
+                                document.getElementById('cabOptBtn').disabled = !selectedCabId;
+                            } else {
+                                document.getElementById('distanceInfo').textContent = "Could not calculate distance.";
+                                tripDistance = null;
+                                updateCabPrices();
+                                document.getElementById('cabOptBtn').disabled = true;
+                            }
+                        });
+                    });
+                }, function () {
+                    document.getElementById('distanceInfo').textContent = "Could not get your location.";
+                });
+            } else {
+                document.getElementById('distanceInfo').textContent = "Geolocation not supported.";
+            }
+        });
+
+        // --- Cab Option Button ---
+        document.getElementById('cabOptBtn').addEventListener('click', function () {
+            if (!selectedCabId || !tripDistance) return;
+            const pricePerKm = cabPrices[selectedCabId];
+            const total = Math.round(pricePerKm * tripDistance);
+            showPopup(`Trip Price: UGX ${formatMoney(total)}`);
+        });
+
+        // --- Animation on Scroll ---
+        AOS.init({ duration: 1000, once: true, offset: 100 });
+
+        // --- Nav Menu ---
+        function showMenu() {
+            document.querySelector('.nav-links').style.right = "0";
+        }
+        function hideMenu() {
+            document.querySelector('.nav-links').style.right = "-200px";
+        }
+    </script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBkcQMADr6TwIf-r_KnupVgPkpcADbfaEA&callback=initMap&libraries=places"></script>
+</body>
+</html>

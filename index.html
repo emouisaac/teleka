@@ -9,13 +9,980 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/png" href="ims/t2icon.png">
+  <style>
+    .site-header--showcase {
+      align-items: center;
+      flex-wrap: wrap;
+      background:
+        linear-gradient(135deg, rgba(43, 48, 57, 0.98), rgba(28, 32, 39, 0.98)),
+        radial-gradient(circle at top right, rgba(239, 155, 40, 0.24), transparent 35%);
+    }
+
+    .site-nav {
+      margin-left: auto;
+    }
+
+    .site-nav-user {
+      position: relative;
+      margin-left: 6px;
+    }
+
+    .site-auth-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 10px 16px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 248, 239, 0.96);
+      font-weight: 700;
+    }
+
+    .site-auth-trigger.is-guest {
+      background: linear-gradient(135deg, #0e7969, #06473f);
+      color: #ffffff;
+      box-shadow: 0 12px 24px rgba(14, 121, 105, 0.28);
+    }
+
+    .site-auth-menu {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      z-index: 60;
+      display: none;
+      min-width: 180px;
+      padding: 12px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(67, 72, 79, 0.98), rgba(49, 53, 59, 0.98));
+      box-shadow: 0 18px 34px rgba(27, 26, 23, 0.24);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .site-nav-user.open .site-auth-menu {
+      display: grid;
+      gap: 10px;
+    }
+
+    .site-auth-menu-btn {
+      width: 100%;
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff8ef;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .site-auth-menu .ghost-btn {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff8ef;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .landing-panel {
+      position: relative;
+      grid-column: span 8;
+      min-height: 100%;
+    }
+
+    .landing-panel::after {
+      content: "";
+      position: absolute;
+      inset: auto -40px -40px auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(239, 155, 40, 0.24), transparent 68%);
+      pointer-events: none;
+    }
+
+    .hero-copy {
+      position: relative;
+      z-index: 1;
+    }
+
+    .summary-cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.1rem;
+      margin: 24px 0 0;
+    }
+
+    .card0 {
+      display: block;
+      width: 100%;
+      min-height: 112px;
+      background:
+        linear-gradient(rgba(0, 0, 0, 0.58), rgba(0, 0, 0, 0.58)),
+        url("ims/wish.jpeg") no-repeat center center / cover;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 20px 34px rgba(0, 0, 0, 0.2);
+    }
+
+    .card2 {
+      padding: 18px 0;
+    }
+
+    .card2 h3 {
+      margin: 0;
+      padding: 0 1rem;
+      color: #ffffff;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .hero-content {
+      position: relative;
+      overflow: hidden;
+      height: 3rem;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .hero-content h1 {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      margin: 0;
+      padding: 0 1rem;
+      white-space: nowrap;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.45rem;
+      font-weight: 800;
+      line-height: 3rem;
+      letter-spacing: -0.02em;
+      color: #ef9b28;
+      text-shadow: 0 3px 14px rgba(0, 0, 0, 0.28);
+      opacity: 0;
+      transform: translateX(100%);
+      transition: transform 1s ease, opacity 1s ease;
+    }
+
+    .hero-content h1.active {
+      transform: translateX(0);
+      opacity: 1;
+    }
+
+    .hero-content h1.exit {
+      transform: translateX(-150%);
+      opacity: 0;
+    }
+
+    .card1 {
+      display: flex;
+      width: 100%;
+      gap: 1.1rem;
+    }
+
+    .card {
+      flex: 1 1 220px;
+      min-width: 0;
+      padding: 2rem;
+      border-radius: 12px;
+      background: rgba(255, 249, 241, 0.96);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      box-shadow: 0 18px 30px rgba(12, 22, 19, 0.12);
+      position: relative;
+      overflow: hidden;
+      text-align: center;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200px;
+      height: 200px;
+      background: radial-gradient(circle, rgba(102, 126, 234, 0.1) 0%, transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .card1 .card h3 {
+      margin: 0 0 1rem;
+      color: var(--text);
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .card1 .btn {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: 100%;
+      max-width: 200px;
+      margin: 0 auto;
+      padding: 1.2rem 2.5rem;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      color: #fff;
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      overflow: hidden;
+      transition: transform 0.4s ease, background 0.4s ease;
+    }
+
+    .card1 .btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      left: -100%;
+      background: rgba(255, 255, 255, 0.3);
+      transition: left 0.4s ease;
+      z-index: -1;
+    }
+
+    .card1 .btn:hover::before,
+    .card1 .btn:focus-visible::before {
+      left: 0;
+    }
+
+    .card1 .btn:hover,
+    .card1 .btn:focus-visible {
+      transform: translateY(-4px) scale(1.05);
+      background: linear-gradient(135deg, #218838 0%, #17a2b8 100%);
+      outline: none;
+    }
+
+    .hero-stat-strip {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .hero-stat {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-stat strong,
+    .contact-link-card strong,
+    .marketing-card h3 {
+      display: block;
+      margin-bottom: 6px;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .hero-stat p,
+    .marketing-card p,
+    .contact-link-card p {
+      margin: 0;
+    }
+
+    .marketing-panel {
+      grid-column: span 12;
+    }
+
+    .marketing-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .marketing-card,
+    .contact-link-card {
+      display: grid;
+      gap: 12px;
+      padding: 20px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 247, 236, 0.94));
+    }
+
+    .marketing-tag {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: rgba(14, 121, 105, 0.12);
+      color: var(--brand-deep);
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 700;
+    }
+
+    .marketing-card .primary-btn,
+    .contact-link-card .primary-btn {
+      width: fit-content;
+      text-decoration: none;
+    }
+
+    .contact-panel {
+      grid-column: span 4;
+    }
+
+    .contact-stack {
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .contact-link-card {
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .contact-link-card:hover,
+    .contact-link-card:focus-visible {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 36px rgba(23, 33, 28, 0.1);
+      outline: none;
+    }
+
+    .contact-link-card span {
+      font-size: 0.86rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--brand-deep);
+    }
+
+    .request-panel-copy {
+      max-width: 520px;
+    }
+
+    .site-nav-list a.is-active {
+      background: rgba(255, 255, 255, 0.18);
+      color: #ffffff;
+    }
+
+    .dashboard-panel {
+      display: none;
+    }
+
+    .dashboard-panel.active-dashboard {
+      display: block;
+      grid-column: 1 / -1 !important;
+      animation: dashboardFade 0.24s ease;
+    }
+
+    @keyframes dashboardFade {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .home-dashboard {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 20px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .home-dashboard:not(.active-dashboard) {
+      display: none;
+    }
+
+    .home-hero-shell {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 24px;
+      padding: 24px;
+      border-radius: var(--radius);
+      background:
+        linear-gradient(140deg, rgba(14, 121, 105, 0.95), rgba(6, 71, 63, 0.94)),
+        url("ims/pexels-cottonbro-4606402.jpg") center/cover;
+      color: #fff8ef;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .home-dashboard-block {
+      padding: 24px;
+      border-radius: var(--radius);
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .home-dashboard .marketing-grid {
+      margin-top: 18px;
+    }
+
+    .home-hero-shell .eyebrow,
+    .home-hero-shell .hero-copy p,
+    .home-hero-shell .auth-card p {
+      color: rgba(255, 248, 239, 0.88);
+    }
+
+    .home-hero-shell .hero-copy h2,
+    .home-hero-shell .auth-card h3,
+    .home-hero-shell .profile-mini strong {
+      color: #fff8ef;
+    }
+
+    .booking-dashboard {
+      grid-column: 1 / -1;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      overflow: visible;
+    }
+
+    .booking-map-shell {
+      position: relative;
+      height: calc(100vh - 210px);
+      min-height: 620px;
+      overflow: hidden;
+      border-radius: 28px;
+      background: #dfe7ef;
+      box-shadow: 0 28px 70px rgba(23, 33, 28, 0.18);
+    }
+
+    .booking-map-surface {
+      position: absolute;
+      inset: 0;
+      min-height: 100%;
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+    }
+
+    .booking-map-shell::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(16, 24, 32, 0.08), rgba(16, 24, 32, 0.2));
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .choosetrip-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 2;
+      max-height: min(64vh, 760px);
+      overflow-y: auto;
+      background: #ffffff;
+      border-top-left-radius: 28px;
+      border-top-right-radius: 28px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+      padding: 24px 18px 120px;
+      scroll-behavior: smooth;
+      transform: translateY(0);
+      transition: max-height 0.35s ease, bottom 0.35s ease, padding-bottom 0.35s ease, transform 0.35s ease, border-radius 0.35s ease;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .choosetrip-overlay::-webkit-scrollbar {
+      display: none;
+    }
+
+    .where-to-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .where-to-header h2,
+    .booking-subheading {
+      margin: 0;
+      font-family: "Space Grotesk", sans-serif;
+    }
+
+    .booking-subheading {
+      margin-top: 18px;
+      margin-bottom: 12px;
+      font-size: 1.2rem;
+    }
+
+    .booking-status-pill {
+      background: #eef4ff;
+      color: #007bff;
+    }
+
+    #requestPanel .request-form-toggle {
+      display: none !important;
+    }
+
+    #requestPanel .request-mobile-shell {
+      display: block !important;
+      margin-top: 0;
+    }
+
+    .booking-shell {
+      display: grid;
+      gap: 14px;
+    }
+
+    .booking-field-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .booking-shell label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 700;
+      color: #253240;
+    }
+
+    .booking-shell input,
+    .booking-shell textarea,
+    .booking-shell select {
+      border-radius: 14px;
+      border: 1px solid #d8dee8;
+      background: #f8fafc;
+      padding: 14px 16px;
+    }
+
+    .booking-locate-btn {
+      min-height: 52px;
+      align-self: end;
+      background: #eef4ff;
+      color: #007bff;
+    }
+
+    .clone-quote-card {
+      margin-top: 4px;
+      gap: 12px;
+    }
+
+    .clone-quote-card > div {
+      border-radius: 12px;
+      background: #f5f7fa;
+      border: 1px solid #e3e8ef;
+    }
+
+    .clonecab-vehicle-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    #requestPanel .vehicle-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 2px solid transparent;
+      border-radius: 10px;
+      background: #f5f7fa;
+      box-shadow: none;
+      padding: 12px 18px;
+    }
+
+    #requestPanel .vehicle-card.selected {
+      background: #e3f0ff;
+      border-color: #007bff;
+      box-shadow: 0 2px 8px rgba(0, 123, 255, 0.08);
+    }
+
+    #requestPanel .vehicle-card-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #requestPanel .vehicle-visual {
+      width: 78px;
+      min-width: 78px;
+      height: 54px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid #e3e8ef;
+    }
+
+    #requestPanel .vehicle-name {
+      font-size: 1.05rem;
+    }
+
+    #requestPanel .vehicle-card .fare {
+      margin-left: auto;
+      white-space: nowrap;
+      color: #253240;
+    }
+
+    .booking-extra-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .booking-card {
+      padding: 14px;
+      border-radius: 14px;
+      background: #f8fafc;
+      border: 1px solid #e3e8ef;
+    }
+
+    .booking-card label {
+      margin-bottom: 8px;
+    }
+
+    .booking-route-meta {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid rgba(221, 228, 237, 0.96);
+    }
+
+    .booking-route-meta p {
+      margin: 0;
+    }
+
+    .booking-route-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .booking-request-content {
+      display: grid;
+      gap: 14px;
+    }
+
+    .booking-when-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .booking-footer-fixed {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 3;
+      padding: 14px 18px 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.94) 38%, #ffffff 100%);
+    }
+
+    .teleka-book-button {
+      width: min(460px, 100%);
+      margin: 0 auto;
+    }
+
+    .teleka-book-button button {
+      width: 100%;
+      min-height: 54px;
+      border: 0;
+      border-radius: 59px;
+      background: #007bff;
+      color: #ffffff;
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .teleka-book-button button:disabled {
+      background: #475465;
+      cursor: not-allowed;
+    }
+
+    .booking-dashboard .chip-row {
+      margin-top: 16px;
+    }
+
+    .booking-dashboard .route-steps {
+      margin-top: 0;
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .choosetrip-overlay {
+      max-height: min(44vh, 500px);
+      padding-bottom: 102px;
+      transform: translateY(18%);
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .booking-extra-grid,
+    .booking-dashboard[data-sheet-state="estimate"] .chip-row {
+      display: none;
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .quote-card {
+      order: -1;
+    }
+
+    .booking-dashboard[data-dashboard-mode="tracking"] .booking-request-content,
+    .booking-dashboard[data-dashboard-mode="tracking"] .booking-footer-fixed {
+      display: none;
+    }
+
+    .booking-dashboard[data-dashboard-mode="tracking"] .choosetrip-overlay {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-width: none;
+      max-height: min(32vh, 320px);
+      border-top-left-radius: 28px;
+      border-top-right-radius: 28px;
+      padding: 18px 18px 22px;
+      transform: translateY(0);
+    }
+
+    .booking-dashboard[data-dashboard-mode="tracking"] .booking-route-meta {
+      margin-top: 0;
+      min-height: 0;
+      align-content: start;
+    }
+
+    .booking-dashboard[data-dashboard-mode="tracking"] .where-to-header {
+      margin-bottom: 10px;
+    }
+
+    .profile-dashboard {
+      grid-column: 1 / -1;
+    }
+
+    .profile-grid-shell {
+      display: grid;
+      grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+      gap: 20px;
+    }
+
+    .profile-overview-card,
+    .profile-detail-card {
+      padding: 22px;
+      border-radius: 24px;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .profile-overview-card {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+      background:
+        linear-gradient(160deg, rgba(14, 121, 105, 0.95), rgba(6, 71, 63, 0.92)),
+        radial-gradient(circle at top right, rgba(239, 155, 40, 0.24), transparent 34%);
+      color: #fff8ef;
+    }
+
+    .profile-overview-card .eyebrow,
+    .profile-overview-card p {
+      color: rgba(255, 248, 239, 0.84);
+    }
+
+    .profile-hero {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .profile-hero img {
+      width: 72px;
+      height: 72px;
+      border-radius: 22px;
+      object-fit: cover;
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .profile-pill-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .profile-pill-card {
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .profile-pill-card p,
+    .profile-pill-card strong {
+      margin: 0;
+      display: block;
+    }
+
+    .profile-detail-grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .profile-section-card {
+      padding: 18px;
+      border-radius: 20px;
+      background: var(--card-strong);
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 14px;
+    }
+
+    .profile-section-card h3,
+    .profile-section-card p {
+      margin: 0;
+    }
+
+    .profile-form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .profile-field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .profile-field input,
+    .profile-field select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.78);
+      border-radius: 16px;
+      padding: 14px 16px;
+      color: var(--text);
+    }
+
+    .profile-wallet-row,
+    .profile-actions-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .profile-wallet-balance {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: 1.8rem;
+      margin: 0;
+    }
+
+    .danger-btn {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font-weight: 700;
+      background: rgba(181, 58, 45, 0.12);
+      color: var(--danger);
+    }
+
+    @media (max-width: 1100px) {
+      .landing-panel,
+      .marketing-panel,
+      .contact-panel,
+      .home-dashboard {
+        grid-column: 1 / -1;
+      }
+
+      .marketing-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .booking-extra-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .booking-when-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .profile-grid-shell,
+      .profile-form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .site-header--showcase {
+        align-items: stretch;
+      }
+
+      .summary-cards,
+      .card1 {
+        flex-direction: column;
+      }
+
+      .home-hero-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .marketing-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .booking-map-shell {
+        height: calc(100vh - 172px);
+        min-height: 560px;
+        border-radius: 22px;
+      }
+
+      .choosetrip-overlay {
+        padding: 18px 14px 112px;
+        max-height: min(72vh, 760px);
+      }
+
+      .where-to-header,
+      .booking-field-row {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .booking-locate-btn {
+        width: 100%;
+      }
+
+      .nav-book-btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .booking-dashboard[data-dashboard-mode="tracking"] .choosetrip-overlay {
+        left: 0;
+        right: 0;
+        max-width: none;
+        bottom: 0;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+
+      .site-nav-user {
+        margin-left: 0;
+      }
+
+      .site-auth-trigger,
+      .site-auth-menu .ghost-btn {
+        width: 100%;
+      }
+
+      .site-auth-menu {
+        left: 0;
+        right: 0;
+      }
+    }
+  </style>
 </head>
 <body>
   <div class="app-shell">
-    <header class="site-header" id="topPanel">
+    <header class="site-header site-header--showcase" id="topPanel">
       <a class="site-brand" href="#topPanel">
         <img src="ims/ticon.png" alt="Teleka Taxi logo">
-        <span>Teleka Taxi</span>
       </a>
       <button
         class="site-nav-toggle"
@@ -28,127 +995,361 @@
       </button>
       <nav class="site-nav" id="siteNav" aria-label="Customer panels">
         <ul class="site-nav-list">
-          <li><a href="#homePanel">Home</a></li>
-          <li><a href="#requestPanel">Request</a></li>
-          <li><a href="#mapPanel">Map</a></li>
-          <li><a href="#ridesPanel">Trips</a></li>
-          <li><a href="#chatPanel">Chat</a></li>
-          <li><a href="#notificationsPanel">Notifications</a></li>
+          <li><a href="#homePanel" data-nav-link="homePanel">Home</a></li>
+          <li><a href="#servicesPanel" data-nav-link="servicesPanel">Services</a></li>
+          <li><a href="#featuresPanel" data-nav-link="featuresPanel">Why Us</a></li>
+          <li><a href="#requestPanel" data-nav-link="requestPanel">Book Ride</a></li>
+          <li><a href="#mapPanel" data-nav-link="mapPanel">Track Ride</a></li>
+          <li><a href="#ridesPanel" data-nav-link="ridesPanel">Trips</a></li>
+          <li><a href="#chatPanel" data-nav-link="chatPanel">Chat</a></li>
+          <li><a href="#contactPanel" data-nav-link="contactPanel">Contact</a></li>
+          <li class="site-nav-user" id="siteNavUser">
+            <button class="site-auth-trigger is-guest" id="customerAuthState" type="button">Login</button>
+            <div class="site-auth-menu" id="siteAuthMenu">
+              <button class="site-auth-menu-btn" id="viewProfileBtn" hidden type="button">View profile</button>
+              <button class="ghost-btn" id="customerLogoutBtn" hidden type="button">Logout</button>
+            </div>
+          </li>
         </ul>
-        <div class="site-nav-meta">
-          <span class="pill" id="customerAuthState">Checking session</span>
-          <button class="ghost-btn" id="customerLogoutBtn" hidden>Logout</button>
-        </div>
       </nav>
     </header>
 
     <header class="page-header">
       <div>
         <p class="eyebrow">Customer panel</p>
-        <h1>Book, track, and manage every Teleka ride</h1>
-        <p class="page-copy">Google login, saved places, live driver tracking, ride chat, and persistent trip history all run from the same backend session.</p>
+        <h1 id="dashboardHeading">Reliable taxi service, live ride tools, and full trip control in one Teleka customer app.</h1>
+        <p class="page-copy" id="dashboardCopy">Choose a dashboard from the menu to focus on one task at a time without leaving the main Teleka customer app.</p>
       </div>
     </header>
 
     <main class="grid-layout">
-      <section class="panel hero-panel" id="homePanel">
-        <div class="hero-copy">
-          <p class="eyebrow">Live booking</p>
-          <h2>Dispatch-ready ride requests with real route pricing</h2>
-          <p>Google Maps search, live route previews, vehicle-class estimates, and realtime trip tracking all run from the customer workspace.</p>
-        </div>
-        <div class="auth-card" id="customerAuthCard">
-          <h3 id="customerAccessTitle">Customer access</h3>
-          <p id="customerAuthMessage">Sign in with Google to request rides and keep your account active across refreshes.</p>
-          <div id="googleLoginMount"></div>
-          <div class="profile-mini hidden" id="customerProfileMini">
-            <img id="customerAvatar" alt="Customer avatar">
-            <div>
-              <strong id="customerName">Customer</strong>
-              <p id="customerEmail">email@example.com</p>
+      <section class="panel dashboard-panel active-dashboard home-dashboard" id="homePanel" data-nav-section data-dashboard-title="Welcome to Teleka" data-dashboard-copy="Choose a dashboard from the menu to focus on booking, trip history, live chat, or rider support without scrolling through the whole page.">
+        <div class="home-hero-shell">
+          <div class="hero-copy">
+            <p class="eyebrow">Teleka Taxi</p>
+            <h2>Reliable Taxi Service for all your needs</h2>
+            <p>Experience comfortable and timely rides with professional drivers, live route pricing, Google-powered pickup search, and active trip tracking built right into your customer workspace.</p>
+            <div class="summary-cards" aria-live="polite">
+              <div class="card0">
+                <div class="card2">
+                  <h3>Teleka Taxi</h3>
+                  <div class="hero-content">
+                    <h1 class="active">Reliable Taxi Service</h1>
+                    <h1>Airport &amp; City Rides</h1>
+                    <h1>Entebbe Airport Transfers</h1>
+                    <h1>Business Trips</h1>
+                    <h1>Tours and Travel</h1>
+                    <h1>24/7 Availability</h1>
+                    <h1>Professional Drivers</h1>
+                    <h1>We are pocket-friendly</h1>
+                  </div>
+                </div>
+              </div>
+              <div class="card1">
+                <div class="card">
+                  <h3>Travel Reservations</h3>
+                  <p><a href="#requestPanel" class="btn" data-book-now>Book Now</a></p>
+                </div>
+              </div>
             </div>
+          </div>
+          <div class="auth-card" id="customerAuthCard">
+            <h3 id="customerAccessTitle">Customer access</h3>
+            <p id="customerAuthMessage">Sign in with Google to request rides and keep your account active across refreshes.</p>
+            <div id="googleLoginMount"></div>
+            <div class="hero-stat-strip">
+              <div class="hero-stat">
+                <strong>Live booking</strong>
+                <p>Create ride requests with route-based estimates and vehicle selection.</p>
+              </div>
+              <div class="hero-stat">
+                <strong>Ride tracking</strong>
+                <p>Follow your driver, status updates, and route progress from one map.</p>
+              </div>
+              <div class="hero-stat">
+                <strong>Ride chat and history</strong>
+                <p>Coordinate pickup, review notifications, and revisit past trips anytime.</p>
+              </div>
+            </div>
+            <div class="profile-mini hidden" id="customerProfileMini">
+              <img id="customerAvatar" alt="Customer avatar">
+              <div>
+                <strong id="customerName">Customer</strong>
+                <p id="customerEmail">email@example.com</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="home-dashboard-block">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Our services</p>
+              <h2>Travel reservations with the live booking tools already built into Teleka</h2>
+            </div>
+          </div>
+          <div class="marketing-grid">
+            <article class="marketing-card">
+              <span class="marketing-tag">01</span>
+              <div>
+                <h3>Airport Transfers</h3>
+                <p>Reliable airport pickups and drop-offs with live route previews, pickup notes, and clear estimates before you confirm.</p>
+              </div>
+              <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+            </article>
+            <article class="marketing-card">
+              <span class="marketing-tag">02</span>
+              <div>
+                <h3>City Rides</h3>
+                <p>Comfortable city travel for meetings, shopping, or everyday movement with saved places and active ride tracking.</p>
+              </div>
+              <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+            </article>
+            <article class="marketing-card">
+              <span class="marketing-tag">03</span>
+              <div>
+                <h3>Business Travel</h3>
+                <p>Stay on schedule with professional drivers, transparent fare estimates, and a ride history that remains attached to your account.</p>
+              </div>
+              <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+            </article>
+            <article class="marketing-card">
+              <span class="marketing-tag">04</span>
+              <div>
+                <h3>Tours and Travel</h3>
+                <p>Plan local movement with destination search, trip notes, and dispatch-ready booking from the same customer panel.</p>
+              </div>
+              <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+            </article>
+          </div>
+        </div>
+
+        <div class="home-dashboard-block">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Why choose us</p>
+              <h2>The trusted service feel from the testing app, blended with the main app's live rider features</h2>
+            </div>
+          </div>
+          <div class="marketing-grid">
+            <article class="marketing-card">
+              <span class="marketing-tag">A</span>
+              <div>
+                <h3>Punctual service</h3>
+                <p>Fast request flow, live route data, and pickup coordination help you stay on time from booking to drop-off.</p>
+              </div>
+            </article>
+            <article class="marketing-card">
+              <span class="marketing-tag">B</span>
+              <div>
+                <h3>Safe and secure</h3>
+                <p>Verified customer sessions, active ride status, and direct driver chat keep every trip clearer and easier to manage.</p>
+              </div>
+            </article>
+            <article class="marketing-card">
+              <span class="marketing-tag">C</span>
+              <div>
+                <h3>Affordable prices</h3>
+                <p>See route-based distance, ETA, and vehicle estimates before you send your request, with cash, card, or wallet payment options.</p>
+              </div>
+            </article>
+            <article class="marketing-card">
+              <span class="marketing-tag">D</span>
+              <div>
+                <h3>24/7 support tools</h3>
+                <p>Notifications, ride history, and in-app conversation stay available so you can follow every important update.</p>
+              </div>
+            </article>
           </div>
         </div>
       </section>
 
-      <section class="panel" id="requestPanel">
+      <section class="panel marketing-panel dashboard-panel" id="servicesPanel" data-nav-section data-dashboard-title="Our Services" data-dashboard-copy="Browse Teleka service categories independently, then jump into booking only when you are ready to request a ride.">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Request ride</p>
-            <h2>Create a trip</h2>
-          </div>
-          <div class="header-actions">
-            <span class="pill" id="estimateState">Waiting for route</span>
-            <button class="ghost-btn" id="useMyLocationBtn">Use my location</button>
+            <p class="eyebrow">Our services</p>
+            <h2>Travel reservations with the live booking tools already built into Teleka</h2>
           </div>
         </div>
-        <button
-          class="primary-btn request-form-toggle"
-          id="requestFormToggleBtn"
-          type="button"
-          aria-expanded="false"
-          aria-controls="requestMobileShell"
-        >
-          Request a ride
-        </button>
-        <div class="request-mobile-shell" id="requestMobileShell">
-          <div class="request-form">
-            <label>Pickup</label>
-            <input id="pickupInput" type="text" placeholder="Search pickup point" autocomplete="off">
-
-            <label>Destination</label>
-            <input id="destinationInput" type="text" placeholder="Search destination" autocomplete="off">
-
-            <label>Vehicle</label>
-            <div class="vehicle-grid" id="vehicleOptions"></div>
-            <p class="input-help" id="selectedVehicleHint">Choose pickup and destination to see live estimates.</p>
-
-            <label>Payment</label>
-            <select id="paymentMethod">
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="wallet">Wallet</option>
-            </select>
-
-            <label>Trip notes</label>
-            <textarea id="customerNotes" rows="3" placeholder="Gate number, landmark, luggage, or airport pickup note"></textarea>
-
-            <div class="action-row">
-              <button class="primary-btn" id="submitRideBtn">Request ride</button>
-            </div>
-          </div>
-          <div class="quote-card" id="quoteCard">
+        <div class="marketing-grid">
+          <article class="marketing-card">
+            <span class="marketing-tag">01</span>
             <div>
-              <p>Distance</p>
-              <strong id="quoteDistance">-</strong>
+              <h3>Airport Transfers</h3>
+              <p>Reliable airport pickups and drop-offs with live route previews, pickup notes, and clear estimates before you confirm.</p>
             </div>
+            <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+          </article>
+          <article class="marketing-card">
+            <span class="marketing-tag">02</span>
             <div>
-              <p>ETA</p>
-              <strong id="quoteDuration">-</strong>
+              <h3>City Rides</h3>
+              <p>Comfortable city travel for meetings, shopping, or everyday movement with saved places and active ride tracking.</p>
             </div>
+            <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+          </article>
+          <article class="marketing-card">
+            <span class="marketing-tag">03</span>
             <div>
-              <p>Selected estimate</p>
-              <strong id="quoteFare">UGX 0</strong>
+              <h3>Business Travel</h3>
+              <p>Stay on schedule with professional drivers, transparent fare estimates, and a ride history that remains attached to your account.</p>
             </div>
-          </div>
-          <div class="chip-row" id="recentPlaces"></div>
+            <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+          </article>
+          <article class="marketing-card">
+            <span class="marketing-tag">04</span>
+            <div>
+              <h3>Tours and Travel</h3>
+              <p>Plan local movement with destination search, trip notes, and dispatch-ready booking from the same customer panel.</p>
+            </div>
+            <a class="primary-btn" href="#requestPanel" data-book-now>Book Now</a>
+          </article>
         </div>
       </section>
 
-      <section class="panel map-panel" id="mapPanel">
+      <section class="panel marketing-panel dashboard-panel" id="featuresPanel" data-nav-section data-dashboard-title="Why Choose Teleka" data-dashboard-copy="See the service strengths and support tools that power the live customer experience in the main app.">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Live tracking</p>
-            <h2>Active ride map</h2>
+            <p class="eyebrow">Why choose us</p>
+            <h2>The trusted service feel from the testing app, blended with the main app's live rider features</h2>
           </div>
-          <span class="pill" id="activeRideStatus">No active ride</span>
         </div>
-        <div id="customerMap" class="map-surface"></div>
-        <div class="map-summary" id="activeRideSummary">Your active ride route, driver marker, and latest status will appear here.</div>
-        <div class="route-steps" id="customerRouteSteps" hidden></div>
+        <div class="marketing-grid">
+          <article class="marketing-card">
+            <span class="marketing-tag">A</span>
+            <div>
+              <h3>Punctual service</h3>
+              <p>Fast request flow, live route data, and pickup coordination help you stay on time from booking to drop-off.</p>
+            </div>
+          </article>
+          <article class="marketing-card">
+            <span class="marketing-tag">B</span>
+            <div>
+              <h3>Safe and secure</h3>
+              <p>Verified customer sessions, active ride status, and direct driver chat keep every trip clearer and easier to manage.</p>
+            </div>
+          </article>
+          <article class="marketing-card">
+            <span class="marketing-tag">C</span>
+            <div>
+              <h3>Affordable prices</h3>
+              <p>See route-based distance, ETA, and vehicle estimates before you send your request, with cash, card, or wallet payment options.</p>
+            </div>
+          </article>
+          <article class="marketing-card">
+            <span class="marketing-tag">D</span>
+            <div>
+              <h3>24/7 support tools</h3>
+              <p>Notifications, ride history, and in-app conversation stay available so you can follow every important update.</p>
+            </div>
+          </article>
+        </div>
       </section>
 
-      <section class="panel wide-panel" id="ridesPanel">
+      <section class="panel booking-dashboard dashboard-panel" id="requestPanel" data-nav-section data-dashboard-title="Book a Ride" data-dashboard-copy="Set your pickup, destination, date, time, vehicle, and payment method from this dedicated booking dashboard." data-dashboard-mode="booking" data-sheet-state="form">
+        <div class="booking-map-shell" id="mapPanel" data-nav-section>
+          <div id="customerMap" class="map-surface booking-map-surface"></div>
+          <div class="choosetrip-overlay">
+            <div class="where-to-header">
+              <div>
+                <p class="eyebrow">Request ride</p>
+                <h2 id="requestDashboardTitle">Where to?</h2>
+              </div>
+              <span class="pill booking-status-pill" id="estimateState">Waiting for route</span>
+            </div>
+            <button
+              class="primary-btn request-form-toggle"
+              id="requestFormToggleBtn"
+              type="button"
+              aria-expanded="false"
+              aria-controls="requestMobileShell"
+            >
+              Request a ride
+            </button>
+            <div class="request-mobile-shell booking-shell" id="requestMobileShell">
+              <div class="booking-request-content">
+              <div class="request-form">
+                <div class="booking-input-stack">
+                  <label>Pickup</label>
+                  <div class="booking-field-row">
+                    <input id="pickupInput" type="text" placeholder="Search pickup point" autocomplete="off">
+                    <button class="ghost-btn booking-locate-btn" id="useMyLocationBtn" type="button">Use my location</button>
+                  </div>
+                </div>
+
+                <div class="booking-input-stack">
+                  <label>Destination</label>
+                  <input id="destinationInput" type="text" placeholder="Enter destination" autocomplete="off">
+                </div>
+
+                <div class="booking-when-grid">
+                  <div class="booking-card">
+                    <label for="pickupDate">Pickup date</label>
+                    <input id="pickupDate" type="date">
+                  </div>
+                  <div class="booking-card">
+                    <label for="pickupTime">Pickup time</label>
+                    <input id="pickupTime" type="time">
+                  </div>
+                </div>
+
+                <div class="quote-card clone-quote-card" id="quoteCard">
+                  <div>
+                    <p>Distance</p>
+                    <strong id="quoteDistance">-</strong>
+                  </div>
+                  <div>
+                    <p>ETA</p>
+                    <strong id="quoteDuration">-</strong>
+                  </div>
+                  <div>
+                    <p>Selected estimate</p>
+                    <strong id="quoteFare">UGX 0</strong>
+                  </div>
+                </div>
+
+                <h3 class="booking-subheading">Choose a Trip</h3>
+                <div class="vehicle-grid clonecab-vehicle-grid" id="vehicleOptions"></div>
+                <p class="input-help" id="selectedVehicleHint">Choose pickup and destination to see live estimates.</p>
+
+                <div class="booking-extra-grid">
+                  <div class="booking-card">
+                    <label>Payment</label>
+                    <select id="paymentMethod">
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="wallet">Wallet</option>
+                    </select>
+                  </div>
+                  <div class="booking-card">
+                    <label>Trip notes</label>
+                    <textarea id="customerNotes" rows="3" placeholder="Gate number, landmark, luggage, or airport pickup note"></textarea>
+                  </div>
+                </div>
+              </div>
+              </div>
+
+              <div class="chip-row" id="recentPlaces"></div>
+
+              <div class="booking-route-meta">
+                <span class="pill" id="activeRideStatus">No active ride</span>
+                <p class="map-summary" id="activeRideSummary">Your active ride route, driver marker, and latest status will appear here.</p>
+                <div class="booking-route-actions">
+                  <button class="secondary-btn" id="mapDriverChatBtn" hidden type="button">Driver chat</button>
+                </div>
+                <div class="route-steps" id="customerRouteSteps" hidden></div>
+              </div>
+            </div>
+          </div>
+          <div class="booking-footer-fixed">
+            <div class="teleka-book-button">
+              <button id="submitRideBtn" type="button">Request ride</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel wide-panel dashboard-panel" id="ridesPanel" data-nav-section data-dashboard-title="Your Trips" data-dashboard-copy="Review current and previous rides from a dedicated trip dashboard without the rest of the landing content getting in the way.">
         <div class="section-head">
           <div>
             <p class="eyebrow">Trip feed</p>
@@ -158,7 +1359,7 @@
         <div id="customerRides" class="ride-list"></div>
       </section>
 
-      <section class="panel" id="chatPanel">
+      <section class="panel dashboard-panel" id="chatPanel" data-nav-section data-dashboard-title="Ride Chat" data-dashboard-copy="Open the messaging dashboard when you need to coordinate pickup details with your assigned driver.">
         <div class="section-head">
           <div>
             <p class="eyebrow">Ride chat</p>
@@ -173,7 +1374,33 @@
         </div>
       </section>
 
-      <section class="panel" id="notificationsPanel">
+      <section class="panel contact-panel dashboard-panel" id="contactPanel" data-nav-section data-dashboard-title="Contact Teleka" data-dashboard-copy="Keep support details in their own dashboard so you can reach Teleka quickly whenever you need help.">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Contact us</p>
+            <h2>Reach Teleka when you need help with a booking</h2>
+          </div>
+        </div>
+        <div class="contact-stack">
+          <a class="contact-link-card" href="tel:+256788408032">
+            <span>Call us</span>
+            <strong>+256 788 408 032</strong>
+            <p>24/7 customer support for bookings, follow-ups, and travel plans.</p>
+          </a>
+          <a class="contact-link-card" href="mailto:info@teleka.com">
+            <span>Email</span>
+            <strong>info@teleka.com</strong>
+            <p>Send your transport questions, business travel needs, or trip planning requests.</p>
+          </a>
+          <a class="contact-link-card" href="#requestPanel" data-book-now>
+            <span>Start now</span>
+            <strong>Book your next ride</strong>
+            <p>Jump straight into the live request form and create your trip.</p>
+          </a>
+        </div>
+      </section>
+
+      <section class="panel dashboard-panel" id="notificationsPanel" data-nav-section data-dashboard-title="Dispatch Updates" data-dashboard-copy="Check notifications separately for status changes, booking updates, and new dispatch activity.">
         <div class="section-head">
           <div>
             <p class="eyebrow">Notifications</p>
@@ -182,6 +1409,90 @@
         </div>
         <div id="customerNotifications" class="notification-list"></div>
       </section>
+
+      <section class="panel profile-dashboard dashboard-panel" id="profilePanel" data-nav-section data-dashboard-title="Your Profile" data-dashboard-copy="Manage your customer details, wallet preferences, and account controls from one profile dashboard.">
+        <div class="profile-grid-shell">
+          <aside class="profile-overview-card">
+            <p class="eyebrow">Account</p>
+            <div class="profile-hero">
+              <img id="profileAvatarPreview" src="ims/ticon.png" alt="Customer profile avatar">
+              <div>
+                <strong id="profileDisplayName">Guest customer</strong>
+                <p id="profileDisplayEmail">Sign in to manage your account</p>
+              </div>
+            </div>
+            <div class="profile-pill-grid">
+              <div class="profile-pill-card">
+                <p>Phone status</p>
+                <strong id="profilePhoneStatus">No phone number saved</strong>
+              </div>
+              <div class="profile-pill-card">
+                <p>Wallet balance</p>
+                <strong id="walletBalance">UGX 0</strong>
+              </div>
+              <div class="profile-pill-card">
+                <p>Account status</p>
+                <strong id="profileAccountStatus">Waiting for sign in</strong>
+              </div>
+            </div>
+          </aside>
+
+          <div class="profile-detail-grid">
+            <section class="profile-section-card">
+              <h3>Editable profile</h3>
+              <p>Update the details riders and support teams use for bookings and trip follow-up.</p>
+              <div class="profile-form-grid">
+                <label class="profile-field">
+                  <span>Full name</span>
+                  <input id="profileFullName" type="text" placeholder="Your full name">
+                </label>
+                <label class="profile-field">
+                  <span>Email address</span>
+                  <input id="profileEmailField" type="email" placeholder="you@example.com">
+                </label>
+                <label class="profile-field">
+                  <span>Phone number</span>
+                  <input id="profilePhoneField" type="tel" placeholder="+256...">
+                </label>
+                <label class="profile-field">
+                  <span>Preferred payment</span>
+                  <select id="profileWalletMode">
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="wallet">Wallet</option>
+                  </select>
+                </label>
+              </div>
+              <div class="profile-actions-row">
+                <button class="primary-btn" id="saveProfileBtn" type="button">Save profile</button>
+                <button class="ghost-btn" id="removePhoneBtn" type="button">Remove phone</button>
+              </div>
+            </section>
+
+            <section class="profile-section-card">
+              <h3>Wallet</h3>
+              <p class="profile-wallet-balance" id="walletBalanceInline">UGX 0</p>
+              <div class="profile-wallet-row">
+                <label class="profile-field" style="flex:1 1 180px;">
+                  <span>Top up amount</span>
+                  <input id="walletTopUpAmount" type="number" min="0" step="1000" placeholder="10000">
+                </label>
+                <button class="primary-btn" id="walletTopUpBtn" type="button">Add funds</button>
+                <button class="ghost-btn" id="walletResetBtn" type="button">Clear wallet</button>
+              </div>
+            </section>
+
+            <section class="profile-section-card">
+              <h3>Account actions</h3>
+              <p>Use these controls carefully. Destructive account actions still need backend confirmation before becoming permanent.</p>
+              <div class="profile-actions-row">
+                <button class="ghost-btn" id="profileDeactivateBtn" type="button">Deactivate account</button>
+                <button class="danger-btn" id="deleteAccountBtn" type="button">Delete account</button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -189,6 +1500,430 @@
 
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="/socket.io/socket.io.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const dashboardHeading = document.getElementById("dashboardHeading");
+      const dashboardCopy = document.getElementById("dashboardCopy");
+      const requestPanel = document.getElementById("requestPanel");
+      const requestDashboardTitle = document.getElementById("requestDashboardTitle");
+      const requestFormToggleBtn = document.getElementById("requestFormToggleBtn");
+      const requestMobileShell = document.getElementById("requestMobileShell");
+      const authTrigger = document.getElementById("customerAuthState");
+      const authMenu = document.getElementById("siteAuthMenu");
+      const siteNavUser = document.getElementById("siteNavUser");
+      const logoutBtn = document.getElementById("customerLogoutBtn");
+      const viewProfileBtn = document.getElementById("viewProfileBtn");
+      const authCard = document.getElementById("customerAuthCard");
+      const banner = document.getElementById("customerBanner");
+      const customerNameNode = document.getElementById("customerName");
+      const customerEmailNode = document.getElementById("customerEmail");
+      const customerAvatarNode = document.getElementById("customerAvatar");
+      const destinationInput = document.getElementById("destinationInput");
+      const pickupDate = document.getElementById("pickupDate");
+      const pickupTime = document.getElementById("pickupTime");
+      const profileDisplayName = document.getElementById("profileDisplayName");
+      const profileDisplayEmail = document.getElementById("profileDisplayEmail");
+      const profileAvatarPreview = document.getElementById("profileAvatarPreview");
+      const profilePhoneStatus = document.getElementById("profilePhoneStatus");
+      const profileAccountStatus = document.getElementById("profileAccountStatus");
+      const profileFullName = document.getElementById("profileFullName");
+      const profileEmailField = document.getElementById("profileEmailField");
+      const profilePhoneField = document.getElementById("profilePhoneField");
+      const profileWalletMode = document.getElementById("profileWalletMode");
+      const saveProfileBtn = document.getElementById("saveProfileBtn");
+      const removePhoneBtn = document.getElementById("removePhoneBtn");
+      const walletBalance = document.getElementById("walletBalance");
+      const walletBalanceInline = document.getElementById("walletBalanceInline");
+      const walletTopUpAmount = document.getElementById("walletTopUpAmount");
+      const walletTopUpBtn = document.getElementById("walletTopUpBtn");
+      const walletResetBtn = document.getElementById("walletResetBtn");
+      const profileDeactivateBtn = document.getElementById("profileDeactivateBtn");
+      const deleteAccountBtn = document.getElementById("deleteAccountBtn");
+      const defaultDashboardHeading = dashboardHeading?.textContent || "";
+      const defaultDashboardCopy = dashboardCopy?.textContent || "";
+      const profileState = {
+        walletBalance: 0
+      };
+
+      function flashBanner(message, tone = "neutral") {
+        if (!banner) {
+          return;
+        }
+        banner.textContent = message;
+        banner.dataset.tone = tone;
+      }
+
+      function formatWallet(value) {
+        return `UGX ${Math.max(0, Math.round(value)).toLocaleString("en-UG")}`;
+      }
+
+      function renderWallet() {
+        const balanceText = formatWallet(profileState.walletBalance);
+        if (walletBalance) {
+          walletBalance.textContent = balanceText;
+        }
+        if (walletBalanceInline) {
+          walletBalanceInline.textContent = balanceText;
+        }
+      }
+
+      function syncProfileDashboard() {
+        const signedIn = logoutBtn && !logoutBtn.hidden;
+        const currentName = signedIn ? customerNameNode?.textContent?.trim() || authTrigger?.textContent?.trim() || "Customer" : "Guest customer";
+        const currentEmail = signedIn ? customerEmailNode?.textContent?.trim() || "No email available" : "Sign in to manage your account";
+        const currentAvatar = signedIn && customerAvatarNode?.getAttribute("src") ? customerAvatarNode.getAttribute("src") : "ims/ticon.png";
+
+        if (profileDisplayName) {
+          profileDisplayName.textContent = currentName;
+        }
+        if (profileDisplayEmail) {
+          profileDisplayEmail.textContent = currentEmail;
+        }
+        if (profileAvatarPreview) {
+          profileAvatarPreview.src = currentAvatar;
+        }
+        if (profileAccountStatus) {
+          profileAccountStatus.textContent = signedIn ? "Signed in and active" : "Waiting for sign in";
+        }
+
+        if (profileFullName && (!profileFullName.value || profileFullName.dataset.autofill !== "manual")) {
+          profileFullName.value = signedIn ? currentName : "";
+          profileFullName.dataset.autofill = "synced";
+        }
+        if (profileEmailField && (!profileEmailField.value || profileEmailField.dataset.autofill !== "manual")) {
+          profileEmailField.value = signedIn ? currentEmail : "";
+          profileEmailField.dataset.autofill = "synced";
+        }
+        if (profilePhoneStatus) {
+          profilePhoneStatus.textContent = profilePhoneField?.value?.trim() ? profilePhoneField.value.trim() : "No phone number saved";
+        }
+        renderWallet();
+      }
+
+      [profileFullName, profileEmailField, profilePhoneField].forEach((field) => {
+        field?.addEventListener("input", () => {
+          field.dataset.autofill = "manual";
+          if (field === profilePhoneField && profilePhoneStatus) {
+            profilePhoneStatus.textContent = field.value.trim() || "No phone number saved";
+          }
+        });
+      });
+
+      if (pickupDate && !pickupDate.value) {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        pickupDate.value = `${year}-${month}-${day}`;
+      }
+
+      if (pickupTime && !pickupTime.value) {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() + 30);
+        pickupTime.value = now.toTimeString().slice(0, 5);
+      }
+
+      const slides = Array.from(document.querySelectorAll(".hero-content h1"));
+      if (slides.length > 1) {
+        let activeIndex = 0;
+        window.setInterval(() => {
+          slides[activeIndex].classList.remove("active");
+          slides[activeIndex].classList.add("exit");
+          activeIndex = (activeIndex + 1) % slides.length;
+          slides[activeIndex].classList.remove("exit");
+          slides[activeIndex].classList.add("active");
+        }, 2600);
+      }
+
+      const siteNav = document.getElementById("siteNav");
+      const siteNavToggle = document.getElementById("siteNavToggle");
+      const dashboardPanels = Array.from(document.querySelectorAll(".dashboard-panel"));
+
+      function syncAuthNavState() {
+        if (!authTrigger || !logoutBtn || !siteNavUser) {
+          return;
+        }
+
+        const signedIn = !logoutBtn.hidden;
+        authTrigger.classList.toggle("is-guest", !signedIn);
+        viewProfileBtn.hidden = !signedIn;
+        if (signedIn) {
+          if (!authTrigger.textContent.trim()) {
+            authTrigger.textContent = "Account";
+          }
+        } else if (authTrigger.textContent.trim() !== "Login") {
+          authTrigger.textContent = "Login";
+        }
+        if (!signedIn) {
+          siteNavUser.classList.remove("open");
+        }
+
+        syncProfileDashboard();
+      }
+
+      authTrigger?.addEventListener("click", () => {
+        const signedIn = logoutBtn && !logoutBtn.hidden;
+        if (!signedIn) {
+          showDashboard("homePanel", {
+            navKey: "homePanel",
+            title: "Welcome to Teleka",
+            copy: "Choose a dashboard from the menu to focus on booking, trip history, live chat, or rider support without scrolling through the whole page."
+          });
+          window.setTimeout(() => authCard?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 120);
+          return;
+        }
+
+        siteNavUser?.classList.toggle("open");
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!siteNavUser?.contains(event.target)) {
+          siteNavUser?.classList.remove("open");
+        }
+      });
+
+      logoutBtn?.addEventListener("click", () => {
+        siteNavUser?.classList.remove("open");
+      });
+
+      viewProfileBtn?.addEventListener("click", () => {
+        siteNavUser?.classList.remove("open");
+        showDashboard("profilePanel", {
+          navKey: null,
+          title: "Your Profile",
+          copy: "Manage your customer details, wallet preferences, and account controls from one profile dashboard."
+        });
+      });
+
+      if (authTrigger && logoutBtn) {
+        const authObserver = new MutationObserver(syncAuthNavState);
+        authObserver.observe(authTrigger, { childList: true, subtree: true, characterData: true });
+        authObserver.observe(logoutBtn, { attributes: true, attributeFilter: ["hidden"] });
+        syncAuthNavState();
+      }
+
+      customerNameNode &&
+        new MutationObserver(syncProfileDashboard).observe(customerNameNode, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      customerEmailNode &&
+        new MutationObserver(syncProfileDashboard).observe(customerEmailNode, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+
+      saveProfileBtn?.addEventListener("click", () => {
+        const savedName = profileFullName?.value?.trim();
+        const savedEmail = profileEmailField?.value?.trim();
+        const savedPhone = profilePhoneField?.value?.trim();
+
+        if (savedName && customerNameNode) {
+          customerNameNode.textContent = savedName;
+        }
+        if (savedEmail && customerEmailNode) {
+          customerEmailNode.textContent = savedEmail;
+        }
+        if (savedName && authTrigger && logoutBtn && !logoutBtn.hidden) {
+          authTrigger.textContent = savedName;
+        }
+        if (profilePhoneStatus) {
+          profilePhoneStatus.textContent = savedPhone || "No phone number saved";
+        }
+        if (profileWalletMode) {
+          const paymentMethod = document.getElementById("paymentMethod");
+          if (paymentMethod) {
+            paymentMethod.value = profileWalletMode.value;
+          }
+        }
+        syncProfileDashboard();
+        flashBanner("Profile details updated on this dashboard.", "success");
+      });
+
+      removePhoneBtn?.addEventListener("click", () => {
+        if (profilePhoneField) {
+          profilePhoneField.value = "";
+          profilePhoneField.dataset.autofill = "manual";
+        }
+        if (profilePhoneStatus) {
+          profilePhoneStatus.textContent = "No phone number saved";
+        }
+        flashBanner("Phone number removed from the profile form.", "warning");
+      });
+
+      walletTopUpBtn?.addEventListener("click", () => {
+        const amount = Number(walletTopUpAmount?.value || 0);
+        if (!amount || amount < 0) {
+          flashBanner("Enter a valid wallet top up amount.", "warning");
+          return;
+        }
+        profileState.walletBalance += amount;
+        renderWallet();
+        if (walletTopUpAmount) {
+          walletTopUpAmount.value = "";
+        }
+        flashBanner("Wallet balance updated on this dashboard.", "success");
+      });
+
+      walletResetBtn?.addEventListener("click", () => {
+        profileState.walletBalance = 0;
+        renderWallet();
+        flashBanner("Wallet balance cleared on this dashboard.", "warning");
+      });
+
+      profileDeactivateBtn?.addEventListener("click", () => {
+        flashBanner("Account deactivation needs backend confirmation before it can be completed.", "warning");
+      });
+
+      deleteAccountBtn?.addEventListener("click", () => {
+        const confirmed = window.confirm("Delete account request? This demo will only clear the local profile dashboard.");
+        if (!confirmed) {
+          return;
+        }
+        if (profileFullName) {
+          profileFullName.value = "";
+          profileFullName.dataset.autofill = "manual";
+        }
+        if (profileEmailField) {
+          profileEmailField.value = "";
+          profileEmailField.dataset.autofill = "manual";
+        }
+        if (profilePhoneField) {
+          profilePhoneField.value = "";
+          profilePhoneField.dataset.autofill = "manual";
+        }
+        profileState.walletBalance = 0;
+        renderWallet();
+        if (profilePhoneStatus) {
+          profilePhoneStatus.textContent = "No phone number saved";
+        }
+        flashBanner("Local profile dashboard cleared. Connect backend deletion before making this permanent.", "danger");
+      });
+
+      document.querySelectorAll("[data-book-now]").forEach((link) => {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (siteNav?.classList.contains("open")) {
+            siteNav.classList.remove("open");
+            siteNavToggle?.setAttribute("aria-expanded", "false");
+          }
+
+          showDashboard("requestPanel", {
+            navKey: "requestPanel",
+            mode: "booking",
+            title: "Book a Ride",
+            copy: "Set your pickup, destination, date, time, vehicle, and payment method from this dedicated booking dashboard."
+          });
+
+          if (
+            window.innerWidth <= 720 &&
+            requestFormToggleBtn &&
+            requestMobileShell &&
+            !requestMobileShell.classList.contains("open")
+          ) {
+            requestFormToggleBtn.click();
+          }
+          window.setTimeout(() => destinationInput?.focus(), 380);
+        });
+      });
+
+      const navLinks = Array.from(document.querySelectorAll("[data-nav-link]"));
+      navLinks.forEach((link) => {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (siteNav?.classList.contains("open")) {
+            siteNav.classList.remove("open");
+            siteNavToggle?.setAttribute("aria-expanded", "false");
+          }
+          siteNavUser?.classList.remove("open");
+
+          const navKey = link.dataset.navLink;
+          if (navKey === "mapPanel") {
+            showDashboard("requestPanel", {
+              navKey,
+              mode: "tracking",
+              title: "Track Ride",
+              copy: "Open the ride tracking dashboard to focus on the live map, route updates, and latest driver status."
+            });
+            return;
+          }
+
+          const targetPanel = document.getElementById(navKey);
+          showDashboard(navKey, {
+            navKey,
+            mode: targetPanel?.id === "requestPanel" ? "booking" : null,
+            title: targetPanel?.dataset.dashboardTitle || defaultDashboardHeading,
+            copy: targetPanel?.dataset.dashboardCopy || defaultDashboardCopy
+          });
+        });
+      });
+
+      function showDashboard(panelId, options = {}) {
+        dashboardPanels.forEach((panel) => {
+          panel.classList.toggle("active-dashboard", panel.id === panelId);
+        });
+
+        if (requestPanel) {
+          const requestMode = options.mode || "booking";
+          requestPanel.dataset.dashboardMode = requestMode;
+          if (requestDashboardTitle) {
+            requestDashboardTitle.textContent = requestMode === "tracking" ? "Active ride map" : "Where to?";
+          }
+        }
+
+        if (dashboardHeading) {
+          dashboardHeading.textContent = options.title || defaultDashboardHeading;
+        }
+        if (dashboardCopy) {
+          dashboardCopy.textContent = options.copy || defaultDashboardCopy;
+        }
+
+        if (options.navKey) {
+          window.history.replaceState(null, "", `#${options.navKey}`);
+        }
+
+        navLinks.forEach((link) => {
+          link.classList.toggle("is-active", link.dataset.navLink === options.navKey);
+        });
+
+        window.scrollTo({ top: 0, behavior: "auto" });
+
+        if (panelId === "requestPanel") {
+          window.setTimeout(() => window.dispatchEvent(new Event("resize")), 120);
+          window.setTimeout(() => window.dispatchEvent(new Event("resize")), 360);
+        }
+      }
+
+      window.telekaDashboard = {
+        showDashboard
+      };
+
+      const hashTarget = window.location.hash.replace("#", "");
+      const initialNavKey =
+        hashTarget && (hashTarget === "mapPanel" || document.getElementById(hashTarget))
+          ? hashTarget
+          : "homePanel";
+
+      if (initialNavKey === "mapPanel") {
+        showDashboard("requestPanel", {
+          navKey: "mapPanel",
+          mode: "tracking",
+          title: "Track Ride",
+          copy: "Open the ride tracking dashboard to focus on the live map, route updates, and latest driver status."
+        });
+      } else {
+        const initialPanel = document.getElementById(initialNavKey);
+        showDashboard(initialNavKey, {
+          navKey: initialNavKey,
+          mode: initialNavKey === "requestPanel" ? "booking" : null,
+          title: initialPanel?.dataset.dashboardTitle || defaultDashboardHeading,
+          copy: initialPanel?.dataset.dashboardCopy || defaultDashboardCopy
+        });
+      }
+    });
+  </script>
   <script type="module" src="js/customer.js"></script>
 </body>
 </html>
