@@ -61,7 +61,7 @@ const state = {
   notifications: [],
   selectedRideId: null,
   selectedQuote: null,
-  selectedVehicleClass: "standard",
+  selectedVehicleClass: null,
   placeInputs: {
     origin: null,
     destination: null
@@ -74,7 +74,8 @@ const state = {
   directionsRenderer: null,
   geocoder: null,
   quoteRequestId: 0,
-  requestSheetState: "form"
+  requestSheetState: "form",
+  pickupAutofillAttempted: false
 };
 
 const elements = {
@@ -93,6 +94,7 @@ const elements = {
   email: document.querySelector("#customerEmail"),
   pickupInput: document.querySelector("#pickupInput"),
   destinationInput: document.querySelector("#destinationInput"),
+  requestOverlay: document.querySelector("#requestOverlay"),
   vehicleOptions: document.querySelector("#vehicleOptions"),
   selectedVehicleHint: document.querySelector("#selectedVehicleHint"),
   estimateState: document.querySelector("#estimateState"),
@@ -112,7 +114,6 @@ const elements = {
   activeRideStatus: document.querySelector("#activeRideStatus"),
   activeRideSummary: document.querySelector("#activeRideSummary"),
   chatRideBadge: document.querySelector("#chatRideBadge"),
-  useMyLocationBtn: document.querySelector("#useMyLocationBtn"),
   requestFormToggleBtn: document.querySelector("#requestFormToggleBtn"),
   requestMobileShell: document.querySelector("#requestMobileShell"),
   requestPanel: document.querySelector("#requestPanel"),
@@ -196,14 +197,20 @@ function getVehicleOptions() {
   return state.selectedQuote?.estimates || defaultVehicleOptions;
 }
 
+function hasSelectedVehicle() {
+  if (!state.selectedVehicleClass) {
+    return false;
+  }
+
+  return getVehicleOptions().some((option) => option.key === state.selectedVehicleClass);
+}
+
 function getSelectedEstimate() {
-  const options = getVehicleOptions();
-  return (
-    options.find((option) => option.key === state.selectedVehicleClass) ||
-    options.find((option) => option.key === "standard") ||
-    options[0] ||
-    null
-  );
+  if (!hasSelectedVehicle()) {
+    return null;
+  }
+
+  return getVehicleOptions().find((option) => option.key === state.selectedVehicleClass) || null;
 }
 
 function getVehiclePreviewImage(option) {
@@ -365,24 +372,60 @@ function buildPickupScheduleNote() {
   return `Pickup schedule: ${date} ${time}`;
 }
 
+function canChooseVehicle() {
+  return Boolean(state.selectedQuote && hasPickupSchedule());
+}
+
+function focusBookingAction() {
+  elements.requestOverlay?.scrollTo?.({ top: 0, behavior: "smooth" });
+  elements.requestPanel?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => window.dispatchEvent(new Event("resize")), 160);
+  window.setTimeout(() => window.dispatchEvent(new Event("resize")), 420);
+}
+
 function updateRequestButton() {
-  const canRequest =
+  const isSignedInCustomer =
     state.auth?.authenticated &&
-    state.auth.user?.role === "customer" &&
+    state.auth.user?.role === "customer";
+  const canRequest =
+    isSignedInCustomer &&
     Boolean(state.selectedQuote) &&
-    Boolean(getSelectedEstimate());
+    hasPickupSchedule() &&
+    hasSelectedVehicle();
 
   elements.submitRideBtn.disabled = !canRequest;
-  elements.submitRideBtn.textContent = canRequest ? "Request ride" : "Sign in to request ride";
+  if (canRequest) {
+    elements.submitRideBtn.textContent = "Request ride";
+    return;
+  }
+
+  if (!isSignedInCustomer) {
+    elements.submitRideBtn.textContent = "Sign in to request ride";
+    return;
+  }
+
+  if (!state.selectedQuote) {
+    elements.submitRideBtn.textContent = "Set route first";
+    return;
+  }
+
+  if (!hasPickupSchedule()) {
+    elements.submitRideBtn.textContent = "Select date and time";
+    return;
+  }
+
+  elements.submitRideBtn.textContent = "Choose vehicle type";
 }
 
 function renderVehicleOptions() {
   const options = getVehicleOptions();
+  const vehicleSelectionReady = canChooseVehicle();
   elements.vehicleOptions.innerHTML = "";
 
   options.forEach((option) => {
     const button = document.createElement("button");
     button.type = "button";
+    button.disabled = !vehicleSelectionReady || !state.selectedQuote;
     button.className = `vehicle-card ${option.key === state.selectedVehicleClass ? "selected" : ""}`;
     button.innerHTML = `
       <span class="vehicle-card-main">
@@ -396,9 +439,12 @@ function renderVehicleOptions() {
       <strong class="fare">${option.fareUgx ? formatCurrency(option.fareUgx) : "--"}</strong>
     `;
     button.addEventListener("click", () => {
+      if (button.disabled) {
+        return;
+      }
       state.selectedVehicleClass = option.key;
-      renderVehicleOptions();
       renderQuote();
+      focusBookingAction();
     });
     elements.vehicleOptions.appendChild(button);
   });
@@ -525,12 +571,13 @@ function renderQuote() {
   const quote = state.selectedQuote;
   const selectedEstimate = getSelectedEstimate();
 
-  if (!quote || !selectedEstimate) {
+  if (!quote) {
+    state.selectedVehicleClass = null;
     setText(elements.quoteDistance, "-");
     setText(elements.quoteDuration, "-");
     setText(elements.quoteFare, formatCurrency(0));
     elements.selectedVehicleHint.textContent =
-      "Choose pickup and destination to see live estimates.";
+      "Enter destination, date, and time to choose a vehicle type.";
     renderVehicleOptions();
     updateRequestButton();
     syncRequestSheetState();
@@ -539,11 +586,22 @@ function renderQuote() {
 
   setText(elements.quoteDistance, `${(quote.distanceMeters / 1000).toFixed(1)} km`);
   setText(elements.quoteDuration, `${Math.round(quote.durationSeconds / 60)} mins`);
-  setText(elements.quoteFare, formatCurrency(selectedEstimate.fareUgx));
-  elements.selectedVehicleHint.textContent = `${selectedEstimate.label} selected.`;
+  setText(elements.quoteFare, selectedEstimate ? formatCurrency(selectedEstimate.fareUgx) : "Choose vehicle");
+
+  if (!hasPickupSchedule()) {
+    elements.selectedVehicleHint.textContent = "Route ready. Select pickup date and time to choose a vehicle type.";
+    updateEstimateState("Add date and time");
+  } else if (!selectedEstimate) {
+    elements.selectedVehicleHint.textContent = "Choose a vehicle type to continue to the booking button.";
+    updateEstimateState("Choose vehicle type");
+  } else {
+    elements.selectedVehicleHint.textContent = `${selectedEstimate.label} selected. Review the map and request your ride.`;
+    updateEstimateState("Ready to request");
+  }
+
   renderVehicleOptions();
   updateRequestButton();
-  syncRequestSheetState({ focusEstimate: true });
+  syncRequestSheetState({ focusEstimate: Boolean(selectedEstimate) });
 }
 
 function renderRouteSteps(steps = []) {
@@ -565,6 +623,7 @@ function renderRecentPlaces() {
     button.addEventListener("click", () => {
       elements.destinationInput.value = place.address;
       state.placeInputs.destination = place;
+      state.selectedVehicleClass = null;
       void refreshQuote({ silentErrors: true });
     });
     elements.recentPlaces.appendChild(button);
@@ -1039,10 +1098,7 @@ async function refreshQuote({ silentErrors = false } = {}) {
     const distanceMeters = Number(leg.distance?.value || 0);
     const durationSeconds = Number(leg.duration?.value || 0);
     const estimates = buildVehicleEstimates(distanceMeters, durationSeconds);
-    const selectedEstimate =
-      estimates.find((estimate) => estimate.key === state.selectedVehicleClass) ||
-      estimates.find((estimate) => estimate.key === "standard") ||
-      estimates[0];
+    const selectedEstimate = estimates.find((estimate) => estimate.key === state.selectedVehicleClass) || null;
 
     state.selectedQuote = {
       origin: {
@@ -1061,7 +1117,7 @@ async function refreshQuote({ silentErrors = false } = {}) {
       },
       distanceMeters,
       durationSeconds,
-      vehicleClass: selectedEstimate?.key || "standard",
+      vehicleClass: selectedEstimate?.key || null,
       fareUgx: selectedEstimate?.fareUgx || 0,
       estimates,
       directionsResult: directions,
@@ -1072,10 +1128,8 @@ async function refreshQuote({ silentErrors = false } = {}) {
           durationText: step.duration?.text || ""
         })) || []
     };
-    state.selectedVehicleClass = state.selectedQuote.vehicleClass;
     renderQuote();
     syncMap();
-    updateEstimateState("Estimates ready");
   } catch (error) {
     if (requestId !== state.quoteRequestId) {
       return;
@@ -1102,6 +1156,7 @@ function attachLocationInputs() {
     const handleDraftChange = () => {
       state.placeInputs[key] = null;
       state.selectedQuote = null;
+      state.selectedVehicleClass = null;
       renderQuote();
       syncMap();
       debouncedRefreshQuote();
@@ -1130,11 +1185,11 @@ function attachScheduleInputs() {
     }
 
     input.addEventListener("input", () => {
-      syncRequestSheetState({ focusEstimate: true });
+      renderQuote();
     });
 
     input.addEventListener("change", () => {
-      syncRequestSheetState({ focusEstimate: true });
+      renderQuote();
     });
   });
 }
@@ -1169,6 +1224,9 @@ function attachGooglePlaces() {
 
       input.value = payload.address;
       state.placeInputs[key] = payload;
+      if (key === "origin" || key === "destination") {
+        state.selectedVehicleClass = null;
+      }
       void refreshQuote({ silentErrors: true });
     });
   });
@@ -1295,6 +1353,7 @@ async function handleRideRequest() {
 
     state.selectedRideId = payload.ride.id;
     state.selectedQuote = null;
+    state.selectedVehicleClass = null;
     await loadDashboard();
     await loadNotifications();
     if (window.telekaDashboard?.showDashboard) {
@@ -1349,40 +1408,84 @@ function reverseGeocodeLocation(lat, lng) {
   });
 }
 
-function useMyLocation() {
-  if (!navigator.geolocation) {
-    showBanner(elements.banner, "Geolocation is not available in this browser", "danger");
-    return;
+async function autofillPickupFromCurrentLocation({
+  announceSuccess = false,
+  silentFailure = true
+} = {}) {
+  if (state.pickupAutofillAttempted || !elements.pickupInput) {
+    return false;
   }
 
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      try {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        const result = await reverseGeocodeLocation(lat, lng);
-        const formattedAddress =
-          typeof result === "string" ? result : result.formatted_address || "Current location";
+  state.pickupAutofillAttempted = true;
 
-        elements.pickupInput.value = formattedAddress;
-        state.placeInputs.origin = {
-          label: formattedAddress,
-          address: formattedAddress,
-          placeId: typeof result === "string" ? "" : result.place_id || "",
-          lat,
-          lng
-        };
+  if (!navigator.geolocation) {
+    if (!silentFailure) {
+      showBanner(elements.banner, "Geolocation is not available in this browser", "danger");
+    }
+    return false;
+  }
 
-        await refreshQuote({ silentErrors: true });
-        showBanner(elements.banner, "Pickup filled from your current location", "success");
-      } catch (error) {
-        showBanner(elements.banner, error.message, "danger");
-      }
-    },
-    () => showBanner(elements.banner, "Unable to read your location", "danger"),
-    { enableHighAccuracy: true, timeout: 10000 }
-  );
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          if (elements.pickupInput.value.trim() && !state.placeInputs.origin) {
+            resolve(false);
+            return;
+          }
+
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          const result = await reverseGeocodeLocation(lat, lng);
+          const formattedAddress =
+            typeof result === "string" ? result : result.formatted_address || "Current location";
+
+          elements.pickupInput.value = formattedAddress;
+          state.placeInputs.origin = {
+            label: formattedAddress,
+            address: formattedAddress,
+            placeId: typeof result === "string" ? "" : result.place_id || "",
+            lat,
+            lng
+          };
+
+          await refreshQuote({ silentErrors: true });
+          if (announceSuccess) {
+            showBanner(elements.banner, "Pickup filled from your current location", "success");
+          }
+          resolve(true);
+        } catch (error) {
+          if (!silentFailure) {
+            showBanner(elements.banner, error.message, "danger");
+          }
+          resolve(false);
+        }
+      },
+      () => {
+        if (!silentFailure) {
+          showBanner(elements.banner, "Unable to read your location", "danger");
+        }
+        resolve(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
 }
+
+function attachPickupAutofillTriggers() {
+  const triggerAutofill = () => {
+    void autofillPickupFromCurrentLocation();
+  };
+
+  [elements.pickupInput, elements.destinationInput].forEach((input) => {
+    input?.addEventListener("focus", triggerAutofill, { once: true });
+    input?.addEventListener("pointerdown", triggerAutofill, { once: true });
+  });
+}
+
+window.telekaCustomerAutofillPickup = () => {
+  void autofillPickupFromCurrentLocation();
+};
 
 function openDriverChatFromMap() {
   if (window.telekaDashboard?.showDashboard) {
@@ -1407,6 +1510,7 @@ async function bootstrap() {
   attachRequestFormToggle();
   attachLocationInputs();
   attachScheduleInputs();
+  attachPickupAutofillTriggers();
   renderVehicleOptions();
   renderQuote();
 
@@ -1415,6 +1519,9 @@ async function bootstrap() {
       await loadGoogleMaps(state.config.googleMapsApiKey);
       ensureMap();
       attachGooglePlaces();
+      if (elements.requestPanel?.classList.contains("active-dashboard")) {
+        await autofillPickupFromCurrentLocation();
+      }
     } catch (error) {
       showBanner(elements.banner, error.message, "warning");
     }
@@ -1450,7 +1557,6 @@ elements.logoutBtn.addEventListener("click", async () => {
   await api.logout();
   window.location.reload();
 });
-elements.useMyLocationBtn.addEventListener("click", useMyLocation);
 elements.mapDriverChatBtn?.addEventListener("click", openDriverChatFromMap);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.auth?.authenticated) {

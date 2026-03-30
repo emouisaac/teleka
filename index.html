@@ -533,13 +533,6 @@
       gap: 14px;
     }
 
-    .booking-field-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: stretch;
-    }
-
     .booking-shell label {
       display: block;
       margin-bottom: 6px;
@@ -554,13 +547,6 @@
       border: 1px solid #d8dee8;
       background: #f8fafc;
       padding: 14px 16px;
-    }
-
-    .booking-locate-btn {
-      min-height: 52px;
-      align-self: end;
-      background: #eef4ff;
-      color: #007bff;
     }
 
     .clone-quote-card {
@@ -594,6 +580,11 @@
       background: #e3f0ff;
       border-color: #007bff;
       box-shadow: 0 2px 8px rgba(0, 123, 255, 0.08);
+    }
+
+    #requestPanel .vehicle-card:disabled {
+      opacity: 0.56;
+      cursor: not-allowed;
     }
 
     #requestPanel .vehicle-card-main {
@@ -712,9 +703,9 @@
     }
 
     .booking-dashboard[data-sheet-state="estimate"] .choosetrip-overlay {
-      max-height: min(44vh, 500px);
-      padding-bottom: 102px;
-      transform: translateY(18%);
+      max-height: min(36vh, 380px);
+      padding-bottom: 126px;
+      transform: translateY(24%);
     }
 
     .booking-dashboard[data-sheet-state="estimate"] .booking-extra-grid,
@@ -938,14 +929,9 @@
         max-height: min(72vh, 760px);
       }
 
-      .where-to-header,
-      .booking-field-row {
+      .where-to-header {
         grid-template-columns: 1fr;
         display: grid;
-      }
-
-      .booking-locate-btn {
-        width: 100%;
       }
 
       .nav-book-btn {
@@ -1249,7 +1235,7 @@
       <section class="panel booking-dashboard dashboard-panel" id="requestPanel" data-nav-section data-dashboard-title="Book a Ride" data-dashboard-copy="Set your pickup, destination, date, time, vehicle, and payment method from this dedicated booking dashboard." data-dashboard-mode="booking" data-sheet-state="form">
         <div class="booking-map-shell" id="mapPanel" data-nav-section>
           <div id="customerMap" class="map-surface booking-map-surface"></div>
-          <div class="choosetrip-overlay">
+          <div class="choosetrip-overlay" id="requestOverlay">
             <div class="where-to-header">
               <div>
                 <p class="eyebrow">Request ride</p>
@@ -1271,10 +1257,7 @@
               <div class="request-form">
                 <div class="booking-input-stack">
                   <label>Pickup</label>
-                  <div class="booking-field-row">
-                    <input id="pickupInput" type="text" placeholder="Search pickup point" autocomplete="off">
-                    <button class="ghost-btn booking-locate-btn" id="useMyLocationBtn" type="button">Use my location</button>
-                  </div>
+                  <input id="pickupInput" type="text" placeholder="Pickup point" autocomplete="off">
                 </div>
 
                 <div class="booking-input-stack">
@@ -1310,7 +1293,7 @@
 
                 <h3 class="booking-subheading">Choose a Trip</h3>
                 <div class="vehicle-grid clonecab-vehicle-grid" id="vehicleOptions"></div>
-                <p class="input-help" id="selectedVehicleHint">Choose pickup and destination to see live estimates.</p>
+                <p class="input-help" id="selectedVehicleHint">Enter destination, date, and time to choose a vehicle type.</p>
 
                 <div class="booking-extra-grid">
                   <div class="booking-card">
@@ -1891,6 +1874,7 @@
         window.scrollTo({ top: 0, behavior: "auto" });
 
         if (panelId === "requestPanel") {
+          window.setTimeout(() => window.telekaCustomerAutofillPickup?.(), 140);
           window.setTimeout(() => window.dispatchEvent(new Event("resize")), 120);
           window.setTimeout(() => window.dispatchEvent(new Event("resize")), 360);
         }
