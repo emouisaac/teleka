@@ -215,7 +215,7 @@ function getSelectedEstimate() {
 
 function getVehiclePreviewImage(option) {
   const imageByKey = {
-    mini: { src: "ims/Teleka Mini1.png", alt: "Teleka Mini vehicle" },
+    mini: { src: "ims/4sit.png", alt: "4-seat vehicle" },
     standard: { src: "ims/Standared.png", alt: "Standard vehicle" },
     premium: { src: "ims/prem.png", alt: "Premium vehicle" },
     suv: { src: "ims/SUV1.png", alt: "SUV vehicle" }
@@ -864,6 +864,25 @@ function clearMapMarkers() {
   state.mapMarkers = {};
 }
 
+function getStopMarkerStyle(labelText, fillColor) {
+  return {
+    label: {
+      text: labelText,
+      color: "#ffffff",
+      fontWeight: "700",
+      fontSize: "13px"
+    },
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 12,
+      fillColor,
+      fillOpacity: 1,
+      strokeColor: "#ffffff",
+      strokeWeight: 3
+    }
+  };
+}
+
 function placeMarker(key, position, options = {}) {
   if (!state.map || !window.google?.maps) {
     return;
@@ -889,7 +908,24 @@ function fitMapToPoints(points) {
 
   const bounds = new google.maps.LatLngBounds();
   points.forEach((point) => bounds.extend(point));
-  state.map.fitBounds(bounds, 80);
+
+  const mapNode = state.map.getDiv();
+  const mapRect = mapNode?.getBoundingClientRect?.();
+  const overlayRect = elements.requestOverlay?.getBoundingClientRect?.();
+  const overlayObstructionHeight =
+    mapRect && overlayRect
+      ? Math.max(0, Math.min(mapRect.height, mapRect.bottom - Math.max(mapRect.top, overlayRect.top)))
+      : 0;
+  const bottomPadding = overlayObstructionHeight
+    ? Math.min((mapRect?.height || 0) - 80, overlayObstructionHeight + 92)
+    : 120;
+
+  state.map.fitBounds(bounds, {
+    top: 96,
+    right: 80,
+    bottom: bottomPadding,
+    left: 80
+  });
 }
 
 async function renderQuoteMap(quote) {
@@ -931,12 +967,12 @@ async function renderQuoteMap(quote) {
   }
 
   placeMarker("origin", origin, {
-    label: "P",
-    title: `Pickup: ${quote.origin.label}`
+    ...getStopMarkerStyle("A", "#0e7969"),
+    title: `Point A: ${quote.origin.label}`
   });
   placeMarker("destination", destination, {
-    label: "D",
-    title: `Destination: ${quote.destination.label}`
+    ...getStopMarkerStyle("B", "#ef9b28"),
+    title: `Point B: ${quote.destination.label}`
   });
   fitMapToPoints([origin, destination]);
 
@@ -972,14 +1008,17 @@ async function renderActiveRideMap(ride) {
 
   if (Number.isFinite(origin.lat) && Number.isFinite(origin.lng)) {
     points.push(origin);
-    placeMarker("origin", origin, { label: "P", title: `Pickup: ${ride.originLabel}` });
+    placeMarker("origin", origin, {
+      ...getStopMarkerStyle("A", "#0e7969"),
+      title: `Point A: ${ride.originLabel}`
+    });
   }
 
   if (Number.isFinite(destination.lat) && Number.isFinite(destination.lng)) {
     points.push(destination);
     placeMarker("destination", destination, {
-      label: "D",
-      title: `Destination: ${ride.destinationLabel}`
+      ...getStopMarkerStyle("B", "#ef9b28"),
+      title: `Point B: ${ride.destinationLabel}`
     });
   }
 
