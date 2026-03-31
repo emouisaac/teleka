@@ -375,6 +375,13 @@ function getRideDispatchMarkup(ride, options) {
           ? `<button class="ghost-btn" data-cancel="${ride.id}">Reject</button>`
           : ""
       }
+      ${
+        Number(ride.pendingOfferCount || 0) > 0
+          ? `<span class="pill">${ride.pendingOfferCount} nearby offer${Number(ride.pendingOfferCount) === 1 ? "" : "s"}</span>`
+          : Number(ride.nearbyOfferCount || 0) > 0
+            ? `<span class="pill">${ride.nearbyOfferCount} contacted</span>`
+            : ""
+      }
     </div>
   `;
 }
@@ -606,7 +613,7 @@ function renderRides() {
         <tr>
           <td>${ride.id.slice(0, 8)}</td>
           <td>${ride.customerName}<br><small>${ride.customerPhone || ""}</small></td>
-          <td>${ride.originLabel}<br><small>${ride.destinationLabel}</small><br><small>${formatVehicleClass(ride.requestedVehicleClass)}</small></td>
+          <td>${ride.originLabel}<br><small>${ride.destinationLabel}</small><br><small>${formatVehicleClass(ride.requestedVehicleClass)}</small><br><small>Nearby offers: ${ride.pendingOfferCount || 0} active / ${ride.nearbyOfferCount || 0} total</small></td>
           <td>${formatAdminStatus(ride.status)}</td>
           <td>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)}</td>
           <td>${ride.driverName || "Unassigned"}</td>

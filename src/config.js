@@ -48,25 +48,6 @@ function readPositiveInteger(name, fallbackValue) {
   return Math.floor(parsed);
 }
 
-function readDurationMs({ minutesEnvName, hoursEnvName, daysEnvName, fallbackMs }) {
-  const minutesValue = minutesEnvName ? String(process.env[minutesEnvName] || "").trim() : "";
-  if (minutesValue) {
-    return readPositiveInteger(minutesEnvName, Math.max(1, Math.round(fallbackMs / (60 * 1000)))) * 60 * 1000;
-  }
-
-  const hoursValue = hoursEnvName ? String(process.env[hoursEnvName] || "").trim() : "";
-  if (hoursValue) {
-    return readPositiveInteger(hoursEnvName, Math.max(1, Math.round(fallbackMs / (60 * 60 * 1000)))) * 60 * 60 * 1000;
-  }
-
-  const daysValue = daysEnvName ? String(process.env[daysEnvName] || "").trim() : "";
-  if (daysValue) {
-    return readPositiveInteger(daysEnvName, Math.max(1, Math.round(fallbackMs / (24 * 60 * 60 * 1000)))) * 24 * 60 * 60 * 1000;
-  }
-
-  return fallbackMs;
-}
-
 function detectHostingProvider() {
   if (process.env.RENDER === "true" || process.env.RENDER_SERVICE_ID) {
     return "render";
@@ -137,32 +118,20 @@ const hostedDeployment =
 const dataRoot = `postgres://${databaseHost}`;
 const uploadRoot = `supabase://${supabaseUploadBucket}`;
 
-const rawCookieDomain = domainHostname || appHostname;
+const rawCookieDomain = String(
+  process.env.TELEKA_COOKIE_DOMAIN || process.env.COOKIE_DOMAIN || ""
+).trim();
 const cookieDomain =
-  isProduction && rawCookieDomain && !rawCookieDomain.includes("localhost")
+  rawCookieDomain && !rawCookieDomain.includes("localhost")
     ? rawCookieDomain.replace(/^www\./, "")
     : undefined;
 
 const configWarnings = [];
 const persistenceWarnings = [];
 const storageMode = "supabase-storage";
-const legacySessionTtlMs = readDurationMs({
-  hoursEnvName: "TELEKA_SESSION_TTL_HOURS",
-  daysEnvName: "TELEKA_SESSION_TTL_DAYS",
-  fallbackMs: 12 * 24 * 60 * 60 * 1000
-});
-const userSessionTtlMs = readDurationMs({
-  minutesEnvName: "TELEKA_USER_SESSION_TTL_MINUTES",
-  hoursEnvName: "TELEKA_USER_SESSION_TTL_HOURS",
-  daysEnvName: "TELEKA_USER_SESSION_TTL_DAYS",
-  fallbackMs: legacySessionTtlMs
-});
-const adminSessionTtlMs = readDurationMs({
-  minutesEnvName: "TELEKA_ADMIN_SESSION_TTL_MINUTES",
-  hoursEnvName: "TELEKA_ADMIN_SESSION_TTL_HOURS",
-  daysEnvName: "TELEKA_ADMIN_SESSION_TTL_DAYS",
-  fallbackMs: 30 * 60 * 1000
-});
+const persistentSessionTtlMs = 365 * 24 * 60 * 60 * 1000;
+const userSessionTtlMs = persistentSessionTtlMs;
+const adminSessionTtlMs = persistentSessionTtlMs;
 const sessionTtlMs = Math.max(userSessionTtlMs, adminSessionTtlMs);
 
 export function getSessionTtlMsForRole(role) {

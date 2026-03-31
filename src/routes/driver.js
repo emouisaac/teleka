@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 
 import { database, nowIso } from "../db.js";
+import { offerRideToNearbyDrivers } from "../services/dispatch.js";
 import { createNotification } from "../services/notifications.js";
 import { sendOutboundNotice } from "../services/outbound.js";
 import {
@@ -12,16 +13,27 @@ import {
 } from "../services/rides.js";
 import { apiError, getDriverProfile, requireRole } from "./helpers.js";
 
-async function getDriverRide(driverId, rideId) {
+async function getDriverRideAccess(driverId, rideId) {
   const ride = await database
     .prepare(
       `
-        SELECT id, status, customer_id AS "customerId"
+        SELECT
+          rides.id,
+          rides.status,
+          rides.customer_id AS "customerId",
+          rides.driver_id AS "driverId",
+          offers.status AS "driverOfferStatus",
+          offers.distance_meters AS "driverOfferDistanceMeters",
+          offers.created_at AS "driverOfferCreatedAt"
         FROM rides
-        WHERE id = ? AND driver_id = ?
+        LEFT JOIN ride_driver_offers offers
+          ON offers.ride_id = rides.id
+         AND offers.driver_id = ?
+        WHERE rides.id = ?
+          AND (rides.driver_id = ? OR offers.driver_id = ?)
       `
     )
-    .get(rideId, driverId);
+    .get(driverId, rideId, driverId, driverId);
 
   if (!ride) {
     throw apiError(404, "Ride not found");
@@ -49,6 +61,7 @@ async function listDriverRides(driverId) {
           rides.duration_seconds AS "durationSeconds",
           rides.quoted_fare_ugx AS "quotedFareUgx",
           rides.final_fare_ugx AS "finalFareUgx",
+          rides.requested_vehicle_class AS "requestedVehicleClass",
           rides.requested_at AS "requestedAt",
           rides.accepted_at AS "acceptedAt",
           rides.picked_up_at AS "pickedUpAt",
@@ -57,14 +70,21 @@ async function listDriverRides(driverId) {
           rides.current_lng AS "currentLng",
           customers.full_name AS "customerName",
           customers.phone AS "customerPhone",
-          customers.avatar_url AS "customerAvatarUrl"
+          customers.avatar_url AS "customerAvatarUrl",
+          offers.status AS "driverOfferStatus",
+          offers.distance_meters AS "driverOfferDistanceMeters",
+          offers.created_at AS "driverOfferCreatedAt"
         FROM rides
         INNER JOIN customers ON customers.id = rides.customer_id
+        LEFT JOIN ride_driver_offers offers
+          ON offers.ride_id = rides.id
+         AND offers.driver_id = ?
         WHERE rides.driver_id = ?
+           OR (rides.status = 'pending_admin' AND offers.status = 'pending')
         ORDER BY rides.requested_at DESC
       `
     )
-    .all(driverId);
+    .all(driverId, driverId);
 }
 
 async function getDriverStats(driverId) {
@@ -188,14 +208,60 @@ export function createDriverRouter() {
 
   router.post("/rides/:rideId/accept", async (req, res, next) => {
     try {
-      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
-      if (ride.status !== "assigned") {
+      const driverId = req.session.user.id;
+      const decisionTime = nowIso();
+      const ride = await getDriverRideAccess(driverId, req.params.rideId);
+      const hasPendingOffer = ride.driverOfferStatus === "pending";
+      const isDirectAssignment = ride.driverId === driverId && ride.status === "assigned";
+
+      if (!hasPendingOffer && !isDirectAssignment) {
         throw apiError(409, "Ride is not awaiting driver acceptance");
       }
 
-      await database
-        .prepare("UPDATE rides SET status = 'accepted', accepted_at = ? WHERE id = ?")
-        .run(nowIso(), ride.id);
+      await database.withTransaction(async (tx) => {
+        if (hasPendingOffer && ride.status === "pending_admin") {
+          const claimResult = await tx
+            .prepare(
+              `
+                UPDATE rides
+                SET driver_id = ?, status = 'accepted', accepted_at = ?
+                WHERE id = ? AND status = 'pending_admin' AND driver_id IS NULL
+              `
+            )
+            .run(driverId, decisionTime, ride.id);
+
+          if (claimResult.rowCount !== 1) {
+            throw apiError(409, "Another driver already claimed this ride");
+          }
+        } else if (isDirectAssignment) {
+          const acceptResult = await tx
+            .prepare(
+              `
+                UPDATE rides
+                SET status = 'accepted', accepted_at = ?
+                WHERE id = ? AND driver_id = ? AND status = 'assigned'
+              `
+            )
+            .run(decisionTime, ride.id, driverId);
+
+          if (acceptResult.rowCount !== 1) {
+            throw apiError(409, "Ride is no longer awaiting driver acceptance");
+          }
+        } else {
+          throw apiError(409, "Ride is not awaiting driver acceptance");
+        }
+
+        await tx
+          .prepare(
+            `
+              UPDATE ride_driver_offers
+              SET status = CASE WHEN driver_id = ? THEN 'accepted' ELSE 'withdrawn' END,
+                  responded_at = COALESCE(responded_at, ?)
+              WHERE ride_id = ? AND status = 'pending'
+            `
+          )
+          .run(driverId, decisionTime, ride.id);
+      });
 
       const realtime = req.app.locals.realtime;
       const snapshot = await emitRideSnapshot(realtime, ride.id);
@@ -222,43 +288,78 @@ export function createDriverRouter() {
 
   router.post("/rides/:rideId/reject", async (req, res, next) => {
     try {
-      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
-      if (ride.status !== "assigned") {
+      const driverId = req.session.user.id;
+      const decisionTime = nowIso();
+      const ride = await getDriverRideAccess(driverId, req.params.rideId);
+      const hasPendingOffer = ride.driverOfferStatus === "pending";
+      const isDirectAssignment = ride.driverId === driverId && ride.status === "assigned";
+
+      if (!hasPendingOffer && !isDirectAssignment) {
         throw apiError(409, "Ride is not awaiting driver acceptance");
       }
 
-      await database
-        .prepare(
-          `
-            UPDATE rides
-            SET driver_id = NULL,
-                status = 'pending_admin',
-                accepted_at = NULL,
-                current_lat = NULL,
-                current_lng = NULL
-            WHERE id = ?
-          `
-        )
-        .run(ride.id);
+      if (hasPendingOffer && ride.status === "pending_admin") {
+        await database
+          .prepare(
+            `
+              UPDATE ride_driver_offers
+              SET status = 'rejected', responded_at = ?
+              WHERE ride_id = ? AND driver_id = ? AND status = 'pending'
+            `
+          )
+          .run(decisionTime, ride.id, driverId);
+      } else if (isDirectAssignment) {
+        await database.withTransaction(async (tx) => {
+          await tx
+            .prepare(
+              `
+                UPDATE rides
+                SET driver_id = NULL,
+                    status = 'pending_admin',
+                    accepted_at = NULL,
+                    current_lat = NULL,
+                    current_lng = NULL
+                WHERE id = ?
+              `
+            )
+            .run(ride.id);
+          await tx
+            .prepare(
+              `
+                UPDATE ride_driver_offers
+                SET status = 'withdrawn',
+                    responded_at = COALESCE(responded_at, ?)
+                WHERE ride_id = ? AND status = 'pending'
+              `
+            )
+            .run(decisionTime, ride.id);
+        });
+      } else {
+        throw apiError(409, "Ride is not awaiting driver acceptance");
+      }
 
       const realtime = req.app.locals.realtime;
+      await offerRideToNearbyDrivers(realtime, ride.id);
       const snapshot = await emitRideSnapshot(realtime, ride.id);
-      await createNotification(realtime, {
-        targetRole: "admin",
-        targetId: "admin-root",
-        category: "driver_rejected_ride",
-        title: "Driver rejected ride",
-        message: "A driver rejected an assigned ride and it needs reassignment",
-        rideId: ride.id
-      });
-      await createNotification(realtime, {
-        targetRole: "customer",
-        targetId: ride.customerId,
-        category: "ride_status",
-        title: "Ride is being reassigned",
-        message: "Your previous driver could not take the ride. We are finding another driver.",
-        rideId: ride.id
-      });
+
+      if (isDirectAssignment) {
+        await createNotification(realtime, {
+          targetRole: "admin",
+          targetId: "admin-root",
+          category: "driver_rejected_ride",
+          title: "Driver rejected ride",
+          message: "A driver rejected an assigned ride and it needs reassignment",
+          rideId: ride.id
+        });
+        await createNotification(realtime, {
+          targetRole: "customer",
+          targetId: ride.customerId,
+          category: "ride_status",
+          title: "Ride is being reassigned",
+          message: "Your previous driver could not take the ride. We are finding another driver.",
+          rideId: ride.id
+        });
+      }
 
       res.json({ success: true, ride: snapshot });
     } catch (error) {
@@ -268,7 +369,7 @@ export function createDriverRouter() {
 
   router.post("/rides/:rideId/start", async (req, res, next) => {
     try {
-      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRideAccess(req.session.user.id, req.params.rideId);
       if (ride.status !== "accepted") {
         throw apiError(409, "Ride cannot be started");
       }
@@ -296,7 +397,7 @@ export function createDriverRouter() {
 
   router.post("/rides/:rideId/complete", async (req, res, next) => {
     try {
-      const ride = await getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRideAccess(req.session.user.id, req.params.rideId);
       if (ride.status !== "in_progress") {
         throw apiError(409, "Only in-progress rides can be completed");
       }
@@ -337,7 +438,10 @@ export function createDriverRouter() {
 
   router.get("/rides/:rideId/messages", async (req, res, next) => {
     try {
-      await getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRideAccess(req.session.user.id, req.params.rideId);
+      if (!ride.driverId || ride.driverId !== req.session.user.id) {
+        throw apiError(409, "Open or accept the ride before viewing messages");
+      }
       res.json({ messages: await listRideMessages(req.params.rideId) });
     } catch (error) {
       next(error);
@@ -351,7 +455,10 @@ export function createDriverRouter() {
         throw apiError(400, "Message body is required");
       }
 
-      await getDriverRide(req.session.user.id, req.params.rideId);
+      const ride = await getDriverRideAccess(req.session.user.id, req.params.rideId);
+      if (!ride.driverId || ride.driverId !== req.session.user.id) {
+        throw apiError(409, "Accept the ride before sending messages");
+      }
       const message = await createRideMessage(req.app.locals.realtime, {
         rideId: req.params.rideId,
         senderRole: "driver",

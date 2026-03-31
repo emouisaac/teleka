@@ -57,6 +57,16 @@ function sanitizeDriver(driver) {
     : null;
 }
 
+function getSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: config.isProduction,
+    domain: config.cookieDomain,
+    path: "/"
+  };
+}
+
 async function getCurrentProfile(user) {
   if (!user) {
     return null;
@@ -587,7 +597,7 @@ export function createAuthRouter() {
   router.post("/logout", async (req, res, next) => {
     try {
       await destroySession(req);
-      res.clearCookie("teleka.sid");
+      res.clearCookie("teleka.sid", getSessionCookieOptions());
       res.json({ success: true });
     } catch (error) {
       next(error);

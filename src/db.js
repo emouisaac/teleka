@@ -209,6 +209,16 @@ const schemaSql = `
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS ride_driver_offers (
+    id TEXT PRIMARY KEY,
+    ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE,
+    driver_id TEXT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    distance_meters DOUBLE PRECISION NOT NULL,
+    created_at TEXT NOT NULL,
+    responded_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS saved_places (
     id TEXT PRIMARY KEY,
     user_role TEXT NOT NULL,
@@ -247,6 +257,9 @@ const indexSql = `
   CREATE INDEX IF NOT EXISTS idx_notifications_target ON notifications(target_role, target_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_saved_places_lookup ON saved_places(user_role, user_id, usage_count DESC, last_used_at DESC);
   CREATE INDEX IF NOT EXISTS idx_driver_documents_driver ON driver_documents(driver_id, created_at ASC);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_ride_driver_offers_unique ON ride_driver_offers(ride_id, driver_id);
+  CREATE INDEX IF NOT EXISTS idx_ride_driver_offers_ride ON ride_driver_offers(ride_id, status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_ride_driver_offers_driver ON ride_driver_offers(driver_id, status, created_at DESC);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_license_unique ON drivers(license_number);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_national_id_unique ON drivers(national_id_number);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_insurance_unique ON drivers(insurance_number);

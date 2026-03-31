@@ -58,7 +58,18 @@ async function getAdminDashboard() {
             drivers.id AS "driverId",
             drivers.full_name AS "driverName",
             drivers.vehicle AS "driverVehicle",
-            drivers.plate_number AS "driverPlateNumber"
+            drivers.plate_number AS "driverPlateNumber",
+            (
+              SELECT COUNT(*)::int
+              FROM ride_driver_offers
+              WHERE ride_driver_offers.ride_id = rides.id
+            ) AS "nearbyOfferCount",
+            (
+              SELECT COUNT(*)::int
+              FROM ride_driver_offers
+              WHERE ride_driver_offers.ride_id = rides.id
+                AND ride_driver_offers.status = 'pending'
+            ) AS "pendingOfferCount"
           FROM rides
           INNER JOIN customers ON customers.id = rides.customer_id
           LEFT JOIN drivers ON drivers.id = rides.driver_id
@@ -378,9 +389,21 @@ export function createAdminRouter() {
         throw apiError(409, "Driver is not approved");
       }
 
-      await database
-        .prepare("UPDATE rides SET driver_id = ?, status = 'assigned' WHERE id = ?")
-        .run(driverId, ride.id);
+      await database.withTransaction(async (tx) => {
+        await tx
+          .prepare("UPDATE rides SET driver_id = ?, status = 'assigned', accepted_at = NULL WHERE id = ?")
+          .run(driverId, ride.id);
+        await tx
+          .prepare(
+            `
+              UPDATE ride_driver_offers
+              SET status = CASE WHEN driver_id = ? THEN 'accepted' ELSE 'withdrawn' END,
+                  responded_at = COALESCE(responded_at, ?)
+              WHERE ride_id = ? AND status = 'pending'
+            `
+          )
+          .run(driverId, nowIso(), ride.id);
+      });
 
       const realtime = req.app.locals.realtime;
       const snapshot = await emitRideSnapshot(realtime, ride.id);

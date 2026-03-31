@@ -630,6 +630,13 @@ function renderRecentPlaces() {
   });
 }
 
+function formatCustomerRideStatus(ride) {
+  if (ride?.status === "pending_admin" && !ride?.driverName) {
+    return "finding nearby drivers";
+  }
+  return String(ride?.status || "pending_admin").replaceAll("_", " ");
+}
+
 function renderRides() {
   const rides = state.dashboard?.rides || [];
   elements.rides.innerHTML = "";
@@ -649,10 +656,10 @@ function renderRides() {
           <p class="route">${ride.originLabel} -> ${ride.destinationLabel}</p>
           <p>${formatDateTime(ride.requestedAt)}</p>
         </div>
-        <span class="pill">${ride.status.replaceAll("_", " ")}</span>
+        <span class="pill">${formatCustomerRideStatus(ride)}</span>
       </div>
       <p>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)} | ${Math.round((ride.distanceMeters || 0) / 1000)} km</p>
-      <p>${ride.requestedVehicleClass || "standard"} | ${ride.driverName ? `Driver: ${ride.driverName} (${ride.driverPlateNumber || ride.driverVehicle || "assigned"})` : "No driver assigned yet"}</p>
+      <p>${ride.requestedVehicleClass || "standard"} | ${ride.driverName ? `Driver: ${ride.driverName} (${ride.driverPlateNumber || ride.driverVehicle || "assigned"})` : "Nearby drivers are being notified"}</p>
       <div class="ride-actions">
         <button class="secondary-btn" data-action="select">Open trip</button>
       </div>
@@ -1407,8 +1414,8 @@ async function handleRideRequest() {
       elements.requestPanel.dataset.dashboardMode = "tracking";
     }
     syncRequestSheetState();
-    updateEstimateState("Ride requested");
-    showBanner(elements.banner, "Ride request submitted", "success");
+    updateEstimateState("Sent to nearby drivers");
+    showBanner(elements.banner, "Ride request sent to nearby drivers", "success");
   } catch (error) {
     showBanner(elements.banner, error.message, "danger");
   }

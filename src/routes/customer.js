@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import express from "express";
 
 import { database, getSettings, nowIso } from "../db.js";
+import { offerRideToNearbyDrivers } from "../services/dispatch.js";
 import { buildQuote, isVehicleClass } from "../services/maps.js";
 import { createNotification } from "../services/notifications.js";
 import { sendOutboundNotice } from "../services/outbound.js";
@@ -173,15 +174,17 @@ export function createCustomerRouter() {
         targetId: customerId,
         category: "ride_status",
         title: "Ride request submitted",
-        message: "Your ride request is awaiting driver assignment",
+        message: "Your ride request has been sent to nearby drivers",
         rideId
       });
+
+      await offerRideToNearbyDrivers(realtime, rideId);
 
       const customerProfile = await getCustomerProfile(customerId);
       await sendOutboundNotice({
         email: customerProfile?.email,
         subject: "Teleka ride requested",
-        message: `Your ride from ${quote.origin.label} to ${quote.destination.label} is pending dispatch.`
+        message: `Your ride from ${quote.origin.label} to ${quote.destination.label} has been shared with nearby drivers.`
       });
 
       const ride = await emitRideSnapshot(realtime, rideId);

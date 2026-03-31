@@ -304,7 +304,7 @@ function fitMap(points) {
 function getActiveRide() {
   const rides = state.dashboard?.rides || [];
   return (
-    rides.find((ride) => ["assigned", "accepted", "in_progress"].includes(ride.status)) ||
+    rides.find((ride) => ["accepted", "in_progress", "assigned"].includes(ride.status)) ||
     rides.find((ride) => ride.id === state.selectedRideId) ||
     null
   );
@@ -314,9 +314,24 @@ function getRideById(rideId) {
   return (state.dashboard?.rides || []).find((ride) => ride.id === rideId) || null;
 }
 
+function isRideOfferPending(ride) {
+  return ride?.status === "pending_admin" && ride?.driverOfferStatus === "pending";
+}
+
+function isRideAwaitingDriverDecision(ride) {
+  return ride?.status === "assigned" || isRideOfferPending(ride);
+}
+
+function formatRideStatusLabel(ride) {
+  if (isRideOfferPending(ride)) {
+    return "nearby offer";
+  }
+  return String(ride?.status || "pending_admin").replaceAll("_", " ");
+}
+
 function getPendingAssignedRideAlerts() {
   return (state.dashboard?.rides || [])
-    .filter((ride) => ride.status === "assigned")
+    .filter((ride) => isRideAwaitingDriverDecision(ride))
     .sort((left, right) => new Date(right.requestedAt) - new Date(left.requestedAt));
 }
 
@@ -350,7 +365,7 @@ function syncMap() {
     return;
   }
 
-  const ride = getActiveRide();
+  const ride = getActiveRide() || getRideById(state.selectedRideId);
   const profile = state.dashboard?.profile;
   const points = [];
   const routePoints = [];
@@ -442,7 +457,7 @@ function renderRides() {
     const card = document.createElement("article");
     card.className = "ride-card";
     const primaryAction =
-      ride.status === "assigned"
+      isRideAwaitingDriverDecision(ride)
         ? '<button class="primary-btn" data-action="accept">Accept</button><button class="ghost-btn" data-action="reject">Reject</button>'
         : ride.status === "accepted"
           ? '<button class="primary-btn" data-action="start">Start trip</button>'
@@ -456,9 +471,14 @@ function renderRides() {
           <p class="route">${ride.originLabel} -> ${ride.destinationLabel}</p>
           <p>${ride.customerName} - ${ride.customerPhone || "No phone"}</p>
         </div>
-        <span class="pill">${ride.status.replaceAll("_", " ")}</span>
+        <span class="pill">${formatRideStatusLabel(ride)}</span>
       </div>
       <p>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)} - ${Math.round((ride.distanceMeters || 0) / 1000)} km</p>
+      ${
+        isRideOfferPending(ride)
+          ? `<p>Nearby offer - about ${Math.round((ride.driverOfferDistanceMeters || 0) / 1000 * 10) / 10} km from your last live location</p>`
+          : ""
+      }
       <p>Requested ${formatDateTime(ride.requestedAt)}</p>
       <div class="ride-actions">
         ${primaryAction}
@@ -573,7 +593,7 @@ function syncLocationWatchState() {
 function renderRideAlertModal() {
   const ride = getRideById(state.rideAlert.rideId);
 
-  if (!ride || ride.status !== "assigned") {
+  if (!ride || !isRideAwaitingDriverDecision(ride)) {
     elements.rideAlertModal.classList.add("hidden");
     return;
   }
@@ -593,6 +613,16 @@ function renderRideAlertModal() {
       <strong>Fare</strong>
       <p>${formatCurrency(ride.finalFareUgx || ride.quotedFareUgx)}</p>
     </div>
+    ${
+      isRideOfferPending(ride)
+        ? `
+          <div class="profile-card">
+            <strong>Distance</strong>
+            <p>${((ride.driverOfferDistanceMeters || 0) / 1000).toFixed(1)} km away</p>
+          </div>
+        `
+        : ""
+    }
   `;
 }
 
@@ -615,7 +645,7 @@ function syncRideAlert() {
 async function refreshAll() {
   state.dashboard = await api.driverDashboard();
   if (!state.selectedRideId) {
-    state.selectedRideId = getActiveRide()?.id || null;
+    state.selectedRideId = getActiveRide()?.id || getPendingAssignedRideAlerts()[0]?.id || null;
   }
 
   setText(
@@ -801,7 +831,7 @@ function initSocket() {
   });
 
   state.socket.on("notification:new", async (notification) => {
-    if (notification.category === "ride_assigned") {
+    if (notification.category === "ride_assigned" || notification.category === "ride_offer") {
       await refreshAll();
       await loadNotifications();
       syncRideAlert();
