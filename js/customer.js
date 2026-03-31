@@ -75,7 +75,8 @@ const state = {
   geocoder: null,
   quoteRequestId: 0,
   requestSheetState: "form",
-  pickupAutofillAttempted: false
+  pickupAutofillAttempted: false,
+  forceVehicleSheet: false
 };
 
 const elements = {
@@ -332,6 +333,8 @@ function syncRequestSheetState({ focusEstimate = false } = {}) {
     nextState = "tracking";
   } else if (state.selectedQuote && getSelectedEstimate()) {
     nextState = "estimate";
+  } else if (state.selectedQuote || state.forceVehicleSheet) {
+    nextState = "vehicle";
   }
 
   const changed = state.requestSheetState !== nextState;
@@ -345,6 +348,24 @@ function syncRequestSheetState({ focusEstimate = false } = {}) {
   ) {
     elements.quoteCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
+}
+
+function scrollRequestOverlayTo(target, { offset = 0 } = {}) {
+  if (!target || !elements.requestOverlay) {
+    return;
+  }
+
+  const overlayRect = elements.requestOverlay.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const nextScrollTop =
+    elements.requestOverlay.scrollTop +
+    (targetRect.top - overlayRect.top) -
+    offset;
+
+  elements.requestOverlay.scrollTo({
+    top: Math.max(0, nextScrollTop),
+    behavior: "smooth"
+  });
 }
 
 function syncMapRideActions(ride) {
@@ -378,7 +399,7 @@ function canChooseVehicle() {
 }
 
 function revealVehicleSelection() {
-  if (!state.selectedQuote || !elements.vehicleOptions || !elements.requestOverlay) {
+  if (!elements.vehicleOptions || !elements.requestOverlay) {
     return;
   }
 
@@ -386,32 +407,24 @@ function revealVehicleSelection() {
     setRequestFormOpen(true);
   }
 
-  const overlayRect = elements.requestOverlay.getBoundingClientRect();
-  const vehicleRect = elements.vehicleOptions.getBoundingClientRect();
-  const nextScrollTop =
-    elements.requestOverlay.scrollTop +
-    (vehicleRect.top - overlayRect.top) -
-    92;
+  state.forceVehicleSheet = true;
+  setRequestSheetState("vehicle");
+  elements.requestPanel?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  document.activeElement?.blur?.();
 
-  elements.requestOverlay.scrollTo({
-    top: Math.max(0, nextScrollTop),
-    behavior: "smooth"
-  });
+  const reveal = () => {
+    scrollRequestOverlayTo(elements.vehicleOptions, { offset: 72 });
+  };
+
+  reveal();
+  window.requestAnimationFrame(reveal);
+  window.setTimeout(reveal, 180);
+  window.setTimeout(() => window.dispatchEvent(new Event("resize")), 220);
 }
 
 function focusBookingAction() {
   if (elements.requestOverlay && elements.bookingWhenGrid) {
-    const overlayRect = elements.requestOverlay.getBoundingClientRect();
-    const whenRect = elements.bookingWhenGrid.getBoundingClientRect();
-    const nextScrollTop =
-      elements.requestOverlay.scrollTop +
-      (whenRect.top - overlayRect.top) -
-      28;
-
-    elements.requestOverlay.scrollTo({
-      top: Math.max(0, nextScrollTop),
-      behavior: "smooth"
-    });
+    scrollRequestOverlayTo(elements.bookingWhenGrid, { offset: 28 });
   } else {
     elements.requestOverlay?.scrollTo?.({ top: 0, behavior: "smooth" });
   }
@@ -619,8 +632,9 @@ function renderQuote() {
     setText(elements.quoteDistance, "-");
     setText(elements.quoteDuration, "-");
     setText(elements.quoteFare, formatCurrency(0));
-    elements.selectedVehicleHint.textContent =
-      "Enter destination to reveal the available trip choices.";
+    elements.selectedVehicleHint.textContent = state.forceVehicleSheet
+      ? "Trip choices are opening. As soon as the route is ready, choose the vehicle you want."
+      : "Enter destination to reveal the available trip choices.";
     renderVehicleOptions();
     updateRequestButton();
     syncRequestSheetState();
@@ -669,6 +683,7 @@ function renderRecentPlaces() {
       elements.destinationInput.value = place.address;
       state.placeInputs.destination = place;
       state.selectedVehicleClass = null;
+      revealVehicleSelection();
       void refreshQuote({ silentErrors: true }).then(() => {
         revealVehicleSelection();
       });
@@ -1250,6 +1265,7 @@ function attachLocationInputs() {
       state.placeInputs[key] = null;
       state.selectedQuote = null;
       state.selectedVehicleClass = null;
+      state.forceVehicleSheet = false;
       renderQuote();
       syncMap();
       debouncedRefreshQuote();
@@ -1319,6 +1335,9 @@ function attachGooglePlaces() {
       state.placeInputs[key] = payload;
       if (key === "origin" || key === "destination") {
         state.selectedVehicleClass = null;
+      }
+      if (key === "destination") {
+        revealVehicleSelection();
       }
       void refreshQuote({ silentErrors: true }).then(() => {
         if (key === "destination") {

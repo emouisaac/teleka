@@ -1698,6 +1698,12 @@ th {
       transform: translateY(24%);
     }
 
+    .booking-dashboard[data-sheet-state="vehicle"] .choosetrip-overlay {
+      max-height: min(78vh, 820px);
+      padding-bottom: 126px;
+      transform: translateY(0);
+    }
+
     .booking-dashboard[data-sheet-state="estimate"] .booking-extra-grid,
     .booking-dashboard[data-sheet-state="estimate"] .chip-row {
       display: none;
@@ -1930,6 +1936,10 @@ th {
         max-height: min(72vh, 760px);
       }
 
+      .booking-dashboard[data-sheet-state="vehicle"] .choosetrip-overlay {
+        max-height: min(84vh, 820px);
+      }
+
       .where-to-header {
         grid-template-columns: 1fr;
         display: grid;
@@ -1963,4 +1973,3 @@ th {
         right: 0;
       }
     }
-
