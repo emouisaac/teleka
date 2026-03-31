@@ -310,6 +310,17 @@
                   <input id="destinationInput" type="text" placeholder="Enter destination" autocomplete="off">
                 </div>
 
+                <div class="selected-trip-card hidden" id="selectedTripCard">
+                  <p class="selected-trip-label">Chosen trip</p>
+                  <div class="selected-trip-main">
+                    <span class="vehicle-visual" id="selectedTripVisual" aria-hidden="true"></span>
+                    <div class="selected-trip-copy">
+                      <strong id="selectedTripName">Choose a trip</strong>
+                      <span id="selectedTripFare">Fare appears here</span>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="booking-when-grid">
                   <div class="booking-card">
                     <label for="pickupDate">Pickup date</label>
@@ -956,4 +967,3 @@
   <script type="module" src="js/customer.js"></script>
 </body>
 </html>
-

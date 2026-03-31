@@ -1619,6 +1619,46 @@ th {
       margin-bottom: 8px;
     }
 
+    .selected-trip-card {
+      display: grid;
+      gap: 10px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: #eef4ff;
+      border: 1px solid #cfe0fb;
+    }
+
+    .selected-trip-label {
+      margin: 0;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #4d6a89;
+    }
+
+    .selected-trip-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .selected-trip-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .selected-trip-copy strong,
+    .selected-trip-copy span {
+      display: block;
+    }
+
+    .selected-trip-copy span {
+      color: #425466;
+      font-weight: 600;
+    }
+
     .booking-route-meta {
       display: grid;
       gap: 10px;
@@ -1692,10 +1732,29 @@ th {
       margin-top: 0;
     }
 
+    .booking-dashboard[data-sheet-state="estimate"] .booking-map-shell {
+      --stacked-map-height: clamp(250px, 40vh, 360px);
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .booking-map-surface {
+      inset: 0 0 auto 0;
+      height: var(--stacked-map-height);
+      min-height: var(--stacked-map-height);
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .booking-map-shell::after {
+      inset: 0 0 auto 0;
+      height: var(--stacked-map-height);
+    }
+
     .booking-dashboard[data-sheet-state="estimate"] .choosetrip-overlay {
-      max-height: min(44vh, 460px);
+      top: calc(var(--stacked-map-height) - 10px);
+      bottom: 0;
+      max-height: none;
       padding-bottom: 126px;
-      transform: translateY(24%);
+      transform: translateY(0);
+      border-top-left-radius: 28px;
+      border-top-right-radius: 28px;
     }
 
     .booking-dashboard[data-sheet-state="vehicle"] .choosetrip-overlay {
@@ -1709,8 +1768,19 @@ th {
       display: none;
     }
 
+    .booking-dashboard[data-sheet-state="estimate"] .booking-subheading,
+    .booking-dashboard[data-sheet-state="estimate"] .clonecab-vehicle-grid,
+    .booking-dashboard[data-sheet-state="estimate"] #selectedVehicleHint {
+      display: none;
+    }
+
     .booking-dashboard[data-sheet-state="estimate"] .quote-card {
       order: -1;
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .selected-trip-card {
+      order: 8;
+      margin-top: 8px;
     }
 
     .booking-dashboard[data-sheet-state="estimate"] .booking-when-grid {
@@ -1929,6 +1999,10 @@ th {
         height: calc(100vh - 172px);
         min-height: 560px;
         border-radius: 22px;
+      }
+
+      .booking-dashboard[data-sheet-state="estimate"] .booking-map-shell {
+        --stacked-map-height: clamp(220px, 34vh, 280px);
       }
 
       .choosetrip-overlay {

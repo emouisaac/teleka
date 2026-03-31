@@ -96,6 +96,10 @@ const elements = {
   pickupInput: document.querySelector("#pickupInput"),
   destinationInput: document.querySelector("#destinationInput"),
   requestOverlay: document.querySelector("#requestOverlay"),
+  selectedTripCard: document.querySelector("#selectedTripCard"),
+  selectedTripVisual: document.querySelector("#selectedTripVisual"),
+  selectedTripName: document.querySelector("#selectedTripName"),
+  selectedTripFare: document.querySelector("#selectedTripFare"),
   bookingWhenGrid: document.querySelector(".booking-when-grid"),
   vehicleOptions: document.querySelector("#vehicleOptions"),
   selectedVehicleHint: document.querySelector("#selectedVehicleHint"),
@@ -473,6 +477,25 @@ function updateRequestButton() {
   elements.submitRideBtn.textContent = "Request ride";
 }
 
+function renderSelectedTripSummary(selectedEstimate) {
+  if (!elements.selectedTripCard || !elements.selectedTripVisual || !elements.selectedTripName || !elements.selectedTripFare) {
+    return;
+  }
+
+  if (!selectedEstimate) {
+    elements.selectedTripCard.classList.add("hidden");
+    elements.selectedTripVisual.innerHTML = "";
+    setText(elements.selectedTripName, "Choose a trip");
+    setText(elements.selectedTripFare, "Fare appears here");
+    return;
+  }
+
+  elements.selectedTripCard.classList.remove("hidden");
+  elements.selectedTripVisual.innerHTML = getVehiclePreviewMarkup(selectedEstimate);
+  setText(elements.selectedTripName, selectedEstimate.label);
+  setText(elements.selectedTripFare, formatCurrency(selectedEstimate.fareUgx || 0));
+}
+
 function renderVehicleOptions() {
   const options = getVehicleOptions();
   const vehicleSelectionReady = canChooseVehicle();
@@ -635,6 +658,7 @@ function renderQuote() {
     elements.selectedVehicleHint.textContent = state.forceVehicleSheet
       ? "Trip choices are opening. As soon as the route is ready, choose the vehicle you want."
       : "Enter destination to reveal the available trip choices.";
+    renderSelectedTripSummary(null);
     renderVehicleOptions();
     updateRequestButton();
     syncRequestSheetState();
@@ -658,6 +682,7 @@ function renderQuote() {
     updateEstimateState("Ready to request");
   }
 
+  renderSelectedTripSummary(selectedEstimate);
   renderVehicleOptions();
   updateRequestButton();
   syncRequestSheetState({ focusEstimate: Boolean(selectedEstimate) });
@@ -988,12 +1013,19 @@ function fitMapToPoints(points) {
   const bottomPadding = overlayObstructionHeight
     ? Math.min((mapRect?.height || 0) - 80, overlayObstructionHeight + 92)
     : 120;
+  const upwardShift = overlayObstructionHeight
+    ? Math.max(56, Math.min(132, Math.round(overlayObstructionHeight * 0.22)))
+    : 64;
 
   state.map.fitBounds(bounds, {
     top: 96,
     right: 80,
     bottom: bottomPadding,
     left: 80
+  });
+
+  google.maps.event.addListenerOnce(state.map, "idle", () => {
+    state.map?.panBy?.(0, -upwardShift);
   });
 }
 
