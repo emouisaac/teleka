@@ -13,7 +13,7 @@
 <body>
   <div class="app-shell">
     <header class="site-header site-header--showcase" id="topPanel">
-      <a class="site-brand" href="#topPanel">
+      <a class="site-brand" id="siteBrandLink" href="#homePanel">
         <img src="ims/ticon.png" alt="Teleka Taxi logo">
       </a>
       <button
@@ -554,6 +554,7 @@
       const viewProfileBtn = document.getElementById("viewProfileBtn");
       const authCard = document.getElementById("customerAuthCard");
       const banner = document.getElementById("customerBanner");
+      const siteBrandLink = document.getElementById("siteBrandLink");
       const customerNameNode = document.getElementById("customerName");
       const customerEmailNode = document.getElementById("customerEmail");
       const customerAvatarNode = document.getElementById("customerAvatar");
@@ -939,6 +940,17 @@
       window.telekaDashboard = {
         showDashboard
       };
+
+      siteBrandLink?.addEventListener("click", (event) => {
+        event.preventDefault();
+        siteNav?.classList.remove("open");
+        siteNavToggle?.setAttribute("aria-expanded", "false");
+        showDashboard("homePanel", {
+          navKey: "homePanel",
+          title: document.getElementById("homePanel")?.dataset.dashboardTitle || defaultDashboardHeading,
+          copy: document.getElementById("homePanel")?.dataset.dashboardCopy || defaultDashboardCopy
+        });
+      });
 
       const hashTarget = window.location.hash.replace("#", "");
       const initialNavKey =

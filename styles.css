@@ -1199,7 +1199,7 @@ th {
       margin: 0 auto;
       padding: 1.2rem 2.5rem;
       border-radius: 12px;
-      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      background: linear-gradient(135deg, #007bff 0%, #1e90ff 100%);
       color: #fff;
       text-decoration: none;
       text-transform: uppercase;
@@ -1228,7 +1228,7 @@ th {
     .card1 .btn:hover,
     .card1 .btn:focus-visible {
       transform: translateY(-4px) scale(1.05);
-      background: linear-gradient(135deg, #218838 0%, #17a2b8 100%);
+      background: linear-gradient(135deg, #0024b3 0%, #00268f 100%);
       outline: none;
     }
 
@@ -1297,6 +1297,15 @@ th {
     .contact-link-card .primary-btn {
       width: fit-content;
       text-decoration: none;
+    }
+
+    .marketing-card .primary-btn {
+      background: #007bff;
+    }
+
+    .marketing-card .primary-btn:hover,
+    .marketing-card .primary-btn:focus-visible {
+      background: #0056b3;
     }
 
     .contact-panel {
@@ -1763,8 +1772,11 @@ th {
       transform: translateY(0);
     }
 
+    .booking-dashboard[data-sheet-state="estimate"] .booking-input-stack,
+    .booking-dashboard[data-sheet-state="estimate"] .selected-trip-card,
     .booking-dashboard[data-sheet-state="estimate"] .booking-extra-grid,
-    .booking-dashboard[data-sheet-state="estimate"] .chip-row {
+    .booking-dashboard[data-sheet-state="estimate"] .chip-row,
+    .booking-dashboard[data-sheet-state="estimate"] .booking-route-meta {
       display: none;
     }
 
@@ -1775,21 +1787,36 @@ th {
     }
 
     .booking-dashboard[data-sheet-state="estimate"] .quote-card {
-      order: -1;
+      order: 9;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0;
+      margin-top: 8px;
+      position: sticky;
+      bottom: 150px;
+      z-index: 5;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff 20%);
     }
 
-    .booking-dashboard[data-sheet-state="estimate"] .selected-trip-card {
-      order: 8;
-      margin-top: 8px;
+    .booking-dashboard[data-sheet-state="estimate"] .quote-card > :not(:last-child) {
+      display: none;
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .quote-card > :last-child {
+      display: grid;
+      gap: 4px;
+      justify-items: start;
+      padding: 14px 16px;
+      margin-bottom: 0;
     }
 
     .booking-dashboard[data-sheet-state="estimate"] .booking-when-grid {
       order: 10;
       position: sticky;
-      bottom: 92px;
+      bottom: 18px;
       z-index: 4;
-      margin-top: 10px;
-      padding-top: 10px;
+      margin-top: 16px;
+      padding-top: 12px;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff 26%);
     }
