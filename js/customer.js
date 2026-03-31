@@ -95,6 +95,7 @@ const elements = {
   pickupInput: document.querySelector("#pickupInput"),
   destinationInput: document.querySelector("#destinationInput"),
   requestOverlay: document.querySelector("#requestOverlay"),
+  bookingWhenGrid: document.querySelector(".booking-when-grid"),
   vehicleOptions: document.querySelector("#vehicleOptions"),
   selectedVehicleHint: document.querySelector("#selectedVehicleHint"),
   estimateState: document.querySelector("#estimateState"),
@@ -329,7 +330,7 @@ function syncRequestSheetState({ focusEstimate = false } = {}) {
 
   if (rideIsLive || elements.requestPanel?.dataset.dashboardMode === "tracking") {
     nextState = "tracking";
-  } else if (state.selectedQuote && getSelectedEstimate() && hasPickupSchedule()) {
+  } else if (state.selectedQuote && getSelectedEstimate()) {
     nextState = "estimate";
   }
 
@@ -373,11 +374,48 @@ function buildPickupScheduleNote() {
 }
 
 function canChooseVehicle() {
-  return Boolean(state.selectedQuote && hasPickupSchedule());
+  return Boolean(state.selectedQuote);
+}
+
+function revealVehicleSelection() {
+  if (!state.selectedQuote || !elements.vehicleOptions || !elements.requestOverlay) {
+    return;
+  }
+
+  if (window.innerWidth <= 720 && elements.requestMobileShell && !elements.requestMobileShell.classList.contains("open")) {
+    setRequestFormOpen(true);
+  }
+
+  const overlayRect = elements.requestOverlay.getBoundingClientRect();
+  const vehicleRect = elements.vehicleOptions.getBoundingClientRect();
+  const nextScrollTop =
+    elements.requestOverlay.scrollTop +
+    (vehicleRect.top - overlayRect.top) -
+    92;
+
+  elements.requestOverlay.scrollTo({
+    top: Math.max(0, nextScrollTop),
+    behavior: "smooth"
+  });
 }
 
 function focusBookingAction() {
-  elements.requestOverlay?.scrollTo?.({ top: 0, behavior: "smooth" });
+  if (elements.requestOverlay && elements.bookingWhenGrid) {
+    const overlayRect = elements.requestOverlay.getBoundingClientRect();
+    const whenRect = elements.bookingWhenGrid.getBoundingClientRect();
+    const nextScrollTop =
+      elements.requestOverlay.scrollTop +
+      (whenRect.top - overlayRect.top) -
+      28;
+
+    elements.requestOverlay.scrollTo({
+      top: Math.max(0, nextScrollTop),
+      behavior: "smooth"
+    });
+  } else {
+    elements.requestOverlay?.scrollTo?.({ top: 0, behavior: "smooth" });
+  }
+
   elements.requestPanel?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   window.setTimeout(() => window.dispatchEvent(new Event("resize")), 160);
   window.setTimeout(() => window.dispatchEvent(new Event("resize")), 420);
@@ -409,12 +447,17 @@ function updateRequestButton() {
     return;
   }
 
+  if (!hasSelectedVehicle()) {
+    elements.submitRideBtn.textContent = "Choose vehicle type";
+    return;
+  }
+
   if (!hasPickupSchedule()) {
     elements.submitRideBtn.textContent = "Select date and time";
     return;
   }
 
-  elements.submitRideBtn.textContent = "Choose vehicle type";
+  elements.submitRideBtn.textContent = "Request ride";
 }
 
 function renderVehicleOptions() {
@@ -577,7 +620,7 @@ function renderQuote() {
     setText(elements.quoteDuration, "-");
     setText(elements.quoteFare, formatCurrency(0));
     elements.selectedVehicleHint.textContent =
-      "Enter destination, date, and time to choose a vehicle type.";
+      "Enter destination to reveal the available trip choices.";
     renderVehicleOptions();
     updateRequestButton();
     syncRequestSheetState();
@@ -588,12 +631,14 @@ function renderQuote() {
   setText(elements.quoteDuration, `${Math.round(quote.durationSeconds / 60)} mins`);
   setText(elements.quoteFare, selectedEstimate ? formatCurrency(selectedEstimate.fareUgx) : "Choose vehicle");
 
-  if (!hasPickupSchedule()) {
-    elements.selectedVehicleHint.textContent = "Route ready. Select pickup date and time to choose a vehicle type.";
-    updateEstimateState("Add date and time");
-  } else if (!selectedEstimate) {
-    elements.selectedVehicleHint.textContent = "Choose a vehicle type to continue to the booking button.";
+  if (!selectedEstimate) {
+    elements.selectedVehicleHint.textContent =
+      "Choose a vehicle type now. You can set date and time just above the request button.";
     updateEstimateState("Choose vehicle type");
+  } else if (!hasPickupSchedule()) {
+    elements.selectedVehicleHint.textContent =
+      `${selectedEstimate.label} selected. Set pickup date and time above the request button.`;
+    updateEstimateState("Add date and time");
   } else {
     elements.selectedVehicleHint.textContent = `${selectedEstimate.label} selected. Review the map and request your ride.`;
     updateEstimateState("Ready to request");
@@ -624,7 +669,9 @@ function renderRecentPlaces() {
       elements.destinationInput.value = place.address;
       state.placeInputs.destination = place;
       state.selectedVehicleClass = null;
-      void refreshQuote({ silentErrors: true });
+      void refreshQuote({ silentErrors: true }).then(() => {
+        revealVehicleSelection();
+      });
     });
     elements.recentPlaces.appendChild(button);
   });
@@ -1273,7 +1320,11 @@ function attachGooglePlaces() {
       if (key === "origin" || key === "destination") {
         state.selectedVehicleClass = null;
       }
-      void refreshQuote({ silentErrors: true });
+      void refreshQuote({ silentErrors: true }).then(() => {
+        if (key === "destination") {
+          revealVehicleSelection();
+        }
+      });
     });
   });
 }

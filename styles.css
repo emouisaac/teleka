@@ -1693,7 +1693,7 @@ th {
     }
 
     .booking-dashboard[data-sheet-state="estimate"] .choosetrip-overlay {
-      max-height: min(36vh, 380px);
+      max-height: min(44vh, 460px);
       padding-bottom: 126px;
       transform: translateY(24%);
     }
@@ -1705,6 +1705,17 @@ th {
 
     .booking-dashboard[data-sheet-state="estimate"] .quote-card {
       order: -1;
+    }
+
+    .booking-dashboard[data-sheet-state="estimate"] .booking-when-grid {
+      order: 10;
+      position: sticky;
+      bottom: 92px;
+      z-index: 4;
+      margin-top: 10px;
+      padding-top: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff 26%);
     }
 
     .booking-dashboard[data-dashboard-mode="tracking"] .booking-request-content,
