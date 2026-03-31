@@ -1299,15 +1299,6 @@ th {
       text-decoration: none;
     }
 
-    .marketing-card .primary-btn {
-      background: #007bff;
-    }
-
-    .marketing-card .primary-btn:hover,
-    .marketing-card .primary-btn:focus-visible {
-      background: #0056b3;
-    }
-
     .contact-panel {
       grid-column: span 4;
     }
