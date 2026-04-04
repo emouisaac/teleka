@@ -1,4 +1,5 @@
 import { api } from "./shared/api.js";
+import { hasSessionHint, syncSessionHint } from "./shared/session.js";
 import {
   createSocket,
   formatCurrency,
@@ -11,6 +12,7 @@ import {
 
 const DEFAULT_CENTER = { lat: 0.3136, lng: 32.5811 };
 const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
+const SESSION_ROLE = "driver";
 
 const state = {
   auth: null,
@@ -183,6 +185,12 @@ function setAuthenticatedUi(active) {
   elements.notificationsPanel.classList.toggle("hidden", !active);
   elements.logoutBtn.hidden = !active;
   setText(elements.authState, active ? "Signed in" : "Signed out");
+}
+
+function showRestoringUi() {
+  setAuthenticatedUi(true);
+  setText(elements.authState, "Restoring session");
+  showBanner(elements.banner, "Restoring driver session", "neutral");
 }
 
 function loadGoogleMaps(apiKey) {
@@ -864,6 +872,7 @@ async function handleDriverLogin() {
       password: elements.loginPassword.value
     });
     state.auth.authenticated = true;
+    syncSessionHint(SESSION_ROLE, true);
     setAuthenticatedUi(true);
     startSessionKeepAlive();
     initSocket();
@@ -929,7 +938,18 @@ async function bootstrap() {
   setupTabs();
   renderFaceCaptureState();
 
-  state.config = await api.publicConfig().catch(() => null);
+  const authStatusPromise = api.authStatus();
+  const configPromise = api.publicConfig().catch(() => null);
+  if (hasSessionHint(SESSION_ROLE)) {
+    showRestoringUi();
+  }
+
+  state.auth = await authStatusPromise;
+  const signedIn = state.auth?.authenticated && state.auth.user.role === "driver";
+  syncSessionHint(SESSION_ROLE, signedIn);
+  setAuthenticatedUi(signedIn);
+
+  state.config = await configPromise;
   if (state.config?.googleMapsApiKey) {
     try {
       await loadGoogleMaps(state.config.googleMapsApiKey);
@@ -938,10 +958,6 @@ async function bootstrap() {
       showBanner(elements.banner, error.message, "warning");
     }
   }
-
-  state.auth = await api.authStatus();
-  const signedIn = state.auth?.authenticated && state.auth.user.role === "driver";
-  setAuthenticatedUi(signedIn);
 
   if (signedIn) {
     startSessionKeepAlive();
@@ -1013,6 +1029,7 @@ elements.logoutBtn.addEventListener("click", async () => {
   stopFaceCamera();
   stopSessionKeepAlive();
   clearRideAlert();
+  syncSessionHint(SESSION_ROLE, false);
   await api.logout();
   window.location.reload();
 });

@@ -1,4 +1,5 @@
 import { api } from "./shared/api.js";
+import { hasSessionHint, syncSessionHint } from "./shared/session.js";
 import {
   createSocket,
   formatCurrency,
@@ -10,6 +11,7 @@ import {
 
 const DEFAULT_CENTER = { lat: 0.3136, lng: 32.5811 };
 const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
+const SESSION_ROLE = "admin";
 
 const state = {
   auth: null,
@@ -182,8 +184,8 @@ function ensureMap() {
   state.trafficLayer.setMap(state.map);
 }
 
-function renderAuth() {
-  const signedIn = state.auth?.authenticated && state.auth.user.role === "admin";
+function renderAuth({ restoring = false } = {}) {
+  const signedIn = restoring || (state.auth?.authenticated && state.auth.user.role === "admin");
   elements.loginPanel.classList.toggle("hidden", signedIn);
   elements.summaryPanel.classList.toggle("hidden", !signedIn);
   elements.ridesPanel.classList.toggle("hidden", !signedIn);
@@ -193,7 +195,15 @@ function renderAuth() {
   elements.notificationsPanel.classList.toggle("hidden", !signedIn);
   elements.mapPanel.classList.toggle("hidden", !signedIn);
   elements.logoutBtn.hidden = !signedIn;
-  setText(elements.authState, signedIn ? "Signed in" : "Signed out");
+  setText(
+    elements.authState,
+    restoring ? "Restoring session" : signedIn ? "Signed in" : "Signed out"
+  );
+}
+
+function showRestoringUi() {
+  renderAuth({ restoring: true });
+  showBanner(elements.banner, "Restoring admin session", "neutral");
 }
 
 function renderSummary() {
@@ -737,6 +747,7 @@ async function handleLogin() {
       password: elements.passwordInput.value
     });
     state.auth.authenticated = true;
+    syncSessionHint(SESSION_ROLE, true);
     renderAuth();
     startSessionKeepAlive();
     initSocket();
@@ -750,7 +761,19 @@ async function handleLogin() {
 
 async function bootstrap() {
   attachSiteNav();
-  state.config = await api.publicConfig().catch(() => null);
+  const authStatusPromise = api.authStatus();
+  const configPromise = api.publicConfig().catch(() => null);
+
+  if (hasSessionHint(SESSION_ROLE)) {
+    showRestoringUi();
+  }
+
+  state.auth = await authStatusPromise;
+  const signedIn = state.auth?.authenticated && state.auth.user.role === "admin";
+  syncSessionHint(SESSION_ROLE, signedIn);
+  renderAuth();
+
+  state.config = await configPromise;
   if (state.config?.googleMapsApiKey) {
     try {
       await loadGoogleMaps(state.config.googleMapsApiKey);
@@ -759,9 +782,7 @@ async function bootstrap() {
       showBanner(elements.banner, error.message, "warning");
     }
   }
-  state.auth = await api.authStatus();
-  renderAuth();
-  if (state.auth?.authenticated && state.auth.user.role === "admin") {
+  if (signedIn) {
     startSessionKeepAlive();
     initSocket();
     await refreshAll();
@@ -796,6 +817,7 @@ elements.saveFareBtn.addEventListener("click", async () => {
 });
 elements.logoutBtn.addEventListener("click", async () => {
   stopSessionKeepAlive();
+  syncSessionHint(SESSION_ROLE, false);
   await api.logout();
   window.location.reload();
 });

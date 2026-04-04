@@ -1,4 +1,5 @@
 import { api } from "./shared/api.js";
+import { hasSessionHint, syncSessionHint } from "./shared/session.js";
 import {
   createSocket,
   debounce,
@@ -52,6 +53,7 @@ const authCopy = {
   signedIn: "You are signed in and ready to request, track, and manage rides."
 };
 const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
+const SESSION_ROLE = "customer";
 
 const state = {
   auth: null,
@@ -529,13 +531,25 @@ function renderVehicleOptions() {
   });
 }
 
-function renderProfile() {
+function renderProfile({ restoring = false } = {}) {
   const user = state.auth?.user;
-  const signedIn = state.auth?.authenticated && user?.role === "customer";
+  const signedIn = restoring || (state.auth?.authenticated && user?.role === "customer");
 
   elements.authCard.classList.toggle("hidden", signedIn);
   elements.profileMini.classList.toggle("hidden", !signedIn);
   elements.logoutBtn.hidden = !signedIn;
+  if (restoring) {
+    setText(elements.authState, "Restoring session");
+    setText(elements.accessTitle, "Restoring account");
+    setText(elements.name, "Customer");
+    setText(elements.email, "Restoring your saved account...");
+    elements.avatar.src = "ims/ticon.png";
+    elements.authMessage.textContent = "Restoring your saved customer session.";
+    elements.googleLoginMount.classList.add("hidden");
+    updateRequestButton();
+    return;
+  }
+
   if (!signedIn) {
     setText(elements.authState, "Guest");
     setText(elements.accessTitle, "Customer access");
@@ -1436,6 +1450,7 @@ async function handleGoogleCredential(response) {
     if (!state.auth?.authenticated || state.auth.user?.role !== "customer") {
       throw new Error("Google sign-in completed, but the customer session was not restored");
     }
+    syncSessionHint(SESSION_ROLE, true);
     startSessionKeepAlive();
     renderProfile();
     initSocket();
@@ -1651,8 +1666,9 @@ function openDriverChatFromMap() {
 
 async function bootstrap() {
   showBanner(elements.banner, "Loading customer workspace", "neutral");
-  state.config = await api.publicConfig();
-  state.settings = await api.publicSettings().catch(() => null);
+  const authStatusPromise = api.authStatus();
+  const configPromise = api.publicConfig();
+  const settingsPromise = api.publicSettings().catch(() => null);
 
   attachSiteNav();
   attachRequestFormToggle();
@@ -1661,6 +1677,17 @@ async function bootstrap() {
   attachPickupAutofillTriggers();
   renderVehicleOptions();
   renderQuote();
+
+  if (hasSessionHint(SESSION_ROLE)) {
+    renderProfile({ restoring: true });
+    showBanner(elements.banner, "Restoring customer session", "neutral");
+  }
+
+  state.auth = await authStatusPromise;
+  const signedIn = state.auth?.authenticated && state.auth.user?.role === "customer";
+  syncSessionHint(SESSION_ROLE, signedIn);
+  state.config = await configPromise;
+  state.settings = await settingsPromise;
 
   if (state.config?.googleMapsApiKey) {
     try {
@@ -1675,11 +1702,10 @@ async function bootstrap() {
     }
   }
 
-  state.auth = await api.authStatus();
   renderProfile();
   initGoogleButton();
 
-  if (state.auth?.authenticated && state.auth.user.role === "customer") {
+  if (signedIn) {
     startSessionKeepAlive();
     initSocket();
     await loadDashboard();
@@ -1702,6 +1728,7 @@ elements.submitRideBtn.addEventListener("click", handleRideRequest);
 elements.sendMessageBtn.addEventListener("click", handleSendMessage);
 elements.logoutBtn.addEventListener("click", async () => {
   stopSessionKeepAlive();
+  syncSessionHint(SESSION_ROLE, false);
   await api.logout();
   window.location.reload();
 });
