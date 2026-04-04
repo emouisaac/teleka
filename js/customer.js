@@ -1,5 +1,10 @@
 import { api } from "./shared/api.js";
-import { hasSessionHint, syncSessionHint } from "./shared/session.js";
+import {
+  clearSessionSnapshot,
+  getSessionSnapshot,
+  hasSessionSnapshot,
+  syncSessionSnapshot
+} from "./shared/session.js";
 import {
   createSocket,
   debounce,
@@ -540,12 +545,12 @@ function renderProfile({ restoring = false } = {}) {
   elements.profileMini.classList.toggle("hidden", !signedIn);
   elements.logoutBtn.hidden = !signedIn;
   if (restoring) {
-    setText(elements.authState, "Restoring session");
-    setText(elements.accessTitle, "Restoring account");
+    setText(elements.authState, "Signed in");
+    setText(elements.accessTitle, "Customer ready");
     setText(elements.name, "Customer");
-    setText(elements.email, "Restoring your saved account...");
+    setText(elements.email, "Signed in");
     elements.avatar.src = "ims/ticon.png";
-    elements.authMessage.textContent = "Restoring your saved customer session.";
+    elements.authMessage.textContent = authCopy.signedIn;
     elements.googleLoginMount.classList.add("hidden");
     updateRequestButton();
     return;
@@ -1455,7 +1460,7 @@ async function handleGoogleCredential(response) {
     if (!state.auth?.authenticated || state.auth.user?.role !== "customer") {
       throw new Error("Google sign-in completed, but the customer session was not restored");
     }
-    syncSessionHint(SESSION_ROLE, true);
+    syncSessionSnapshot(SESSION_ROLE, state.auth);
     startSessionKeepAlive();
     renderProfile();
     initSocket();
@@ -1683,14 +1688,14 @@ async function bootstrap() {
   renderVehicleOptions();
   renderQuote();
 
-  if (hasSessionHint(SESSION_ROLE)) {
-    renderProfile({ restoring: true });
-    showBanner(elements.banner, "Restoring customer session", "neutral");
+  if (hasSessionSnapshot(SESSION_ROLE)) {
+    state.auth = getSessionSnapshot(SESSION_ROLE);
+    renderProfile();
   }
 
   state.auth = await authStatusPromise;
   const signedIn = state.auth?.authenticated && state.auth.user?.role === "customer";
-  syncSessionHint(SESSION_ROLE, signedIn);
+  syncSessionSnapshot(SESSION_ROLE, signedIn ? state.auth : null);
   clearPreloadSessionClass();
   state.config = await configPromise;
   state.settings = await settingsPromise;
@@ -1734,7 +1739,7 @@ elements.submitRideBtn.addEventListener("click", handleRideRequest);
 elements.sendMessageBtn.addEventListener("click", handleSendMessage);
 elements.logoutBtn.addEventListener("click", async () => {
   stopSessionKeepAlive();
-  syncSessionHint(SESSION_ROLE, false);
+  clearSessionSnapshot(SESSION_ROLE);
   await api.logout();
   window.location.reload();
 });

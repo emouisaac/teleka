@@ -1,5 +1,10 @@
 import { api } from "./shared/api.js";
-import { hasSessionHint, syncSessionHint } from "./shared/session.js";
+import {
+  clearSessionSnapshot,
+  getSessionSnapshot,
+  hasSessionSnapshot,
+  syncSessionSnapshot
+} from "./shared/session.js";
 import {
   createSocket,
   formatCurrency,
@@ -186,12 +191,6 @@ function setAuthenticatedUi(active) {
   elements.notificationsPanel.classList.toggle("hidden", !active);
   elements.logoutBtn.hidden = !active;
   setText(elements.authState, active ? "Signed in" : "Signed out");
-}
-
-function showRestoringUi() {
-  setAuthenticatedUi(true);
-  setText(elements.authState, "Restoring session");
-  showBanner(elements.banner, "Restoring driver session", "neutral");
 }
 
 function clearPreloadSessionClass() {
@@ -877,7 +876,7 @@ async function handleDriverLogin() {
       password: elements.loginPassword.value
     });
     state.auth.authenticated = true;
-    syncSessionHint(SESSION_ROLE, true);
+    syncSessionSnapshot(SESSION_ROLE, state.auth);
     setAuthenticatedUi(true);
     startSessionKeepAlive();
     initSocket();
@@ -945,13 +944,14 @@ async function bootstrap() {
 
   const authStatusPromise = api.authStatus();
   const configPromise = api.publicConfig().catch(() => null);
-  if (hasSessionHint(SESSION_ROLE)) {
-    showRestoringUi();
+  if (hasSessionSnapshot(SESSION_ROLE)) {
+    state.auth = getSessionSnapshot(SESSION_ROLE);
+    setAuthenticatedUi(true);
   }
 
   state.auth = await authStatusPromise;
   const signedIn = state.auth?.authenticated && state.auth.user.role === "driver";
-  syncSessionHint(SESSION_ROLE, signedIn);
+  syncSessionSnapshot(SESSION_ROLE, signedIn ? state.auth : null);
   setAuthenticatedUi(signedIn);
   clearPreloadSessionClass();
 
@@ -1035,7 +1035,7 @@ elements.logoutBtn.addEventListener("click", async () => {
   stopFaceCamera();
   stopSessionKeepAlive();
   clearRideAlert();
-  syncSessionHint(SESSION_ROLE, false);
+  clearSessionSnapshot(SESSION_ROLE);
   await api.logout();
   window.location.reload();
 });

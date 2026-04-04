@@ -11,7 +11,9 @@
   <link rel="icon" type="image/png" href="ims/t2icon.png">
   <script>
     try {
-      if (window.localStorage.getItem("teleka:session-hint:driver") === "1") {
+      const raw = window.localStorage.getItem("teleka:session:driver");
+      const session = raw ? JSON.parse(raw) : null;
+      if (session?.authenticated && session?.user?.role === "driver") {
         document.documentElement.classList.add("session-hint-driver");
       }
     } catch {}

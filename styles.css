@@ -808,19 +808,19 @@ html.session-hint-customer #customerAuthMessage {
 html.session-hint-driver #driverAuthState::after,
 html.session-hint-admin #adminAuthState::after,
 html.session-hint-customer #customerAuthState::after {
-  content: "Restoring session";
+  content: "Signed in";
   font-size: 0.95rem;
 }
 
 html.session-hint-customer #customerAccessTitle::after {
-  content: "Restoring account";
+  content: "Customer ready";
   font-size: 1.5rem;
   font-family: "Space Grotesk", sans-serif;
   line-height: 1.05;
 }
 
 html.session-hint-customer #customerAuthMessage::after {
-  content: "Restoring your saved customer session.";
+  content: "You are signed in and ready to request, track, and manage rides.";
   font-size: 1rem;
   color: var(--muted);
 }

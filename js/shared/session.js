@@ -1,4 +1,4 @@
-const SESSION_HINT_PREFIX = "teleka:session-hint:";
+const SESSION_PREFIX = "teleka:session:";
 
 function getStorage() {
   try {
@@ -8,26 +8,59 @@ function getStorage() {
   }
 }
 
-export function hasSessionHint(role) {
+export function getSessionSnapshot(role) {
   const storage = getStorage();
   if (!storage || !role) {
-    return false;
+    return null;
   }
 
-  return storage.getItem(`${SESSION_HINT_PREFIX}${role}`) === "1";
+  try {
+    const value = storage.getItem(`${SESSION_PREFIX}${role}`);
+    if (!value) {
+      return null;
+    }
+
+    const parsed = JSON.parse(value);
+    if (!parsed?.authenticated || parsed?.user?.role !== role) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
-export function syncSessionHint(role, signedIn) {
+export function hasSessionSnapshot(role) {
+  return Boolean(getSessionSnapshot(role));
+}
+
+export function syncSessionSnapshot(role, auth) {
   const storage = getStorage();
   if (!storage || !role) {
     return;
   }
 
-  const key = `${SESSION_HINT_PREFIX}${role}`;
-  if (signedIn) {
-    storage.setItem(key, "1");
+  const key = `${SESSION_PREFIX}${role}`;
+  if (auth?.authenticated && auth?.user?.role === role) {
+    storage.setItem(
+      key,
+      JSON.stringify({
+        authenticated: true,
+        user: auth.user
+      })
+    );
     return;
   }
 
   storage.removeItem(key);
+}
+
+export function clearSessionSnapshot(role) {
+  const storage = getStorage();
+  if (!storage || !role) {
+    return;
+  }
+
+  storage.removeItem(`${SESSION_PREFIX}${role}`);
 }
