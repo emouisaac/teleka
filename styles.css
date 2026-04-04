@@ -760,6 +760,71 @@ th {
   display: none !important;
 }
 
+html.session-hint-driver #driverAuthPanel,
+html.session-hint-admin #adminLoginPanel {
+  display: none !important;
+}
+
+html.session-hint-driver #driverProfilePanel,
+html.session-hint-driver #driverMapPanel,
+html.session-hint-driver #driverAssignedPanel,
+html.session-hint-driver #driverMessagesPanel,
+html.session-hint-driver #driverNotificationsPanel,
+html.session-hint-admin #adminSummaryPanel,
+html.session-hint-admin #adminMapPanel,
+html.session-hint-admin #adminRidesPanel,
+html.session-hint-admin #adminDriversPanel,
+html.session-hint-admin #adminFarePanel,
+html.session-hint-admin #adminDocsPanel,
+html.session-hint-admin #adminNotificationsPanel {
+  display: block !important;
+}
+
+html.session-hint-driver #driverLogoutBtn,
+html.session-hint-admin #adminLogoutBtn,
+html.session-hint-customer #customerLogoutBtn,
+html.session-hint-customer #viewProfileBtn,
+html.session-hint-customer #customerProfileMini {
+  display: inline-flex !important;
+}
+
+html.session-hint-customer #customerProfileMini {
+  display: flex !important;
+}
+
+html.session-hint-customer #googleLoginMount,
+html.session-hint-customer #customerAuthCard .hero-stat-strip {
+  display: none !important;
+}
+
+html.session-hint-driver #driverAuthState,
+html.session-hint-admin #adminAuthState,
+html.session-hint-customer #customerAuthState,
+html.session-hint-customer #customerAccessTitle,
+html.session-hint-customer #customerAuthMessage {
+  font-size: 0 !important;
+}
+
+html.session-hint-driver #driverAuthState::after,
+html.session-hint-admin #adminAuthState::after,
+html.session-hint-customer #customerAuthState::after {
+  content: "Restoring session";
+  font-size: 0.95rem;
+}
+
+html.session-hint-customer #customerAccessTitle::after {
+  content: "Restoring account";
+  font-size: 1.5rem;
+  font-family: "Space Grotesk", sans-serif;
+  line-height: 1.05;
+}
+
+html.session-hint-customer #customerAuthMessage::after {
+  content: "Restoring your saved customer session.";
+  font-size: 1rem;
+  color: var(--muted);
+}
+
 .banner {
   position: fixed;
   left: 16px;

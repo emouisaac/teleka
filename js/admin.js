@@ -12,6 +12,7 @@ import {
 const DEFAULT_CENTER = { lat: 0.3136, lng: 32.5811 };
 const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
 const SESSION_ROLE = "admin";
+const PRELOAD_SESSION_CLASS = "session-hint-admin";
 
 const state = {
   auth: null,
@@ -204,6 +205,10 @@ function renderAuth({ restoring = false } = {}) {
 function showRestoringUi() {
   renderAuth({ restoring: true });
   showBanner(elements.banner, "Restoring admin session", "neutral");
+}
+
+function clearPreloadSessionClass() {
+  document.documentElement.classList.remove(PRELOAD_SESSION_CLASS);
 }
 
 function renderSummary() {
@@ -772,6 +777,7 @@ async function bootstrap() {
   const signedIn = state.auth?.authenticated && state.auth.user.role === "admin";
   syncSessionHint(SESSION_ROLE, signedIn);
   renderAuth();
+  clearPreloadSessionClass();
 
   state.config = await configPromise;
   if (state.config?.googleMapsApiKey) {
@@ -830,4 +836,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-bootstrap().catch((error) => showBanner(elements.banner, error.message, "danger"));
+bootstrap().catch((error) => {
+  clearPreloadSessionClass();
+  showBanner(elements.banner, error.message, "danger");
+});

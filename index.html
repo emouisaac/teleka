@@ -9,6 +9,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" type="image/png" href="ims/t2icon.png">
+  <script>
+    try {
+      if (window.localStorage.getItem("teleka:session-hint:customer") === "1") {
+        document.documentElement.classList.add("session-hint-customer");
+      }
+    } catch {}
+  </script>
 </head>
 <body>
   <div class="app-shell">

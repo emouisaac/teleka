@@ -13,6 +13,7 @@ import {
 const DEFAULT_CENTER = { lat: 0.3136, lng: 32.5811 };
 const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
 const SESSION_ROLE = "driver";
+const PRELOAD_SESSION_CLASS = "session-hint-driver";
 
 const state = {
   auth: null,
@@ -191,6 +192,10 @@ function showRestoringUi() {
   setAuthenticatedUi(true);
   setText(elements.authState, "Restoring session");
   showBanner(elements.banner, "Restoring driver session", "neutral");
+}
+
+function clearPreloadSessionClass() {
+  document.documentElement.classList.remove(PRELOAD_SESSION_CLASS);
 }
 
 function loadGoogleMaps(apiKey) {
@@ -948,6 +953,7 @@ async function bootstrap() {
   const signedIn = state.auth?.authenticated && state.auth.user.role === "driver";
   syncSessionHint(SESSION_ROLE, signedIn);
   setAuthenticatedUi(signedIn);
+  clearPreloadSessionClass();
 
   state.config = await configPromise;
   if (state.config?.googleMapsApiKey) {
@@ -1046,4 +1052,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-bootstrap().catch((error) => showBanner(elements.banner, error.message, "danger"));
+bootstrap().catch((error) => {
+  clearPreloadSessionClass();
+  showBanner(elements.banner, error.message, "danger");
+});

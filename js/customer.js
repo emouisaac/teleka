@@ -54,6 +54,7 @@ const authCopy = {
 };
 const SESSION_KEEPALIVE_INTERVAL_MS = 5 * 60 * 1000;
 const SESSION_ROLE = "customer";
+const PRELOAD_SESSION_CLASS = "session-hint-customer";
 
 const state = {
   auth: null,
@@ -569,6 +570,10 @@ function renderProfile({ restoring = false } = {}) {
   elements.authMessage.textContent = authCopy.signedIn;
   elements.googleLoginMount.classList.add("hidden");
   updateRequestButton();
+}
+
+function clearPreloadSessionClass() {
+  document.documentElement.classList.remove(PRELOAD_SESSION_CLASS);
 }
 
 function closeSiteNav() {
@@ -1686,6 +1691,7 @@ async function bootstrap() {
   state.auth = await authStatusPromise;
   const signedIn = state.auth?.authenticated && state.auth.user?.role === "customer";
   syncSessionHint(SESSION_ROLE, signedIn);
+  clearPreloadSessionClass();
   state.config = await configPromise;
   state.settings = await settingsPromise;
 
@@ -1743,5 +1749,6 @@ window.addEventListener("beforeunload", () => {
 });
 
 bootstrap().catch((error) => {
+  clearPreloadSessionClass();
   showBanner(elements.banner, error.message, "danger");
 });
